@@ -1,21 +1,10 @@
 # Release and Homebrew Distribution
 
-Kite ships macOS as a signed, notarized universal DMG attached to a GitHub release. Homebrew installs that DMG through the `rootsec1/homebrew-kite` tap.
+Kite ships macOS as an unsigned universal DMG attached to a GitHub release. Homebrew installs that DMG through the `rootsec1/homebrew-kite` tap.
 
-## Required Apple Setup
+The app is not notarized today. macOS may show an unidentified developer warning on first launch. Users can still open it with right-click > Open, or from System Settings > Privacy & Security > Open Anyway.
 
-Create these GitHub Actions secrets in `rootsec1/kite`:
-
-- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12`.
-- `APPLE_CERTIFICATE_PASSWORD`: password used when exporting the `.p12`.
-- `APPLE_API_ISSUER`: App Store Connect API issuer ID.
-- `APPLE_API_KEY`: App Store Connect API key ID.
-- `APPLE_API_KEY_PRIVATE_KEY`: contents of `AuthKey_<key>.p8`.
-- `APPLE_SIGNING_IDENTITY`: optional; Tauri can infer it from `APPLE_CERTIFICATE`.
-
-Tauri uses these values for code signing and notarization. A paid Apple Developer account is required for notarization.
-
-## Required Homebrew Setup
+## Required Setup
 
 Create a public tap repository:
 
@@ -23,7 +12,7 @@ Create a public tap repository:
 gh repo create rootsec1/homebrew-kite --public
 ```
 
-Create `HOMEBREW_TAP_TOKEN` in `rootsec1/kite` with `contents:write` access to `rootsec1/homebrew-kite`.
+Create `HOMEBREW_TAP_TOKEN` in `rootsec1/kite` with `contents:write` access to `rootsec1/homebrew-kite`. This can be a fine-grained GitHub token scoped to the tap repository.
 
 The release workflow writes `Casks/kite.rb` in that tap. Users install Kite with:
 
@@ -46,9 +35,10 @@ git push origin main v0.1.0
 The `Release` workflow will:
 
 1. Build a universal macOS DMG.
-2. Sign and notarize the app.
-3. Publish `Kite_<version>_universal.dmg`, checksums, and `kite.rb` to GitHub Releases.
-4. Update the Homebrew tap when `HOMEBREW_TAP_TOKEN` is configured.
+2. Publish `Kite_<version>_universal.dmg`, checksums, and `kite.rb` to GitHub Releases.
+3. Update the Homebrew tap when `HOMEBREW_TAP_TOKEN` is configured.
+
+No Apple Developer account, signing certificate, App Store Connect key, or notarization secret is required for this flow.
 
 ## Local Checks
 

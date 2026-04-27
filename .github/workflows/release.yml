@@ -16,15 +16,9 @@ permissions:
 
 jobs:
   macos:
-    name: Build signed macOS release
+    name: Build macOS Homebrew release
     runs-on: macos-latest
     env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-      APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
       HOMEBREW_TAP_REPOSITORY: rootsec1/homebrew-kite
     steps:
@@ -43,19 +37,6 @@ jobs:
           echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
 
-      - name: Validate release secrets
-        run: |
-          missing=0
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PRIVATE_KEY; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing required secret: ${name}"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
@@ -67,15 +48,7 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Prepare App Store Connect API key
-        run: |
-          mkdir -p "$RUNNER_TEMP/private_keys"
-          KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
-          printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
-          chmod 600 "$KEY_PATH"
-          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-
-      - name: Build signed and notarized universal DMG
+      - name: Build universal DMG
         run: bun run tauri:build -- --target universal-apple-darwin
 
       - name: Normalize release assets

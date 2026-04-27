@@ -74,7 +74,7 @@ bun run tauri:build
 ```
 
 Release artifacts are written to `src-tauri/target/release/bundle/macos/Kite.app` and `src-tauri/target/release/bundle/dmg/`.
-Public distribution uses the signed, notarized GitHub release workflow and the Homebrew cask flow in [docs/release.md](docs/release.md).
+Public distribution uses the GitHub release workflow and Homebrew cask flow in [docs/release.md](docs/release.md). Current macOS builds are unsigned and not notarized, so Gatekeeper may show an unidentified developer warning on first launch.
 
 ```bash
 brew tap rootsec1/kite

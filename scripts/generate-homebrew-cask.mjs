@@ -22,6 +22,14 @@ const cask = `cask "kite" do
 
   app "Kite.app"
 
+  caveats <<~EOS
+    Kite is unsigned and not notarized. macOS may block the first launch with
+    an unidentified developer warning.
+
+    To open Kite, right-click Kite.app and choose Open, or use System Settings
+    > Privacy & Security > Open Anyway after the first blocked launch.
+  EOS
+
   zap trash: [
     "~/Library/Application Support/io.github.rootsec1.kite",
     "~/Library/Caches/io.github.rootsec1.kite",
