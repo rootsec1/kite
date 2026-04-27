@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo, useState } from "react";
-import { ListFilter, Rows3, Search } from "lucide-react";
+import { Layers, ListFilter, Rows3, Search } from "lucide-react";
 import type { ResourceDetails } from "../types/kube";
 
 const ansiPattern = /\u001b\[[0-9;]*m/g;
@@ -7,6 +7,7 @@ const logPrefixPattern = /^\[?([^\]\s]+\/[^\]\s]+(?:\/[^\]\s]+)?)\]?\s+(.*)$/;
 const leadingTimestampPattern = /^(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/;
 const embeddedTimestampPattern = /(?:^|\s)(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/;
 const logLevels = ["all", "info", "warn", "error", "debug"] as const;
+const allSourceFilter = "all";
 
 type LogLevel = (typeof logLevels)[number];
 
@@ -28,6 +29,7 @@ export function PodTerminal({
   detailsLoading: boolean;
 }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>("all");
+  const [sourceFilter, setSourceFilter] = useState(allSourceFilter);
   const [logQuery, setLogQuery] = useState("");
   const [wrapLines, setWrapLines] = useState(true);
   const deferredLogQuery = useDeferredValue(logQuery.trim().toLowerCase());
@@ -35,11 +37,22 @@ export function PodTerminal({
 
   const logView = useMemo(() => {
     const lines = parseLogLines(terminalOutput(details, detailsLoading, detailsError));
+    const sourceCounts = new Map<string, number>();
+
+    for (const line of lines) {
+      sourceCounts.set(line.source, (sourceCounts.get(line.source) ?? 0) + 1);
+    }
+
+    const sourceOptions = Array.from(sourceCounts.entries())
+      .map(([source, count]) => ({ source, count }))
+      .sort((left, right) => right.count - left.count || left.source.localeCompare(right.source));
+    const activeSource = sourceFilter === allSourceFilter || !sourceCounts.has(sourceFilter) ? allSourceFilter : sourceFilter;
+    const sourceScopedLines = activeSource === allSourceFilter ? lines : lines.filter((line) => line.source === activeSource);
     const counts = new Map<LogLevel, number>(logLevels.map((level) => [level, 0]));
     const visibleLines: ParsedLogLine[] = [];
 
-    counts.set("all", lines.length);
-    for (const line of lines) {
+    counts.set("all", sourceScopedLines.length);
+    for (const line of sourceScopedLines) {
       counts.set(line.level, (counts.get(line.level) ?? 0) + 1);
       if (levelFilter !== "all" && line.level !== levelFilter) {
         continue;
@@ -50,8 +63,15 @@ export function PodTerminal({
       visibleLines.push(line);
     }
 
-    return { counts, lines, visibleLines };
-  }, [details.logs, detailsError, detailsLoading, levelFilter, queryTerms]);
+    return {
+      activeSource,
+      counts,
+      lines: sourceScopedLines,
+      sourceOptions,
+      totalLines: lines.length,
+      visibleLines,
+    };
+  }, [details.logs, detailsError, detailsLoading, levelFilter, queryTerms, sourceFilter]);
 
   return (
     <section className="terminal-panel">
@@ -93,6 +113,37 @@ export function PodTerminal({
           <span>Wrap</span>
         </button>
       </div>
+
+      {logView.sourceOptions.some((option) => option.source !== "pod") ? (
+        <div className="log-source-tabs" role="tablist" aria-label="Log source">
+          <Layers size={14} />
+          {logView.sourceOptions.length > 1 ? (
+            <button
+              aria-selected={logView.activeSource === allSourceFilter}
+              className={logView.activeSource === allSourceFilter ? "active" : ""}
+              role="tab"
+              type="button"
+              onClick={() => setSourceFilter(allSourceFilter)}
+            >
+              <span>all sources</span>
+              <strong>{logView.totalLines}</strong>
+            </button>
+          ) : null}
+          {logView.sourceOptions.map((option) => (
+            <button
+              aria-selected={option.source === logView.activeSource || logView.sourceOptions.length === 1}
+              className={option.source === logView.activeSource || logView.sourceOptions.length === 1 ? "active" : ""}
+              key={option.source}
+              role="tab"
+              type="button"
+              onClick={() => setSourceFilter(option.source)}
+            >
+              <span>{option.source}</span>
+              <strong>{option.count}</strong>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="terminal-frame">
         <div className="terminal-chrome">

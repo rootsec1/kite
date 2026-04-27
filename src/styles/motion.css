@@ -32,6 +32,7 @@
   .pod-actions button,
   .pod-action-result button,
   .log-level-tabs button,
+  .log-source-tabs button,
   .log-wrap,
   .readout-actions button {
     transition:
@@ -52,6 +53,7 @@
   .pod-actions button:hover,
   .pod-action-result button:hover,
   .log-level-tabs button:hover,
+  .log-source-tabs button:hover,
   .log-wrap:hover,
   .readout-actions button:hover {
     background: var(--surface);
@@ -70,6 +72,7 @@
   .pod-actions button:active,
   .pod-action-result button:active,
   .log-level-tabs button:active,
+  .log-source-tabs button:active,
   .log-wrap:active,
   .readout-actions button:active {
     transform: translateY(1px);
