@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, RotateCw, Skull, TerminalSquare } from "lucide-react";
 import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
+import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
-
-const ansiPattern = /\u001b\[[0-9;]*m/g;
-const logPrefixPattern = /^\[?([^\]\s]+\/[^\]\s]+(?:\/[^\]\s]+)?)\]?\s+(.*)$/;
-const leadingTimestampPattern = /^(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/;
-const embeddedTimestampPattern = /(?:^|\s)(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/;
 
 type ResourceDetailProps = {
   allResources: ResourceRow[];
@@ -197,115 +193,6 @@ function ActionResult({ onConfirm, result }: { onConfirm: () => void; result: Po
       ) : null}
     </div>
   );
-}
-
-function PodTerminal({
-  details,
-  detailsError,
-  detailsLoading,
-}: {
-  details: ResourceDetails;
-  detailsError: string;
-  detailsLoading: boolean;
-}) {
-  const logView = useMemo(() => {
-    const lines = parseLogLines(terminalOutput(details, detailsLoading, detailsError));
-    let errors = 0;
-    let warnings = 0;
-
-    for (const line of lines) {
-      if (line.level === "error") {
-        errors += 1;
-      } else if (line.level === "warn") {
-        warnings += 1;
-      }
-    }
-
-    return { errors, lines, warnings };
-  }, [details.logs, detailsError, detailsLoading]);
-
-  return (
-    <section className="terminal-panel">
-      <header>
-        <div>
-          <span>Live tail</span>
-          <strong>{detailsLoading ? "syncing" : `${logView.lines.length} lines`}</strong>
-        </div>
-        <div className="log-meters" aria-label="Log signal summary">
-          <span className="ok">stream</span>
-          {logView.warnings ? <span className="warn">{logView.warnings} warn</span> : null}
-          {logView.errors ? <span className="error">{logView.errors} error</span> : null}
-        </div>
-      </header>
-      <div className="terminal-frame">
-        <div className="terminal-chrome">
-          <i />
-          <i />
-          <i />
-          <span>kubectl logs --all-containers --prefix --tail=240</span>
-        </div>
-        <div className="terminal-output" role="log" aria-live="polite">
-          {logView.lines.map((line, index) => (
-            <div className={`log-line ${line.level}`} key={`${line.raw}-${index}`}>
-              <span className="log-number">{index + 1}</span>
-              <time>{line.time}</time>
-              <span className="log-source">{line.source}</span>
-              <span className="log-level">{line.level}</span>
-              <code>{line.message}</code>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function terminalOutput(details: ResourceDetails, detailsLoading: boolean, detailsError: string) {
-  if (detailsLoading && !details.logs) {
-    return "Connecting to pod log stream...";
-  }
-  return details.logs || detailsError || "No log lines returned yet.";
-}
-
-function parseLogLines(output: string) {
-  return output.split(/\r?\n/).filter(Boolean).map((raw) => {
-    const clean = raw.replace(ansiPattern, "");
-    const prefixMatch = clean.match(logPrefixPattern);
-    const source = compactLogSource(prefixMatch?.[1] ?? "pod");
-    const body = prefixMatch?.[2] ?? clean;
-    const timeMatch = body.match(leadingTimestampPattern) ?? body.match(embeddedTimestampPattern);
-    const time = timeMatch?.[1] ? formatLogTime(timeMatch[1]) : "";
-    const message = timeMatch?.[2] ?? body;
-    const lower = message.toLowerCase();
-    const level = lower.includes("error") || lower.includes("exception") || lower.includes("fatal")
-      ? "error"
-      : lower.includes("warn")
-        ? "warn"
-        : lower.includes("debug")
-          ? "debug"
-          : "info";
-
-    return {
-      raw,
-      time,
-      source,
-      level,
-      message,
-    };
-  });
-}
-
-function compactLogSource(source: string) {
-  const parts = source.replace(/^\[/, "").replace(/\]$/, "").split("/");
-  return parts.length >= 3 ? `${parts.at(-2)}/${parts.at(-1)}` : source;
-}
-
-function formatLogTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value.replace("T", " ").replace("Z", "");
-  }
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 type HierarchyGroup = {

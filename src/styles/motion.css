@@ -30,6 +30,8 @@
   .hierarchy-table button,
   .pod-actions button,
   .pod-action-result button,
+  .log-level-tabs button,
+  .log-wrap,
   .readout-actions button {
     transition:
       background 150ms ease,
@@ -47,6 +49,8 @@
   .hierarchy-table button:hover,
   .pod-actions button:hover,
   .pod-action-result button:hover,
+  .log-level-tabs button:hover,
+  .log-wrap:hover,
   .readout-actions button:hover {
     background: var(--surface);
     border-color: var(--line-bright);
@@ -62,6 +66,8 @@
   .hierarchy-table button:active,
   .pod-actions button:active,
   .pod-action-result button:active,
+  .log-level-tabs button:active,
+  .log-wrap:active,
   .readout-actions button:active {
     transform: translateY(1px);
   }

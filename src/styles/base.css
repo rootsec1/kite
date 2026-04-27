@@ -842,6 +842,102 @@ button {
   color: var(--orange);
 }
 
+.log-toolbar {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-block-end: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-soft));
+}
+
+.log-search {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-block-size: 32px;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.log-search svg,
+.log-level-tabs > svg,
+.log-wrap svg {
+  color: var(--green-deep);
+}
+
+.log-search input {
+  min-inline-size: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.log-search input::placeholder {
+  color: var(--muted);
+}
+
+.log-level-tabs {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 32px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.log-level-tabs > svg {
+  margin-inline: 9px 4px;
+}
+
+.log-level-tabs button,
+.log-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 32px;
+  border: 0;
+  border-inline-start: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.log-level-tabs button {
+  padding-inline: 9px;
+}
+
+.log-level-tabs button.active,
+.log-wrap.active {
+  color: var(--text);
+  background: var(--surface-soft);
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+
+.log-level-tabs span,
+.log-level-tabs strong,
+.log-wrap span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.log-level-tabs strong {
+  color: var(--muted);
+}
+
+.log-wrap {
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
 .terminal-frame {
   position: relative;
   z-index: 1;
@@ -949,6 +1045,26 @@ button {
   font-family: var(--font-mono);
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.terminal-output.no-wrap .log-line code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
+.log-empty {
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  min-block-size: 220px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+.log-empty strong {
+  color: var(--text);
 }
 
 .hierarchy-groups {
@@ -1300,6 +1416,14 @@ button {
 
   .log-line {
     grid-template-columns: 42px 1fr;
+  }
+
+  .log-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .log-level-tabs {
+    overflow-x: auto;
   }
 
   .log-line time,
