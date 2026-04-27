@@ -86,8 +86,12 @@ summary:focus-visible {
   gap: 12px;
   align-items: center;
   min-block-size: 64px;
-  padding-inline: 76px 18px;
+  padding-inline: 18px;
   border-block-end: 1px solid var(--line);
+}
+
+.brand.with-window-controls {
+  padding-inline-start: 76px;
 }
 
 .brand::before,
@@ -129,7 +133,7 @@ summary:focus-visible {
   letter-spacing: 0.04em;
 }
 
-.window-control-fallback {
+.window-controls {
   position: absolute;
   inset-block-start: 24px;
   inset-inline-start: 18px;
@@ -137,15 +141,26 @@ summary:focus-visible {
   gap: 8px;
 }
 
-.window-control-fallback span {
+.window-controls button {
   inline-size: 12px;
   block-size: 12px;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
+  cursor: default;
 }
 
-.window-control-fallback span:nth-child(1) { background: #ff6b5e; }
-.window-control-fallback span:nth-child(2) { background: #ffc247; }
-.window-control-fallback span:nth-child(3) { background: #35c968; }
+.window-controls button:disabled {
+  opacity: 1;
+}
+
+.window-controls button.close { background: #ff6b5e; }
+.window-controls button.minimize { background: #ffc247; }
+.window-controls button.maximize { background: #35c968; }
+
+.window-controls:hover button {
+  filter: saturate(1.08) contrast(1.03);
+}
 
 .nav-groups {
   min-block-size: 0;
@@ -238,12 +253,13 @@ summary:focus-visible {
 }
 
 .toolbar {
+  --toolbar-control-height: 40px;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(210px, 1fr) minmax(220px, 1.12fr) 112px 112px 156px minmax(66px, auto) 40px;
+  grid-template-columns: minmax(300px, 1fr) minmax(220px, 1.16fr) 120px 120px 176px max-content 40px;
   gap: 8px;
   align-items: center;
-  padding-inline: 18px 22px;
+  padding-inline: 20px 22px;
   border-block-end: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.92);
 }
@@ -253,21 +269,30 @@ summary:focus-visible {
   grid-template-columns: 18px 1fr auto;
   gap: 10px;
   align-items: center;
-  min-block-size: 38px;
+  block-size: var(--toolbar-control-height);
+  min-inline-size: 0;
   padding-inline: 12px 8px;
   border: 1px solid var(--line);
+  border-radius: 0;
   background: var(--surface);
 }
 
 .toolbar select,
 .label-filter {
-  min-block-size: 38px;
+  block-size: var(--toolbar-control-height);
   min-inline-size: 0;
   border: 1px solid var(--line);
+  border-radius: 0;
   color: var(--text-soft);
   background: var(--surface);
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: var(--toolbar-control-height);
+}
+
+.toolbar select {
+  inline-size: 100%;
+  padding-inline: 10px;
 }
 
 .label-filter {
@@ -285,13 +310,14 @@ summary:focus-visible {
 
 .label-filter select {
   inline-size: 100%;
-  min-block-size: 36px;
+  block-size: calc(var(--toolbar-control-height) - 2px);
   border: 0;
   background: transparent;
 }
 
 .search-box input {
   min-inline-size: 0;
+  block-size: calc(var(--toolbar-control-height) - 2px);
   border: 0;
   outline: 0;
   background: transparent;
@@ -307,15 +333,19 @@ summary:focus-visible {
 }
 
 .scope-readout {
+  display: inline-flex;
+  align-items: center;
+  block-size: var(--toolbar-control-height);
   white-space: nowrap;
 }
 
 .icon-button {
   display: grid;
   place-items: center;
-  inline-size: 38px;
-  block-size: 38px;
+  inline-size: var(--toolbar-control-height);
+  block-size: var(--toolbar-control-height);
   border: 1px solid var(--line);
+  border-radius: 0;
   background: var(--surface);
   cursor: pointer;
 }

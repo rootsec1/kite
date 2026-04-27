@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "kite"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "k8s-openapi",
  "kube",

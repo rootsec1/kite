@@ -3,6 +3,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { navSections, pinnedResourcesNavId, type NavItem } from "../theme/resourceTheme";
+import { WindowControls } from "./WindowControls";
 
 export { navSections, overviewCards } from "../theme/resourceTheme";
 
@@ -23,14 +24,8 @@ export function Sidebar({
 }) {
   return (
     <aside className="sidebar">
-      <div className="brand">
-        {showWindowControlFallback ? (
-          <div className="window-control-fallback" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-        ) : null}
+      <div className="brand with-window-controls">
+        <WindowControls interactive={!showWindowControlFallback} />
         <div className="brand-mark">
           <Boxes size={18} />
         </div>
