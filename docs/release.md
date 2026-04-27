@@ -4,15 +4,48 @@ Kite ships macOS as an unsigned universal DMG attached to a GitHub release. Home
 
 The app is not notarized today. macOS may show an unidentified developer warning on first launch. Users can still open it with right-click > Open, or from System Settings > Privacy & Security > Open Anyway.
 
+## Install
+
+```bash
+brew tap rootsec1/kite
+brew install --cask kite
+```
+
+The current public release is `v0.1.0`:
+
+- GitHub release: `https://github.com/rootsec1/kite/releases/tag/v0.1.0`
+- Homebrew tap cask: `https://github.com/rootsec1/homebrew-kite/blob/main/Casks/kite.rb`
+
 ## Required Setup
 
-Create a public tap repository:
+Create the public tap repository once:
 
 ```bash
 gh repo create rootsec1/homebrew-kite --public
 ```
 
-Create `HOMEBREW_TAP_TOKEN` in `rootsec1/kite` with `contents:write` access to `rootsec1/homebrew-kite`. This can be a fine-grained GitHub token scoped to the tap repository.
+Create `HOMEBREW_TAP_TOKEN` in `rootsec1/kite` with `contents:write` access to `rootsec1/homebrew-kite`. This can be a fine-grained GitHub token scoped to only the tap repository.
+
+The token setup is intentionally split this way:
+
+- Token repository access: `rootsec1/homebrew-kite`
+- Secret location: `rootsec1/kite`
+
+The release workflow runs from `rootsec1/kite`, builds the app, then uses `HOMEBREW_TAP_TOKEN` to push the generated cask into `rootsec1/homebrew-kite`.
+
+Fine-grained token settings:
+
+1. Open GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens.
+2. Set Repository access to Only select repositories.
+3. Select `rootsec1/homebrew-kite`.
+4. Add Repository permissions > Contents > Read and write.
+5. Generate the token and store it as the `HOMEBREW_TAP_TOKEN` Actions secret on `rootsec1/kite`.
+
+If the token is exported in your shell, store it without printing it:
+
+```bash
+printf %s "$HOMEBREW_TAP_TOKEN" | gh secret set HOMEBREW_TAP_TOKEN --repo rootsec1/kite
+```
 
 The release workflow writes `Casks/kite.rb` in that tap. Users install Kite with:
 
@@ -39,6 +72,14 @@ The `Release` workflow will:
 3. Update the Homebrew tap when `HOMEBREW_TAP_TOKEN` is configured.
 
 No Apple Developer account, signing certificate, App Store Connect key, or notarization secret is required for this flow.
+
+## Verify Release
+
+```bash
+gh run list --repo rootsec1/kite --workflow Release --limit 3
+gh release view v0.1.0 --repo rootsec1/kite
+gh api repos/rootsec1/homebrew-kite/contents/Casks/kite.rb --jq '.content' | base64 --decode
+```
 
 ## Local Checks
 

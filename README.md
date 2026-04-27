@@ -53,6 +53,17 @@ Prerequisites:
 - `kubectl`
 - Optional local cluster: k3d, kind, minikube, or Docker Desktop Kubernetes
 
+## Install
+
+Kite is available from the public Homebrew tap:
+
+```bash
+brew tap rootsec1/kite
+brew install --cask kite
+```
+
+Current macOS builds are unsigned and not notarized. On first launch, macOS may block Kite as an unidentified developer. Open it with right-click > Open, or use System Settings > Privacy & Security > Open Anyway after the first blocked launch.
+
 ## Local Kubernetes Demo
 
 ```bash
@@ -75,11 +86,6 @@ bun run tauri:build
 
 Release artifacts are written to `src-tauri/target/release/bundle/macos/Kite.app` and `src-tauri/target/release/bundle/dmg/`.
 Public distribution uses the GitHub release workflow and Homebrew cask flow in [docs/release.md](docs/release.md). Current macOS builds are unsigned and not notarized, so Gatekeeper may show an unidentified developer warning on first launch.
-
-```bash
-brew tap rootsec1/kite
-brew install --cask kite
-```
 
 ## Contributing
 
