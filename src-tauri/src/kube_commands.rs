@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::{
-    apps::v1::Deployment,
+    apps::v1::{DaemonSet, Deployment, StatefulSet},
+    batch::v1::{CronJob, Job},
     core::v1::{Event, Namespace, Node, Pod, Service},
 };
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
@@ -79,6 +80,10 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
     let mut resources = Vec::new();
     resources.extend(list_pods(client.clone(), &context).await?);
     resources.extend(list_deployments(client.clone(), &context).await?);
+    resources.extend(list_statefulsets(client.clone(), &context).await?);
+    resources.extend(list_daemonsets(client.clone(), &context).await?);
+    resources.extend(list_jobs(client.clone(), &context).await?);
+    resources.extend(list_cronjobs(client.clone(), &context).await?);
     resources.extend(list_services(client.clone(), &context).await?);
     resources.extend(list_events(client.clone(), &context).await?);
     resources.extend(list_nodes(client.clone(), &context).await?);
@@ -836,6 +841,145 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
         .collect())
 }
 
+async fn list_statefulsets(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let statefulsets = Api::<StatefulSet>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list StatefulSets: {error}"))?;
+
+    Ok(statefulsets
+        .items
+        .into_iter()
+        .map(|statefulset| {
+            let desired = statefulset.spec.as_ref().and_then(|spec| spec.replicas).unwrap_or(1);
+            let ready = statefulset.status.as_ref().and_then(|status| status.ready_replicas).unwrap_or(0);
+            let image = statefulset
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.template.spec.as_ref())
+                .and_then(|spec| spec.containers.first())
+                .map(|container| container.image.clone().unwrap_or_default())
+                .unwrap_or_default();
+            let labels = statefulset.metadata.labels.clone().unwrap_or_default();
+            let selector = statefulset.spec.as_ref().and_then(|spec| spec.selector.match_labels.clone()).unwrap_or_default();
+
+            resource_summary(
+                "StatefulSet",
+                statefulset.name_any(),
+                statefulset.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                workload_status(ready, desired),
+                0,
+                image,
+            )
+            .with_labels(labels)
+            .with_selector(selector)
+        })
+        .collect())
+}
+
+async fn list_daemonsets(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let daemonsets = Api::<DaemonSet>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list DaemonSets: {error}"))?;
+
+    Ok(daemonsets
+        .items
+        .into_iter()
+        .map(|daemonset| {
+            let desired = daemonset
+                .status
+                .as_ref()
+                .map(|status| status.desired_number_scheduled)
+                .unwrap_or(0);
+            let ready = daemonset.status.as_ref().map(|status| status.number_ready).unwrap_or(0);
+            let image = daemonset
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.template.spec.as_ref())
+                .and_then(|spec| spec.containers.first())
+                .map(|container| container.image.clone().unwrap_or_default())
+                .unwrap_or_default();
+            let labels = daemonset.metadata.labels.clone().unwrap_or_default();
+            let selector = daemonset.spec.as_ref().and_then(|spec| spec.selector.match_labels.clone()).unwrap_or_default();
+
+            resource_summary(
+                "DaemonSet",
+                daemonset.name_any(),
+                daemonset.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                workload_status(ready, desired),
+                0,
+                image,
+            )
+            .with_labels(labels)
+            .with_selector(selector)
+        })
+        .collect())
+}
+
+async fn list_jobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let jobs = Api::<Job>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list Jobs: {error}"))?;
+
+    Ok(jobs
+        .items
+        .into_iter()
+        .map(|job| {
+            let status = job_status(&job);
+            let image = job
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.template.spec.as_ref())
+                .and_then(|spec| spec.containers.first())
+                .map(|container| container.image.clone().unwrap_or_default())
+                .unwrap_or_default();
+            let labels = job.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "Job",
+                job.name_any(),
+                job.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                status,
+                0,
+                image,
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
+async fn list_cronjobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let cronjobs = Api::<CronJob>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list CronJobs: {error}"))?;
+
+    Ok(cronjobs
+        .items
+        .into_iter()
+        .map(|cronjob| {
+            let suspended = cronjob.spec.as_ref().and_then(|spec| spec.suspend).unwrap_or(false);
+            let labels = cronjob.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "CronJob",
+                cronjob.name_any(),
+                cronjob.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                if suspended { HealthState::Warning } else { HealthState::Healthy },
+                0,
+                cronjob.spec.as_ref().map(|spec| spec.schedule.clone()).unwrap_or_default(),
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
 async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let services = Api::<Service>::all(client)
         .list(&ListParams::default())
@@ -1026,6 +1170,40 @@ fn resource_summary(
         image,
         labels: BTreeMap::new(),
         selector: BTreeMap::new(),
+    }
+}
+
+fn workload_status(ready: i32, desired: i32) -> HealthState {
+    if desired == 0 || ready >= desired {
+        HealthState::Healthy
+    } else if ready == 0 {
+        HealthState::Critical
+    } else {
+        HealthState::Warning
+    }
+}
+
+fn job_status(job: &Job) -> HealthState {
+    let status = job.status.as_ref();
+    let failed = status.and_then(|status| status.failed).unwrap_or(0);
+    if failed > 0
+        || status
+            .and_then(|status| status.conditions.as_ref())
+            .is_some_and(|conditions| {
+                conditions
+                    .iter()
+                    .any(|condition| condition.type_ == "Failed" && condition.status == "True")
+            })
+    {
+        return HealthState::Critical;
+    }
+
+    let succeeded = status.and_then(|status| status.succeeded).unwrap_or(0);
+    let completions = job.spec.as_ref().and_then(|spec| spec.completions).unwrap_or(1);
+    if succeeded >= completions {
+        HealthState::Healthy
+    } else {
+        HealthState::Warning
     }
 }
 
