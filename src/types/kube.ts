@@ -34,6 +34,8 @@ export type ResourceRow = {
   restarts: number;
   owner: string;
   image: string;
+  labels: Record<string, string>;
+  selector: Record<string, string>;
 };
 
 export type ResourceEvent = {
@@ -47,6 +49,35 @@ export type ResourceDetails = {
   yaml: string;
   events: ResourceEvent[];
   logs: string;
+  pod?: PodDetails;
+};
+
+export type PodDetails = {
+  phase: string;
+  nodeName: string;
+  podIp: string;
+  hostIp: string;
+  qosClass: string;
+  startTime: string;
+  readyContainers: number;
+  totalContainers: number;
+  conditions: PodCondition[];
+  containers: ContainerDetails[];
+};
+
+export type PodCondition = {
+  type: string;
+  status: string;
+  reason: string;
+};
+
+export type ContainerDetails = {
+  name: string;
+  image: string;
+  ready: boolean;
+  restartCount: number;
+  state: string;
+  reason: string;
 };
 
 export type LiveSnapshot = {
@@ -60,4 +91,13 @@ export type ActionPreview = {
   risk: "low" | "medium" | "high";
   requiresConfirmation: boolean;
   message: string;
+};
+
+export type PodActionResult = {
+  action: string;
+  status: "ready" | "blocked" | "executed" | "failed";
+  message: string;
+  output: string;
+  command: string;
+  requiresConfirmation: boolean;
 };

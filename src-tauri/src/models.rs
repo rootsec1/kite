@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
@@ -57,6 +59,8 @@ pub struct ResourceSummary {
     pub restarts: u32,
     pub owner: String,
     pub image: String,
+    pub labels: BTreeMap<String, String>,
+    pub selector: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -65,6 +69,42 @@ pub struct ResourceDetails {
     pub yaml: String,
     pub events: Vec<ResourceEvent>,
     pub logs: String,
+    pub pod: Option<PodDetails>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodDetails {
+    pub phase: String,
+    pub node_name: String,
+    pub pod_ip: String,
+    pub host_ip: String,
+    pub qos_class: String,
+    pub start_time: String,
+    pub ready_containers: usize,
+    pub total_containers: usize,
+    pub conditions: Vec<PodCondition>,
+    pub containers: Vec<ContainerDetails>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodCondition {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub status: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerDetails {
+    pub name: String,
+    pub image: String,
+    pub ready: bool,
+    pub restart_count: u32,
+    pub state: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -102,6 +142,26 @@ pub struct ActionPreview {
     pub risk: ActionRisk,
     pub requires_confirmation: bool,
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodActionResult {
+    pub action: String,
+    pub status: PodActionStatus,
+    pub message: String,
+    pub output: String,
+    pub command: String,
+    pub requires_confirmation: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PodActionStatus {
+    Ready,
+    Blocked,
+    Executed,
+    Failed,
 }
 
 #[derive(Debug, Serialize)]

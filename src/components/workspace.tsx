@@ -4,6 +4,7 @@ import type { KiteData } from "../hooks/useKiteData";
 import type { NamespaceHeat, ResourceRow } from "../types/kube";
 import { overviewCards } from "./navigation";
 import { StatusDot } from "./status";
+import type { NavItem } from "../theme/resourceTheme";
 
 export function Toolbar({ count, data, scope }: { count: number; data: KiteData; scope: string }) {
   return (
@@ -67,14 +68,55 @@ export function SummaryStrip({ counts, warningCount }: { counts: Map<string, num
   );
 }
 
+export function ScopeTabs({
+  activeId,
+  counts,
+  items,
+  onSelect,
+}: {
+  activeId: string;
+  counts: Map<string, number>;
+  items: NavItem[];
+  onSelect: (id: string) => void;
+}) {
+  if (items.length < 2) {
+    return null;
+  }
+
+  return (
+    <div className="scope-tabs" role="tablist" aria-label="Resource group">
+      {items.map((item) => {
+        const Icon = item.icon;
+        const count = item.kind ? counts.get(item.kind) ?? 0 : 0;
+        return (
+          <button
+            aria-selected={item.id === activeId}
+            className={item.id === activeId ? "active" : ""}
+            key={item.id}
+            role="tab"
+            type="button"
+            onClick={() => onSelect(item.id)}
+          >
+            <Icon size={14} />
+            <span>{item.label}</span>
+            <strong>{count}</strong>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ResourceTable({
   resources,
   selectedId,
+  showKind,
   title,
   onSelect,
 }: {
   resources: ResourceRow[];
   selectedId: string;
+  showKind: boolean;
   title: string;
   onSelect: (id: string) => void;
 }) {
@@ -82,18 +124,16 @@ export function ResourceTable({
     <section className="resource-panel">
       <header>
         <div>
-          <span>Grouped resources</span>
           <h2>{title}</h2>
         </div>
         <small>{resources.length} visible</small>
       </header>
 
-      <div className="resource-table">
+      <div className={showKind ? "resource-table" : "resource-table without-kind"}>
         <div className="table-head">
           <span>Name</span>
-          <span>Kind</span>
+          {showKind ? <span>Kind</span> : null}
           <span>Namespace</span>
-          <span>Status</span>
           <span>Age</span>
         </div>
         <div className="table-body">
@@ -104,7 +144,8 @@ export function ResourceTable({
                 index={index}
                 resource={resource}
                 selected={resource.id === selectedId}
-                onSelect={onSelect}
+                showKind={showKind}
+                onOpen={onSelect}
               />
             ))
           ) : (
@@ -121,31 +162,32 @@ export function ResourceTable({
 
 const ResourceRowButton = memo(function ResourceRowButton({
   index,
-  onSelect,
+  onOpen,
   resource,
   selected,
+  showKind,
 }: {
   index: number;
-  onSelect: (id: string) => void;
+  onOpen: (id: string) => void;
   resource: ResourceRow;
   selected: boolean;
+  showKind: boolean;
 }) {
-  const handleSelect = useCallback(() => onSelect(resource.id), [onSelect, resource.id]);
+  const handleOpen = useCallback(() => onOpen(resource.id), [onOpen, resource.id]);
 
   return (
     <button
       className={selected ? "resource-row selected" : "resource-row"}
       style={{ "--delay": `${Math.min(index, 18) * 28}ms` } as CSSProperties}
       type="button"
-      onClick={handleSelect}
+      onClick={handleOpen}
     >
       <span className="name-cell">
         <StatusDot state={resource.status} />
         <strong>{resource.name}</strong>
       </span>
-      <span>{resource.kind}</span>
+      {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>
-      <span className={`status-chip ${resource.status}`}>{resource.status}</span>
       <span>{resource.age}</span>
     </button>
   );

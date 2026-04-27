@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { readKubeSnapshot, readResourceDetails } from "./dev/kubeSnapshot";
+import { readKubeSnapshot, readResourceDetails, runPodAction } from "./dev/kubeSnapshot";
 
 export default defineConfig({
   plugins: [react(), kubeSnapshotPlugin()],
@@ -46,6 +46,31 @@ function kubeSnapshotPlugin() {
           response.end(JSON.stringify({ error: error instanceof Error ? error.message : "kubectl failed" }));
         }
       });
+      server.middlewares.use("/api/kube/pod-action", async (request, response) => {
+        try {
+          if (request.method !== "POST") {
+            response.statusCode = 405;
+            response.end();
+            return;
+          }
+          const payload = await readJsonBody(request);
+          const result = await runPodAction(payload);
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify(result));
+        } catch (error) {
+          response.statusCode = 500;
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify({ error: error instanceof Error ? error.message : "kubectl failed" }));
+        }
+      });
     },
   };
+}
+
+async function readJsonBody(request: import("node:http").IncomingMessage) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }

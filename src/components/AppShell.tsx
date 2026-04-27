@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import type { KiteData } from "../hooks/useKiteData";
 import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
-import { KindView } from "./KindView";
 import { navSections, Sidebar } from "./navigation";
-import { NamespacePressure, ResourceTable, SummaryStrip, Toolbar } from "./workspace";
+import { ResourceDetail } from "./ResourceDetail";
+import { NamespacePressure, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
 
 type AppShellProps = {
   data: KiteData;
@@ -14,7 +14,13 @@ const navItems = navSections.flatMap((section) => section.items);
 
 export function AppShell({ data }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
+  const [detailOpen, setDetailOpen] = useState(false);
   const activeItem = useMemo(() => navItems.find((item) => item.id === activeId), [activeId]);
+  const activeSection = useMemo(
+    () => navSections.find((section) => section.items.some((item) => item.id === activeId)),
+    [activeId],
+  );
+  const scopeTabs = activeSection && activeSection.title !== "Pinned" && activeSection.items.length > 1 ? activeSection.items : [];
 
   const counts = useMemo(() => countByKind(data.visibleResources), [data.visibleResources]);
   const scopedResources = useMemo(() => {
@@ -23,67 +29,73 @@ export function AppShell({ data }: AppShellProps) {
     }
     return data.visibleResources.filter((resource) => resource.kind === activeItem.kind);
   }, [activeItem?.kind, data.visibleResources]);
-
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
     [data.visibleResources],
   );
+
   const clusterName = data.clusters[0]?.name ?? "No context";
+  const detailResource = detailOpen ? data.selectedResource : null;
+
+  function openResource(id: string) {
+    data.onSelectResource(id);
+    setDetailOpen(true);
+  }
+
+  function selectNavigation(id: string) {
+    setActiveId(id);
+    setDetailOpen(false);
+  }
 
   return (
     <div className="kite-window">
       <div className="control-center">
-        <Sidebar activeId={activeId} clusterName={clusterName} counts={counts} onSelect={setActiveId} />
+        <Sidebar activeId={activeId} clusterName={clusterName} counts={counts} onSelect={selectNavigation} />
 
         <main className="workspace">
           <Toolbar count={scopedResources.length} data={data} scope={activeItem?.label ?? "Overview"} />
           <section className="content-grid">
             <div className="primary-pane">
-              <PageHeading loading={data.loading} resourceCount={data.visibleResources.length} title={activeItem?.label ?? "Overview"} />
-              <SummaryStrip counts={counts} warningCount={warningCount} />
-              <KindView
-                kind={activeItem?.kind}
-                resources={scopedResources}
-                total={data.visibleResources.length}
-                onAction={data.onPreviewAction}
-              />
-              <ResourceTable
-                resources={scopedResources}
-                selectedId={data.selectedResource?.id ?? ""}
-                title={activeItem?.kind ? activeItem.label : "Resource inventory"}
-                onSelect={data.onSelectResource}
-              />
-              <NamespacePressure heat={data.namespaceHeat} />
+              {detailResource ? (
+                <ResourceDetail
+                  allResources={data.allResources}
+                  details={data.resourceDetails}
+                  detailsError={data.detailsError}
+                  detailsLoading={data.detailsLoading}
+                  resource={detailResource}
+                  result={data.podActionResult}
+                  onBack={() => setDetailOpen(false)}
+                  onOpenResource={openResource}
+                  onRefreshDetails={data.onRefreshResourceDetails}
+                  onRunPodAction={data.onRunPodAction}
+                />
+              ) : (
+                <>
+                  <SummaryStrip counts={counts} warningCount={warningCount} />
+                  <ScopeTabs activeId={activeId} counts={counts} items={scopeTabs} onSelect={selectNavigation} />
+                  <ResourceTable
+                    resources={scopedResources}
+                    selectedId={data.selectedResource?.id ?? ""}
+                    showKind={!activeItem?.kind}
+                    title={activeItem?.label ?? "Resource inventory"}
+                    onSelect={openResource}
+                  />
+                  <NamespacePressure heat={data.namespaceHeat} />
+                </>
+              )}
             </div>
 
             <Inspector
-              actionPreview={data.actionPreview}
               details={data.resourceDetails}
               detailsError={data.detailsError}
               detailsLoading={data.detailsLoading}
               error={data.error}
               resource={data.selectedResource}
-              onPreviewAction={data.onPreviewAction}
             />
           </section>
         </main>
       </div>
     </div>
-  );
-}
-
-function PageHeading({ loading, resourceCount, title }: { loading: boolean; resourceCount: number; title: string }) {
-  return (
-    <header className="page-heading">
-      <div>
-        <span>Live control center</span>
-        <h1>{title}</h1>
-      </div>
-      <div className="sync-pill">
-        <span />
-        {loading ? "Reading cluster" : `${resourceCount} live resources`}
-      </div>
-    </header>
   );
 }
 

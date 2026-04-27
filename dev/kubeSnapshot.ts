@@ -10,21 +10,35 @@ type KubeItem = {
     name?: string;
     namespace?: string;
     creationTimestamp?: string;
+    labels?: Record<string, string>;
+    ownerReferences?: Array<{ kind?: string; name?: string }>;
   };
   spec?: {
     providerID?: string;
     containers?: Array<{ image?: string }>;
+    nodeName?: string;
+    selector?: Record<string, string> | { matchLabels?: Record<string, string> };
     type?: string;
     claimRef?: { namespace?: string; name?: string };
     template?: { spec?: { containers?: Array<{ image?: string }> } };
   };
   status?: {
     phase?: string;
+    podIP?: string;
+    hostIP?: string;
+    qosClass?: string;
+    startTime?: string;
     replicas?: number;
     availableReplicas?: number;
     unavailableReplicas?: number;
-    conditions?: Array<{ type?: string; status?: string }>;
-    containerStatuses?: Array<{ restartCount?: number; image?: string }>;
+    conditions?: Array<{ type?: string; status?: string; reason?: string }>;
+    containerStatuses?: Array<{
+      name?: string;
+      image?: string;
+      ready?: boolean;
+      restartCount?: number;
+      state?: Record<string, { reason?: string }>;
+    }>;
   };
 };
 
@@ -121,9 +135,60 @@ export async function readResourceDetails(target: { kind: string; name: string; 
 
   const yaml = await readResourceYaml(target).catch((error) => errorMessage(error));
   const events = await readResourceEvents(target).catch(() => []);
+  const pod = target.kind === "Pod" ? await readPodDetails(target).catch(() => undefined) : undefined;
   const logs = target.kind === "Pod" ? await readPodLogs(target).catch((error) => errorMessage(error)) : "";
 
-  return { yaml, events, logs };
+  return { yaml, events, logs, pod };
+}
+
+export async function runPodAction(input: {
+  action: string;
+  confirmed: boolean;
+  target: { kind: string; name: string; namespace: string; cluster: string };
+}) {
+  const action = input.action.toLowerCase();
+  const { target } = input;
+
+  if (target.kind !== "Pod") {
+    return podActionResult(action, "blocked", "Pod actions only run against pods.");
+  }
+
+  if (action === "logs") {
+    const command = `kubectl logs ${target.name} -n ${target.namespace} --all-containers=true --prefix=true --tail=240 --timestamps`;
+    return readPodLogs(target)
+      .then((output) => podActionResult(action, "executed", "Read latest pod logs.", output, command))
+      .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
+  }
+
+  if (action === "exec") {
+    const command = `kubectl exec -n ${target.namespace} -it ${target.name} -- /bin/sh`;
+    return podActionResult(action, "ready", "Open this command in a terminal for an interactive shell.", "", command);
+  }
+
+  if (action === "restart" || action === "delete" || action === "kill") {
+    if (!isLocalContext(target.cluster)) {
+      return podActionResult(action, "blocked", `${target.cluster} is not recognized as a local context.`);
+    }
+
+    const args = action === "restart"
+      ? await restartArgs(target).catch((error) => ({ error: errorMessage(error) }))
+      : ["delete", "pod", target.name, "-n", target.namespace];
+
+    if ("error" in args) {
+      return podActionResult(action, "blocked", args.error);
+    }
+
+    const command = `kubectl ${args.join(" ")}`;
+    if (!input.confirmed) {
+      return podActionResult(action, "blocked", `Confirm to run against ${target.namespace}/${target.name}.`, "", command, true);
+    }
+
+    return kubectlText(args)
+      .then((output) => podActionResult(action, "executed", "Action completed.", output, command))
+      .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
+  }
+
+  return podActionResult(action, "blocked", "Unsupported pod action.");
 }
 
 async function readHelmReleases(cluster: string) {
@@ -144,6 +209,8 @@ async function readHelmReleases(cluster: string) {
     restarts: 0,
     owner: release.chart ?? "",
     image: release.app_version ?? release.revision ?? "",
+    labels: {},
+    selector: {},
   }));
 }
 
@@ -200,7 +267,48 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
 }
 
 async function readPodLogs(target: { name: string; namespace: string }) {
-  return kubectlText(["logs", target.name, "-n", target.namespace, "--tail=240", "--timestamps"]);
+  return kubectlText([
+    "logs",
+    target.name,
+    "-n",
+    target.namespace,
+    "--all-containers=true",
+    "--prefix=true",
+    "--tail=240",
+    "--timestamps",
+  ]);
+}
+
+async function readPodDetails(target: { name: string; namespace: string }) {
+  const pod = await kubectlJson<KubeItem>(["get", "pod", target.name, "-n", target.namespace, "-o", "json"]);
+  const containers = pod.status?.containerStatuses ?? [];
+
+  return {
+    phase: pod.status?.phase ?? "Unknown",
+    nodeName: pod.spec?.nodeName ?? "",
+    podIp: pod.status?.podIP ?? "",
+    hostIp: pod.status?.hostIP ?? "",
+    qosClass: pod.status?.qosClass ?? "",
+    startTime: pod.status?.startTime ?? "",
+    readyContainers: containers.filter((container) => container.ready).length,
+    totalContainers: containers.length,
+    conditions: (pod.status?.conditions ?? []).map((condition) => ({
+      type: condition.type ?? "Condition",
+      status: condition.status ?? "Unknown",
+      reason: condition.reason ?? "",
+    })),
+    containers: containers.map((container) => {
+      const stateName = Object.keys(container.state ?? {})[0] ?? "unknown";
+      return {
+        name: container.name ?? "container",
+        image: container.image ?? "",
+        ready: Boolean(container.ready),
+        restartCount: container.restartCount ?? 0,
+        state: stateName,
+        reason: container.state?.[stateName]?.reason ?? "",
+      };
+    }),
+  };
 }
 
 async function readResourceList(query: { name: string; namespaced: boolean }) {
@@ -229,6 +337,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
   const restarts = item.status?.containerStatuses?.reduce((sum, status) => sum + (status.restartCount ?? 0), 0) ?? 0;
   const status = resourceStatus(item);
   const pressure = Math.min(100, restarts * 9 + (status === "critical" ? 70 : status === "warning" ? 44 : 18));
+  const owner = item.metadata?.ownerReferences?.[0];
 
   return {
     id: `${kind}:${namespace}:${name}`,
@@ -241,13 +350,67 @@ function toResource(item: KubeItem, cluster: string, index: number) {
     cpu: pressure,
     memory: Math.min(100, pressure + 8),
     restarts,
-    owner: namespace,
+    owner: owner?.kind && owner?.name ? `${owner.kind}/${owner.name}` : namespace,
     image:
       item.status?.containerStatuses?.[0]?.image ??
       item.spec?.containers?.[0]?.image ??
       item.spec?.template?.spec?.containers?.[0]?.image ??
       "",
+    labels: item.metadata?.labels ?? {},
+    selector: selectorLabels(item.spec?.selector),
   };
+}
+
+function selectorLabels(selector: KubeItem["spec"]["selector"]) {
+  if (!selector || typeof selector !== "object") return {};
+  if ("matchLabels" in selector) return selector.matchLabels ?? {};
+  return selector as Record<string, string>;
+}
+
+async function restartArgs(target: { name: string; namespace: string }) {
+  const owner = await kubectlText([
+    "get",
+    "pod",
+    target.name,
+    "-n",
+    target.namespace,
+    "-o",
+    "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}",
+  ]);
+  const [kind, name] = owner.split("/");
+  if (!kind || !name) {
+    throw new Error("Pod has no owning workload to restart.");
+  }
+  if (kind === "ReplicaSet") {
+    const deployment = name.split("-").slice(0, -1).join("-");
+    return ["rollout", "restart", `deployment/${deployment || name}`, "-n", target.namespace];
+  }
+  if (["Deployment", "StatefulSet", "DaemonSet"].includes(kind)) {
+    return ["rollout", "restart", `${kind.toLowerCase()}/${name}`, "-n", target.namespace];
+  }
+  throw new Error(`Restart is not available for pods owned by ${kind}.`);
+}
+
+function isLocalContext(context: string) {
+  const normalized = context.toLowerCase();
+  return (
+    normalized.startsWith("k3d-") ||
+    normalized.startsWith("kind-") ||
+    normalized === "minikube" ||
+    normalized === "docker-desktop" ||
+    normalized.includes("localhost")
+  );
+}
+
+function podActionResult(
+  action: string,
+  status: "ready" | "blocked" | "executed" | "failed",
+  message: string,
+  output = "",
+  command = "",
+  requiresConfirmation = false,
+) {
+  return { action, status, message, output, command, requiresConfirmation };
 }
 
 function resourceStatus(item: KubeItem) {

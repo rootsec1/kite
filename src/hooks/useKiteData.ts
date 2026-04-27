@@ -1,8 +1,9 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ActionPreview, LiveSnapshot, ResourceDetails, ResourceRow } from "../types/kube";
+import type { LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 
-const canUseTauri = "__TAURI_INTERNALS__" in window;
+const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(window.location.origin);
+const canUseTauri = "__TAURI_INTERNALS__" in window && !isViteDevBrowser;
 
 export function useKiteData() {
   const [snapshot, setSnapshot] = useState<LiveSnapshot>({
@@ -14,11 +15,12 @@ export function useKiteData() {
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState("");
-  const [actionPreview, setActionPreview] = useState<ActionPreview | null>(null);
+  const [podActionResult, setPodActionResult] = useState<PodActionResult | null>(null);
   const [resourceDetails, setResourceDetails] = useState<ResourceDetails>({
     yaml: "",
     events: [],
     logs: "",
+    pod: undefined,
   });
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
@@ -69,6 +71,7 @@ export function useKiteData() {
   useEffect(() => {
     if (!selectedResource) {
       setResourceDetails({ yaml: "", events: [], logs: "" });
+      setPodActionResult(null);
       return;
     }
 
@@ -89,14 +92,7 @@ export function useKiteData() {
     setError("");
 
     try {
-      const nextSnapshot = canUseTauri
-        ? await invoke<LiveSnapshot>("live_snapshot")
-        : await fetch("/api/kube/snapshot").then((response) => {
-            if (!response.ok) {
-              throw new Error(`Kubernetes snapshot failed: ${response.status}`);
-            }
-            return response.json() as Promise<LiveSnapshot>;
-          });
+      const nextSnapshot = await readLiveSnapshot();
 
       setSnapshot(nextSnapshot);
       setSelectedId((current) => current || nextSnapshot.resources[0]?.id || "");
@@ -107,26 +103,83 @@ export function useKiteData() {
     }
   }
 
-  async function previewAction(action: string) {
-    const target = {
-      kind: selectedResource?.kind ?? "Resource",
-      name: selectedResource?.name ?? "none",
-      namespace: selectedResource?.namespace ?? "default",
-      cluster: selectedResource?.cluster ?? "current-context",
-    };
+  async function readLiveSnapshot() {
+    if (canUseTauri) {
+      try {
+        return await invoke<LiveSnapshot>("live_snapshot");
+      } catch {
+        // Tauri dev sometimes runs the same UI in a plain browser; the Vite API keeps local QA working.
+      }
+    }
 
-    if (!canUseTauri) {
-      setActionPreview({
-        action,
-        risk: action === "delete" ? "high" : "medium",
-        requiresConfirmation: action !== "logs",
-        message: `${action} will target ${target.kind}/${target.name} in ${target.cluster}.`,
-      });
+    const response = await fetch("/api/kube/snapshot");
+    if (!response.ok) {
+      throw new Error(`Kubernetes snapshot failed: ${response.status}`);
+    }
+    const nextSnapshot = await response.json() as LiveSnapshot;
+    if (!Array.isArray(nextSnapshot.resources)) {
+      throw new Error("Kubernetes snapshot response did not include resources");
+    }
+    return nextSnapshot;
+  }
+
+  async function runPodAction(action: string, confirmed = false) {
+    if (!selectedResource) {
       return;
     }
 
-    setActionPreview(await invoke<ActionPreview>("guarded_action_preview", { action, target }));
+    const target = {
+      kind: selectedResource.kind,
+      name: selectedResource.name,
+      namespace: selectedResource.namespace,
+      cluster: selectedResource.cluster,
+    };
+
+    try {
+      const result = canUseTauri
+        ? await invoke<PodActionResult>("pod_action", { action, target, confirmed })
+        : await fetch("/api/kube/pod-action", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action, target, confirmed }),
+          }).then((response) => {
+            if (!response.ok) {
+              throw new Error(`Pod action failed: ${response.status}`);
+            }
+            return response.json() as Promise<PodActionResult>;
+          });
+
+      setPodActionResult(result);
+      if (result.status === "executed") {
+        void refreshLiveSnapshot();
+        void refreshResourceDetails(selectedResource).then((details) => {
+          if (details) {
+            setResourceDetails(details);
+          }
+        });
+      }
+    } catch (caught) {
+      setPodActionResult({
+        action,
+        status: "failed",
+        requiresConfirmation: false,
+        command: "",
+        output: "",
+        message: caught instanceof Error ? caught.message : "Unable to run pod action",
+      });
+    }
   }
+
+  const refreshSelectedResourceDetails = useCallback(async () => {
+    if (!selectedResource) {
+      return;
+    }
+
+    const details = await refreshResourceDetails(selectedResource);
+    if (details) {
+      setResourceDetails(details);
+    }
+  }, [selectedResource]);
 
   async function refreshResourceDetails(resource: ResourceRow) {
     setDetailsLoading(true);
@@ -163,8 +216,8 @@ export function useKiteData() {
   }
 
   return {
-    actionPreview,
     clusters: snapshot.clusters,
+    allResources: snapshot.resources,
     detailsError,
     detailsLoading,
     error,
@@ -172,13 +225,15 @@ export function useKiteData() {
     namespaceHeat: snapshot.namespaceHeat,
     namespaces,
     namespaceFilter,
+    podActionResult,
     query,
     resourceDetails,
     selectedResource,
     statusFilter,
     visibleResources,
-    onPreviewAction: previewAction,
     onRefreshLiveSnapshot: refreshLiveSnapshot,
+    onRefreshResourceDetails: refreshSelectedResourceDetails,
+    onRunPodAction: runPodAction,
     onSelectResource: setSelectedId,
     onSetNamespaceFilter: setNamespaceFilter,
     onSetQuery: setQuery,

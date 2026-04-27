@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 use k8s_openapi::api::{
     apps::v1::Deployment,
@@ -12,8 +12,8 @@ use kube::{
 use serde::Deserialize;
 
 use crate::models::{
-    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, HealthState, KubeContextSummary, LiveSnapshot,
-    NamespaceHeat, ResourceDetails, ResourceEvent, ResourceSummary,
+    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, HealthState, KubeContextSummary, LiveSnapshot,
+    NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, ResourceDetails, ResourceEvent, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -190,22 +190,69 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         .await
         .unwrap_or_else(|error| error);
     let events = resource_events(&target).await.unwrap_or_default();
+    let pod = if target.kind == "Pod" {
+        pod_details(&target).await.ok()
+    } else {
+        None
+    };
     let logs = if target.kind == "Pod" {
-        kubectl(vec![
-            "logs".to_string(),
-            target.name.clone(),
-            "-n".to_string(),
-            target.namespace.clone(),
-            "--tail=240".to_string(),
-            "--timestamps".to_string(),
-        ])
-        .await
-        .unwrap_or_else(|error| error)
+        pod_logs(&target).await.unwrap_or_else(|error| error)
     } else {
         String::new()
     };
 
-    ResourceDetails { yaml, events, logs }
+    ResourceDetails { yaml, events, logs, pod }
+}
+
+#[tauri::command]
+pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -> PodActionResult {
+    let normalized = action.to_lowercase();
+    if target.kind != "Pod" {
+        return pod_action_result(
+            normalized,
+            PodActionStatus::Blocked,
+            "Pod actions only run against pods.".to_string(),
+            String::new(),
+            String::new(),
+            false,
+        );
+    }
+
+    let is_local = is_local_context(&target.cluster);
+    match normalized.as_str() {
+        "logs" => {
+            let command = format!(
+                "kubectl logs {} -n {} --all-containers=true --prefix=true --tail=240 --timestamps",
+                target.name, target.namespace
+            );
+            match pod_logs(&target).await
+            {
+                Ok(output) => pod_action_result(normalized, PodActionStatus::Executed, "Read latest pod logs.".to_string(), output, command, false),
+                Err(error) => pod_action_result(normalized, PodActionStatus::Failed, error, String::new(), command, false),
+            }
+        }
+        "exec" => {
+            let command = format!("kubectl exec -n {} -it {} -- /bin/sh", target.namespace, target.name);
+            pod_action_result(
+                normalized,
+                PodActionStatus::Ready,
+                "Open this command in a terminal for an interactive shell.".to_string(),
+                String::new(),
+                command,
+                false,
+            )
+        }
+        "restart" => guarded_pod_write(normalized, target, confirmed, is_local).await,
+        "delete" | "kill" => guarded_pod_write("delete".to_string(), target, confirmed, is_local).await,
+        _ => pod_action_result(
+            normalized,
+            PodActionStatus::Blocked,
+            "Unsupported pod action.".to_string(),
+            String::new(),
+            String::new(),
+            false,
+        ),
+    }
 }
 
 async fn helm_details(target: ActionTarget) -> ResourceDetails {
@@ -251,6 +298,94 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
             }]
         },
         logs: String::new(),
+        pod: None,
+    }
+}
+
+async fn pod_logs(target: &ActionTarget) -> Result<String, String> {
+    kubectl(vec![
+        "logs".to_string(),
+        target.name.clone(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "--all-containers=true".to_string(),
+        "--prefix=true".to_string(),
+        "--tail=240".to_string(),
+        "--timestamps".to_string(),
+    ])
+    .await
+}
+
+async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
+    let output = kubectl(vec![
+        "get".to_string(),
+        "pod".to_string(),
+        target.name.clone(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "-o".to_string(),
+        "json".to_string(),
+    ])
+    .await?;
+    let pod = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid pod JSON: {error}"))?;
+    let status = pod.get("status").unwrap_or(&serde_json::Value::Null);
+    let spec = pod.get("spec").unwrap_or(&serde_json::Value::Null);
+    let containers = status
+        .get("containerStatuses")
+        .and_then(|value| value.as_array())
+        .map(|items| items.iter().map(container_details).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let ready_containers = containers.iter().filter(|container| container.ready).count();
+    let conditions = status
+        .get("conditions")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|condition| PodCondition {
+                    type_: text_field(condition, "type", "Condition"),
+                    status: text_field(condition, "status", "Unknown"),
+                    reason: text_field(condition, "reason", ""),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(PodDetails {
+        phase: text_field(status, "phase", "Unknown"),
+        node_name: text_field(spec, "nodeName", ""),
+        pod_ip: text_field(status, "podIP", ""),
+        host_ip: text_field(status, "hostIP", ""),
+        qos_class: text_field(status, "qosClass", ""),
+        start_time: text_field(status, "startTime", ""),
+        ready_containers,
+        total_containers: containers.len(),
+        conditions,
+        containers,
+    })
+}
+
+fn container_details(container: &serde_json::Value) -> ContainerDetails {
+    let state = container.get("state").unwrap_or(&serde_json::Value::Null);
+    let state_name = state
+        .as_object()
+        .and_then(|states| states.keys().next())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    let reason = state
+        .get(&state_name)
+        .and_then(|value| value.get("reason"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    ContainerDetails {
+        name: text_field(container, "name", "container"),
+        image: text_field(container, "image", ""),
+        ready: container.get("ready").and_then(|value| value.as_bool()).unwrap_or(false),
+        restart_count: container.get("restartCount").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
+        state: state_name,
+        reason,
     }
 }
 
@@ -259,6 +394,120 @@ fn classify_action(action: &str) -> ActionRisk {
         "delete" | "apply" | "edit" | "scale" | "set-image" | "rollback" => ActionRisk::High,
         "restart" | "debug" | "exec" | "node-shell" | "port-forward" | "trigger-cronjob" => ActionRisk::Medium,
         _ => ActionRisk::Low,
+    }
+}
+
+async fn guarded_pod_write(action: String, target: ActionTarget, confirmed: bool, is_local: bool) -> PodActionResult {
+    if !is_local {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("{} is blocked because {} is not recognized as a local context.", target.name, target.cluster),
+            String::new(),
+            String::new(),
+            false,
+        );
+    }
+
+    let command = if action == "restart" {
+        match restart_command(&target).await {
+            Ok(command) => command,
+            Err(message) => {
+                return pod_action_result(action, PodActionStatus::Blocked, message, String::new(), String::new(), false);
+            }
+        }
+    } else {
+        vec![
+            "delete".to_string(),
+            "pod".to_string(),
+            target.name.clone(),
+            "-n".to_string(),
+            target.namespace.clone(),
+        ]
+    };
+    let display_command = format!("kubectl {}", command.join(" "));
+
+    if !confirmed {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("Confirm to run against {}/{} on {}.", target.namespace, target.name, target.cluster),
+            String::new(),
+            display_command,
+            true,
+        );
+    }
+
+    match kubectl(command).await {
+        Ok(output) => pod_action_result(action, PodActionStatus::Executed, "Action completed.".to_string(), output, display_command, false),
+        Err(error) => pod_action_result(action, PodActionStatus::Failed, error, String::new(), display_command, false),
+    }
+}
+
+async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
+    let owner = kubectl(vec![
+        "get".to_string(),
+        "pod".to_string(),
+        target.name.clone(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "-o".to_string(),
+        "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}".to_string(),
+    ])
+    .await?;
+
+    let Some((kind, name)) = owner.split_once('/') else {
+        return Err("Pod has no owning workload to restart.".to_string());
+    };
+
+    if kind == "ReplicaSet" {
+        let deployment = name.rsplit_once('-').map(|(prefix, _)| prefix).unwrap_or(name);
+        return Ok(vec![
+            "rollout".to_string(),
+            "restart".to_string(),
+            format!("deployment/{deployment}"),
+            "-n".to_string(),
+            target.namespace.clone(),
+        ]);
+    }
+
+    if matches!(kind, "Deployment" | "StatefulSet" | "DaemonSet") {
+        return Ok(vec![
+            "rollout".to_string(),
+            "restart".to_string(),
+            format!("{}/{}", kind.to_lowercase(), name),
+            "-n".to_string(),
+            target.namespace.clone(),
+        ]);
+    }
+
+    Err(format!("Restart is not available for pods owned by {kind}."))
+}
+
+fn is_local_context(context: &str) -> bool {
+    let normalized = context.to_lowercase();
+    normalized.starts_with("k3d-")
+        || normalized.starts_with("kind-")
+        || normalized == "minikube"
+        || normalized == "docker-desktop"
+        || normalized.contains("localhost")
+}
+
+fn pod_action_result(
+    action: String,
+    status: PodActionStatus,
+    message: String,
+    output: String,
+    command: String,
+    requires_confirmation: bool,
+) -> PodActionResult {
+    PodActionResult {
+        action,
+        status,
+        message,
+        output,
+        command,
+        requires_confirmation,
     }
 }
 
@@ -395,8 +644,18 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 Some(_) => HealthState::Warning,
                 None => HealthState::Syncing,
             };
+            let owner = pod
+                .metadata
+                .owner_references
+                .as_ref()
+                .and_then(|owners| owners.first())
+                .map(|owner| format!("{}/{}", owner.kind, owner.name))
+                .unwrap_or_default();
+            let labels = pod.metadata.labels.clone().unwrap_or_default();
 
             resource_summary("Pod", pod.name_any(), pod.namespace().unwrap_or_else(|| "default".to_string()), cluster, status, restarts, image)
+                .with_labels(labels)
+                .with_owner(owner)
         })
         .collect())
 }
@@ -428,6 +687,8 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
             } else {
                 HealthState::Healthy
             };
+            let labels = deployment.metadata.labels.clone().unwrap_or_default();
+            let selector = deployment.spec.as_ref().and_then(|spec| spec.selector.match_labels.clone()).unwrap_or_default();
 
             resource_summary(
                 "Deployment",
@@ -438,6 +699,8 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
                 0,
                 image,
             )
+            .with_labels(labels)
+            .with_selector(selector)
         })
         .collect())
 }
@@ -452,6 +715,8 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
         .items
         .into_iter()
         .map(|service| {
+            let selector = service.spec.as_ref().and_then(|spec| spec.selector.clone()).unwrap_or_default();
+            let type_ = service.spec.as_ref().and_then(|spec| spec.type_.clone()).unwrap_or_default();
             resource_summary(
                 "Service",
                 service.name_any(),
@@ -459,8 +724,9 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
                 cluster,
                 HealthState::Healthy,
                 0,
-                service.spec.and_then(|spec| spec.type_).unwrap_or_default(),
+                type_,
             )
+            .with_selector(selector)
         })
         .collect())
 }
@@ -622,12 +888,16 @@ fn resource_summary(
         restarts,
         owner: namespace,
         image,
+        labels: BTreeMap::new(),
+        selector: BTreeMap::new(),
     }
 }
 
 trait ResourceSummaryPatch {
     fn with_owner(self, owner: String) -> Self;
     fn with_age(self, age: String) -> Self;
+    fn with_labels(self, labels: BTreeMap<String, String>) -> Self;
+    fn with_selector(self, selector: BTreeMap<String, String>) -> Self;
 }
 
 impl ResourceSummaryPatch for ResourceSummary {
@@ -638,6 +908,16 @@ impl ResourceSummaryPatch for ResourceSummary {
 
     fn with_age(mut self, age: String) -> Self {
         self.age = age;
+        self
+    }
+
+    fn with_labels(mut self, labels: BTreeMap<String, String>) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    fn with_selector(mut self, selector: BTreeMap<String, String>) -> Self {
+        self.selector = selector;
         self
     }
 }

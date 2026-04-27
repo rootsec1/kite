@@ -13,6 +13,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             kube_commands::guarded_action_preview,
             kube_commands::live_snapshot,
+            kube_commands::pod_action,
             kube_commands::resource_details
         ])
         .run(tauri::generate_context!())
