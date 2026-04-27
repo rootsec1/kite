@@ -22,6 +22,19 @@ export function Toolbar({ count, data, scope }: { count: number; data: KiteData;
         />
         <kbd>⌘ K</kbd>
       </label>
+      <select value={data.namespaceFilter} onChange={(event) => data.onSetNamespaceFilter(event.target.value)} aria-label="Namespace filter">
+        <option value="all">All ns</option>
+        {data.namespaces.map((namespace) => (
+          <option key={namespace} value={namespace}>{namespace}</option>
+        ))}
+      </select>
+      <select value={data.statusFilter} onChange={(event) => data.onSetStatusFilter(event.target.value)} aria-label="Status filter">
+        <option value="all">All states</option>
+        <option value="healthy">Ready</option>
+        <option value="warning">Warn</option>
+        <option value="critical">Fail</option>
+        <option value="syncing">Sync</option>
+      </select>
       <span className="scope-readout">{scope} · {count}</span>
       <button className={data.loading ? "icon-button loading" : "icon-button"} type="button" onClick={data.onRefreshLiveSnapshot}>
         <RefreshCw size={16} />

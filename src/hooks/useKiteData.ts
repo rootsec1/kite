@@ -24,6 +24,8 @@ export function useKiteData() {
     resources: [],
   });
   const [query, setQuery] = useState("");
+  const [namespaceFilter, setNamespaceFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState("");
   const [contexts, setContexts] = useState<KubeContext[]>([]);
   const [probe, setProbe] = useState<ClusterProbe | null>(null);
@@ -39,13 +41,22 @@ export function useKiteData() {
   const [error, setError] = useState("");
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const namespaces = useMemo(() => {
+    return Array.from(new Set(snapshot.resources.map((resource) => resource.namespace))).sort();
+  }, [snapshot.resources]);
 
   const visibleResources = useMemo(() => {
-    if (!deferredQuery) {
-      return snapshot.resources;
-    }
-
     return snapshot.resources.filter((resource) => {
+      if (namespaceFilter !== "all" && resource.namespace !== namespaceFilter) {
+        return false;
+      }
+      if (statusFilter !== "all" && resource.status !== statusFilter) {
+        return false;
+      }
+      if (!deferredQuery) {
+        return true;
+      }
+
       const haystack = [
         resource.kind,
         resource.name,
@@ -59,7 +70,7 @@ export function useKiteData() {
 
       return deferredQuery.split(/\s+/).every((term) => haystack.includes(term));
     });
-  }, [deferredQuery, snapshot.resources]);
+  }, [deferredQuery, namespaceFilter, snapshot.resources, statusFilter]);
 
   const selectedResource = useMemo<ResourceRow | null>(() => {
     return visibleResources.find((resource) => resource.id === selectedId) ?? visibleResources[0] ?? null;
@@ -203,17 +214,22 @@ export function useKiteData() {
     error,
     loading,
     namespaceHeat: snapshot.namespaceHeat,
+    namespaces,
+    namespaceFilter,
     probe,
     query,
     resourceDetails,
     selectedResource,
+    statusFilter,
     visibleResources,
     onProbeDefaultCluster: probeDefaultCluster,
     onPreviewAction: previewAction,
     onRefreshKubeContexts: refreshKubeContexts,
     onRefreshLiveSnapshot: refreshLiveSnapshot,
     onSelectResource: setSelectedId,
+    onSetNamespaceFilter: setNamespaceFilter,
     onSetQuery: setQuery,
+    onSetStatusFilter: setStatusFilter,
   };
 }
 

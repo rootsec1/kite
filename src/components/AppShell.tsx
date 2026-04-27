@@ -36,7 +36,12 @@ export function AppShell({ data }: AppShellProps) {
             <div className="primary-pane">
               <PageHeading loading={data.loading} resourceCount={data.visibleResources.length} title={activeItem?.label ?? "Overview"} />
               <SummaryStrip counts={counts} warningCount={warningCount} />
-              <KindView kind={activeItem?.kind} resources={scopedResources} total={data.visibleResources.length} />
+              <KindView
+                kind={activeItem?.kind}
+                resources={scopedResources}
+                total={data.visibleResources.length}
+                onAction={data.onPreviewAction}
+              />
               <ResourceTable
                 resources={scopedResources}
                 selectedId={data.selectedResource?.id ?? ""}
@@ -47,6 +52,7 @@ export function AppShell({ data }: AppShellProps) {
             </div>
 
             <Inspector
+              actionPreview={data.actionPreview}
               details={data.resourceDetails}
               detailsError={data.detailsError}
               detailsLoading={data.detailsLoading}

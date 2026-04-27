@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Braces, Clock3, FileText, TerminalSquare, type LucideIcon } from "lucide-react";
-import type { ResourceDetails, ResourceRow } from "../types/kube";
+import type { ActionPreview, ResourceDetails, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
 
 export function Inspector({
+  actionPreview,
   details,
   detailsError,
   detailsLoading,
@@ -11,6 +12,7 @@ export function Inspector({
   resource,
   onPreviewAction,
 }: {
+  actionPreview: ActionPreview | null;
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
@@ -44,6 +46,7 @@ export function Inspector({
             <TabButton active={tab === "logs"} icon={TerminalSquare} label="Logs" onClick={() => openTab("logs")} />
             <TabButton active={tab === "events"} icon={Clock3} label="Events" onClick={() => openTab("events")} />
           </div>
+          {actionPreview ? <ActionPreviewCard preview={actionPreview} /> : null}
           <InspectorTab details={details} detailsError={detailsError} detailsLoading={detailsLoading} resource={resource} tab={tab} />
         </>
       ) : (
@@ -53,6 +56,16 @@ export function Inspector({
         </div>
       )}
     </aside>
+  );
+}
+
+function ActionPreviewCard({ preview }: { preview: ActionPreview }) {
+  return (
+    <div className={`action-preview ${preview.risk}`}>
+      <span>{preview.risk}</span>
+      <strong>{preview.action}</strong>
+      <p>{preview.message}</p>
+    </div>
   );
 }
 

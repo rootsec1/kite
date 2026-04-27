@@ -14,10 +14,12 @@ const statusOrder: Array<{ key: StatusKey; label: string; icon: typeof CheckCirc
 
 export function KindView({
   kind,
+  onAction,
   resources,
   total,
 }: {
   kind?: string;
+  onAction: (action: string) => void;
   resources: ResourceRow[];
   total: number;
 }) {
@@ -38,7 +40,7 @@ export function KindView({
 
       <div className="kind-actions" aria-label="Available actions">
         {theme.actions.map((action) => (
-          <button key={action} type="button">
+          <button key={action} type="button" onClick={() => onAction(action.toLowerCase().replaceAll(" ", "-"))}>
             <Activity size={14} />
             {action}
           </button>
