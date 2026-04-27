@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { KiteData } from "../hooks/useKiteData";
 import { defaultResourceSort, nextResourceSort, sortResources } from "../lib/resourceSort";
+import { pinnedResourcesNavId } from "../theme/resourceTheme";
 import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
@@ -27,12 +28,14 @@ export function AppShell({ data }: AppShellProps) {
 
   const counts = useMemo(() => countByKind(data.visibleResources), [data.visibleResources]);
   const scopedResources = useMemo(() => {
-    const resources = activeItem?.kind
+    const resources = activeId === pinnedResourcesNavId
+      ? data.pinnedResources
+      : activeItem?.kind
       ? data.visibleResources.filter((resource) => resource.kind === activeItem.kind)
       : data.visibleResources;
 
     return sortResources(resources, resourceSort);
-  }, [activeItem?.kind, data.visibleResources, resourceSort]);
+  }, [activeId, activeItem?.kind, data.pinnedResources, data.visibleResources, resourceSort]);
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
     [data.visibleResources],
@@ -54,7 +57,7 @@ export function AppShell({ data }: AppShellProps) {
   return (
     <div className="kite-window">
       <div className="control-center">
-        <Sidebar activeId={activeId} clusterName={clusterName} counts={counts} onSelect={selectNavigation} />
+        <Sidebar activeId={activeId} clusterName={clusterName} counts={counts} pinnedCount={data.pinnedCount} onSelect={selectNavigation} />
 
         <main className="workspace">
           <Toolbar count={scopedResources.length} data={data} scope={activeItem?.label ?? "Overview"} />
@@ -66,12 +69,14 @@ export function AppShell({ data }: AppShellProps) {
                   details={data.resourceDetails}
                   detailsError={data.detailsError}
                   detailsLoading={data.detailsLoading}
+                  isPinned={data.isPinnedResource(detailResource)}
                   resource={detailResource}
                   result={data.podActionResult}
                   onBack={() => setDetailOpen(false)}
                   onOpenResource={openResource}
                   onRefreshDetails={data.onRefreshResourceDetails}
                   onRunPodAction={data.onRunPodAction}
+                  onTogglePinned={() => data.onTogglePinnedResource(detailResource)}
                 />
               ) : (
                 <>
@@ -82,6 +87,7 @@ export function AppShell({ data }: AppShellProps) {
                     selectedId={data.selectedResource?.id ?? ""}
                     showKind={!activeItem?.kind}
                     sort={resourceSort}
+                    pinnedResourceKeys={data.pinnedResourceKeys}
                     title={activeItem?.label ?? "Resource inventory"}
                     onSort={(key) => setResourceSort((current) => nextResourceSort(current, key))}
                     onSelect={openResource}

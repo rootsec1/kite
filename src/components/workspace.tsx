@@ -1,7 +1,8 @@
 import { memo, useCallback, type CSSProperties } from "react";
-import { ArrowDownUp, Gauge, RefreshCw, Search, Tag } from "lucide-react";
+import { ArrowDownUp, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
+import { resourceIdentity } from "../lib/resourceIdentity";
 import type { ResourceSort, ResourceSortKey } from "../lib/resourceSort";
 import type { NamespaceHeat, ResourceRow } from "../types/kube";
 import { overviewCards } from "./navigation";
@@ -126,10 +127,12 @@ export function ResourceTable({
   selectedId,
   showKind,
   sort,
+  pinnedResourceKeys,
   title,
   onSelect,
 }: {
   onSort: (key: ResourceSortKey) => void;
+  pinnedResourceKeys: Set<string>;
   resources: ResourceRow[];
   selectedId: string;
   showKind: boolean;
@@ -164,6 +167,7 @@ export function ResourceTable({
                 resource={resource}
                 selected={resource.id === selectedId}
                 showKind={showKind}
+                pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
                 onOpen={onSelect}
               />
             ))
@@ -182,12 +186,14 @@ export function ResourceTable({
 const ResourceRowButton = memo(function ResourceRowButton({
   index,
   onOpen,
+  pinned,
   resource,
   selected,
   showKind,
 }: {
   index: number;
   onOpen: (id: string) => void;
+  pinned: boolean;
   resource: ResourceRow;
   selected: boolean;
   showKind: boolean;
@@ -203,6 +209,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
     >
       <span className="name-cell">
         <StatusDot state={resource.status} />
+        {pinned ? <Star className="pinned-marker" size={13} fill="currentColor" /> : null}
         <strong>{resource.name}</strong>
       </span>
       {showKind ? <span>{resource.kind}</span> : null}

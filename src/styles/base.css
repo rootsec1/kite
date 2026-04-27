@@ -517,6 +517,11 @@ button {
   font-weight: 500;
 }
 
+.pinned-marker {
+  flex: 0 0 auto;
+  color: var(--green-deep);
+}
+
 .label-pills {
   display: flex;
   gap: 5px;
@@ -631,6 +636,7 @@ button {
 }
 
 .back-button,
+.pin-button,
 .pod-actions button,
 .pod-action-result button {
   display: inline-flex;
@@ -645,6 +651,23 @@ button {
 
 .back-button {
   justify-self: start;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pin-button {
+  color: var(--text-soft);
+}
+
+.pin-button.active {
+  color: var(--green-deep);
+  background: #f7fffc;
+  box-shadow: inset 0 -2px 0 var(--green);
 }
 
 .detail-kind {

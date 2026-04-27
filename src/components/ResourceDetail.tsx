@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, RotateCw, Skull, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, RotateCw, Skull, Star, TerminalSquare } from "lucide-react";
 import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
@@ -9,12 +9,14 @@ type ResourceDetailProps = {
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
+  isPinned: boolean;
   result: PodActionResult | null;
   resource: ResourceRow;
   onBack: () => void;
   onOpenResource: (id: string) => void;
   onRefreshDetails: () => void;
   onRunPodAction: (action: string, confirmed?: boolean) => void;
+  onTogglePinned: () => void;
 };
 
 export function ResourceDetail({
@@ -22,10 +24,12 @@ export function ResourceDetail({
   details,
   detailsError,
   detailsLoading,
+  isPinned,
   onBack,
   onOpenResource,
   onRefreshDetails,
   onRunPodAction,
+  onTogglePinned,
   resource,
   result,
 }: ResourceDetailProps) {
@@ -45,10 +49,21 @@ export function ResourceDetail({
   return (
     <section className="detail-workspace">
       <header className="detail-hero">
-        <button className="back-button" type="button" onClick={onBack}>
-          <ArrowLeft size={15} />
-          Resources
-        </button>
+        <div className="detail-actions">
+          <button className="back-button" type="button" onClick={onBack}>
+            <ArrowLeft size={15} />
+            Resources
+          </button>
+          <button
+            aria-pressed={isPinned}
+            className={isPinned ? "pin-button active" : "pin-button"}
+            type="button"
+            onClick={onTogglePinned}
+          >
+            <Star size={15} fill={isPinned ? "currentColor" : "none"} />
+            {isPinned ? "Pinned" : "Pin"}
+          </button>
+        </div>
         <div>
           <span className="detail-kind">
             <StatusDot state={resource.status} />

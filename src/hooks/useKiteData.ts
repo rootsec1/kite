@@ -1,10 +1,12 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { labelFilterOptions, matchesLabelFilter } from "../lib/labels";
+import { resourceIdentity } from "../lib/resourceIdentity";
 import type { LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 
 const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(window.location.origin);
 const canUseTauri = "__TAURI_INTERNALS__" in window && !isViteDevBrowser;
+const pinnedStorageKey = "kite:pinned-resources:v1";
 
 export function useKiteData() {
   const [snapshot, setSnapshot] = useState<LiveSnapshot>({
@@ -17,6 +19,7 @@ export function useKiteData() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [labelFilter, setLabelFilter] = useState("all");
   const [selectedId, setSelectedId] = useState("");
+  const [pinnedResourceKeys, setPinnedResourceKeys] = useState<Set<string>>(readPinnedResourceKeys);
   const [podActionResult, setPodActionResult] = useState<PodActionResult | null>(null);
   const [resourceDetails, setResourceDetails] = useState<ResourceDetails>({
     yaml: "",
@@ -78,6 +81,13 @@ export function useKiteData() {
       return queryTerms.every((term) => haystack.includes(term));
     });
   }, [deferredQuery, labelFilter, queryTerms, scopedResources]);
+
+  const pinnedResources = useMemo(() => {
+    return visibleResources.filter((resource) => pinnedResourceKeys.has(resourceIdentity(resource)));
+  }, [pinnedResourceKeys, visibleResources]);
+  const pinnedCount = useMemo(() => {
+    return snapshot.resources.filter((resource) => pinnedResourceKeys.has(resourceIdentity(resource))).length;
+  }, [pinnedResourceKeys, snapshot.resources]);
 
   const selectedResource = useMemo<ResourceRow | null>(() => {
     return visibleResources.find((resource) => resource.id === selectedId) ?? visibleResources[0] ?? null;
@@ -200,6 +210,24 @@ export function useKiteData() {
     }
   }, [selectedResource]);
 
+  const isPinnedResource = useCallback((resource: ResourceRow) => {
+    return pinnedResourceKeys.has(resourceIdentity(resource));
+  }, [pinnedResourceKeys]);
+
+  const togglePinnedResource = useCallback((resource: ResourceRow) => {
+    const key = resourceIdentity(resource);
+    setPinnedResourceKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      writePinnedResourceKeys(next);
+      return next;
+    });
+  }, []);
+
   async function refreshResourceDetails(resource: ResourceRow) {
     setDetailsLoading(true);
     setDetailsError("");
@@ -247,6 +275,9 @@ export function useKiteData() {
     namespaces,
     namespaceFilter,
     podActionResult,
+    pinnedCount,
+    pinnedResourceKeys,
+    pinnedResources,
     query,
     resourceDetails,
     selectedResource,
@@ -255,6 +286,8 @@ export function useKiteData() {
     onRefreshLiveSnapshot: refreshLiveSnapshot,
     onRefreshResourceDetails: refreshSelectedResourceDetails,
     onRunPodAction: runPodAction,
+    onTogglePinnedResource: togglePinnedResource,
+    isPinnedResource,
     onSetLabelFilter: setLabelFilter,
     onSelectResource: setSelectedId,
     onSetNamespaceFilter: setNamespaceFilter,
@@ -264,3 +297,21 @@ export function useKiteData() {
 }
 
 export type KiteData = ReturnType<typeof useKiteData>;
+
+function readPinnedResourceKeys() {
+  try {
+    const raw = window.localStorage.getItem(pinnedStorageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writePinnedResourceKeys(keys: Set<string>) {
+  try {
+    window.localStorage.setItem(pinnedStorageKey, JSON.stringify(Array.from(keys).sort()));
+  } catch {
+    // Pinning should never break cluster browsing when local storage is unavailable.
+  }
+}

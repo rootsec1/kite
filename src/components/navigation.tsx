@@ -2,7 +2,7 @@ import {
   Boxes,
   ChevronDown,
 } from "lucide-react";
-import { navSections, type NavItem } from "../theme/resourceTheme";
+import { navSections, pinnedResourcesNavId, type NavItem } from "../theme/resourceTheme";
 
 export { navSections, overviewCards } from "../theme/resourceTheme";
 
@@ -10,11 +10,13 @@ export function Sidebar({
   activeId,
   clusterName,
   counts,
+  pinnedCount,
   onSelect,
 }: {
   activeId: string;
   clusterName: string;
   counts: Map<string, number>;
+  pinnedCount: number;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -39,7 +41,7 @@ export function Sidebar({
             {section.items.map((item) => (
               <NavButton
                 active={item.id === activeId}
-                count={item.kind ? counts.get(item.kind) ?? 0 : undefined}
+                count={item.id === pinnedResourcesNavId ? pinnedCount : item.kind ? counts.get(item.kind) ?? 0 : undefined}
                 item={item}
                 key={item.id}
                 onSelect={onSelect}

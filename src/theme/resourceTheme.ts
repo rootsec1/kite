@@ -14,6 +14,7 @@ import {
   Server,
   Settings2,
   Shield,
+  Star,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,11 +32,14 @@ export type KindTheme = {
   actions: string[];
 };
 
+export const pinnedResourcesNavId = "pinned-resources";
+
 export const navSections: Array<{ title: string; items: NavItem[] }> = [
   {
     title: "Pinned",
     items: [
       { id: "overview", label: "Overview", icon: LayoutDashboard },
+      { id: pinnedResourcesNavId, label: "Pinned", icon: Star },
       { id: "Pod", label: "Pods", icon: Container, kind: "Pod" },
       { id: "Node", label: "Nodes", icon: Server, kind: "Node" },
       { id: "Namespace", label: "Namespaces", icon: Layers3, kind: "Namespace" },
