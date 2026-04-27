@@ -1,7 +1,8 @@
 import { memo, useCallback, type CSSProperties } from "react";
-import { Gauge, RefreshCw, Search, Tag } from "lucide-react";
+import { ArrowDownUp, Gauge, RefreshCw, Search, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
+import type { ResourceSort, ResourceSortKey } from "../lib/resourceSort";
 import type { NamespaceHeat, ResourceRow } from "../types/kube";
 import { overviewCards } from "./navigation";
 import { StatusDot } from "./status";
@@ -120,15 +121,19 @@ export function ScopeTabs({
 }
 
 export function ResourceTable({
+  onSort,
   resources,
   selectedId,
   showKind,
+  sort,
   title,
   onSelect,
 }: {
+  onSort: (key: ResourceSortKey) => void;
   resources: ResourceRow[];
   selectedId: string;
   showKind: boolean;
+  sort: ResourceSort;
   title: string;
   onSelect: (id: string) => void;
 }) {
@@ -142,11 +147,12 @@ export function ResourceTable({
       </header>
 
       <div className={showKind ? "resource-table" : "resource-table without-kind"}>
-        <div className="table-head">
-          <span>Name</span>
-          {showKind ? <span>Kind</span> : null}
-          <span>Namespace</span>
-          <span>Age</span>
+        <div className="table-head" role="row">
+          <SortableHead label="Name" sort={sort} sortKey="name" onSort={onSort} />
+          {showKind ? <SortableHead label="Kind" sort={sort} sortKey="kind" onSort={onSort} /> : null}
+          <SortableHead label="Namespace" sort={sort} sortKey="namespace" onSort={onSort} />
+          <SortableHead label="Age" sort={sort} sortKey="age" onSort={onSort} />
+          <SortableHead label="Signals" sort={sort} sortKey="signals" onSort={onSort} />
           <span>Labels</span>
         </div>
         <div className="table-body">
@@ -202,10 +208,59 @@ const ResourceRowButton = memo(function ResourceRowButton({
       {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>
       <span>{resource.age}</span>
+      <SignalCell resource={resource} />
       <LabelPills resource={resource} />
     </button>
   );
 });
+
+function SortableHead({
+  label,
+  onSort,
+  sort,
+  sortKey,
+}: {
+  label: string;
+  onSort: (key: ResourceSortKey) => void;
+  sort: ResourceSort;
+  sortKey: ResourceSortKey;
+}) {
+  const active = sort.key === sortKey;
+
+  return (
+    <span aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"} role="columnheader">
+      <button
+        className={active ? "table-sort active" : "table-sort"}
+        data-testid={`sort-${sortKey}`}
+        type="button"
+        onClick={() => onSort(sortKey)}
+      >
+        {label}
+        <ArrowDownUp size={12} />
+      </button>
+    </span>
+  );
+}
+
+function SignalCell({ resource }: { resource: ResourceRow }) {
+  return (
+    <span className="signal-cell" aria-label={`${resource.cpu}% CPU, ${resource.memory}% memory, ${resource.restarts} restarts`}>
+      <SignalBar label="cpu" value={resource.cpu} />
+      <SignalBar label="mem" value={resource.memory} />
+      <small>{resource.restarts}r</small>
+    </span>
+  );
+}
+
+function SignalBar({ label, value }: { label: string; value: number }) {
+  const tone = value >= 70 ? "hot" : value >= 45 ? "warm" : "cool";
+
+  return (
+    <i className={`signal-bar ${tone}`} title={`${label} ${value}%`}>
+      <span style={{ "--value": `${Math.max(0, Math.min(value, 100))}%` } as CSSProperties} />
+    </i>
+  );
+}
 
 function LabelPills({ resource }: { resource: ResourceRow }) {
   const labels = primaryLabels(resource);

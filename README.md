@@ -23,7 +23,7 @@ The product moat is the interface: a simple native control-plane lens, macOS gla
 ## Highlights
 
 - Native macOS-first app shell built with Tauri 2.
-- Live Kubernetes resource inventory with namespace, status, label, and search filters.
+- Live Kubernetes resource inventory with namespace, status, label, search, sorting, and pressure signals.
 - Grouped drilldowns from namespaces, services, workloads, and pods.
 - Pod debugging workspace with status, containers, events, searchable level-filtered logs, exec command handoff, guarded restart, and guarded delete.
 - Local-first architecture with no cluster-side agent.

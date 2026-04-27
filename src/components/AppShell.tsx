@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { KiteData } from "../hooks/useKiteData";
+import { defaultResourceSort, nextResourceSort, sortResources } from "../lib/resourceSort";
 import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
@@ -16,6 +17,7 @@ export function AppShell({ data }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
   const [detailOpen, setDetailOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [resourceSort, setResourceSort] = useState(defaultResourceSort);
   const activeItem = useMemo(() => navItems.find((item) => item.id === activeId), [activeId]);
   const activeSection = useMemo(
     () => navSections.find((section) => section.items.some((item) => item.id === activeId)),
@@ -29,8 +31,8 @@ export function AppShell({ data }: AppShellProps) {
       ? data.visibleResources.filter((resource) => resource.kind === activeItem.kind)
       : data.visibleResources;
 
-    return resources.slice().sort(compareResourcesForDebugging);
-  }, [activeItem?.kind, data.visibleResources]);
+    return sortResources(resources, resourceSort);
+  }, [activeItem?.kind, data.visibleResources, resourceSort]);
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
     [data.visibleResources],
@@ -79,7 +81,9 @@ export function AppShell({ data }: AppShellProps) {
                     resources={scopedResources}
                     selectedId={data.selectedResource?.id ?? ""}
                     showKind={!activeItem?.kind}
+                    sort={resourceSort}
                     title={activeItem?.label ?? "Resource inventory"}
+                    onSort={(key) => setResourceSort((current) => nextResourceSort(current, key))}
                     onSelect={openResource}
                   />
                   <NamespacePressure heat={data.namespaceHeat} />
@@ -109,25 +113,4 @@ function countByKind(resources: ResourceRow[]) {
     counts.set(resource.kind, (counts.get(resource.kind) ?? 0) + 1);
   }
   return counts;
-}
-
-const systemNamespaces = new Set(["cluster", "default", "kube-system", "kube-public", "kube-node-lease"]);
-const statusRank = new Map([
-  ["critical", 0],
-  ["warning", 1],
-  ["syncing", 2],
-  ["healthy", 3],
-]);
-
-function compareResourcesForDebugging(left: ResourceRow, right: ResourceRow) {
-  const statusDelta = (statusRank.get(left.status) ?? 4) - (statusRank.get(right.status) ?? 4);
-  if (statusDelta !== 0) return statusDelta;
-
-  const namespaceDelta = Number(systemNamespaces.has(left.namespace)) - Number(systemNamespaces.has(right.namespace));
-  if (namespaceDelta !== 0) return namespaceDelta;
-
-  const selectorDelta = Number(Object.keys(right.selector).length > 0) - Number(Object.keys(left.selector).length > 0);
-  if (selectorDelta !== 0) return selectorDelta;
-
-  return left.name.localeCompare(right.name);
 }
