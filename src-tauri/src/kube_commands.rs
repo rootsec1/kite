@@ -232,15 +232,25 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
             }
         }
         "exec" => {
-            let command = format!("kubectl exec -n {} -it {} -- /bin/sh", target.namespace, target.name);
-            pod_action_result(
-                normalized,
-                PodActionStatus::Ready,
-                "Open this command in a terminal for an interactive shell.".to_string(),
-                String::new(),
-                command,
-                false,
-            )
+            let command = pod_exec_command(&target);
+            match open_terminal(&command).await {
+                Ok(()) => pod_action_result(
+                    normalized,
+                    PodActionStatus::Executed,
+                    "Opened Terminal with an interactive pod shell.".to_string(),
+                    String::new(),
+                    command,
+                    false,
+                ),
+                Err(error) => pod_action_result(
+                    normalized,
+                    PodActionStatus::Ready,
+                    error,
+                    String::new(),
+                    command,
+                    false,
+                ),
+            }
         }
         "restart" => guarded_pod_write(normalized, target, confirmed, is_local).await,
         "delete" | "kill" => guarded_pod_write("delete".to_string(), target, confirmed, is_local).await,
@@ -588,6 +598,76 @@ async fn command_output(command: &str, args: Vec<String>) -> Result<String, Stri
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+fn pod_exec_command(target: &ActionTarget) -> String {
+    let mut args = Vec::new();
+    if !target.cluster.is_empty() {
+        args.push("--context".to_string());
+        args.push(target.cluster.clone());
+    }
+    args.extend([
+        "exec".to_string(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "-it".to_string(),
+        target.name.clone(),
+        "--".to_string(),
+        "/bin/sh".to_string(),
+    ]);
+
+    format!(
+        "kubectl {}",
+        args.iter()
+            .map(|arg| shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+async fn open_terminal(command: &str) -> Result<(), String> {
+    if !cfg!(target_os = "macos") {
+        return Err("Interactive exec is only wired to open Terminal on macOS for now. Run this command manually.".to_string());
+    }
+
+    let script = format!(
+        "tell application \"Terminal\" to do script \"{}\"",
+        applescript_string(command)
+    );
+    let output = tokio::process::Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"Terminal\" to activate",
+            "-e",
+            &script,
+        ])
+        .output()
+        .await
+        .map_err(|error| format!("Unable to open Terminal: {error}. Run this command manually."))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unable to open Terminal: {}. Run this command manually.",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .chars()
+        .all(|char| char.is_ascii_alphanumeric() || matches!(char, '-' | '_' | '.' | '/' | ':' | '=' | '@'))
+    {
+        return value.to_string();
+    }
+
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn applescript_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn text_field(value: &serde_json::Value, field: &str, fallback: &str) -> String {

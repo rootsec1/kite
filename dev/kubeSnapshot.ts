@@ -161,8 +161,10 @@ export async function runPodAction(input: {
   }
 
   if (action === "exec") {
-    const command = `kubectl exec -n ${target.namespace} -it ${target.name} -- /bin/sh`;
-    return podActionResult(action, "ready", "Open this command in a terminal for an interactive shell.", "", command);
+    const command = podExecCommand(target);
+    return openTerminal(command)
+      .then(() => podActionResult(action, "executed", "Opened Terminal with an interactive pod shell.", "", command))
+      .catch((error) => podActionResult(action, "ready", `${errorMessage(error)} Run this command manually.`, "", command));
   }
 
   if (action === "restart" || action === "delete" || action === "kill") {
@@ -411,6 +413,46 @@ function podActionResult(
   requiresConfirmation = false,
 ) {
   return { action, status, message, output, command, requiresConfirmation };
+}
+
+function podExecCommand(target: { name: string; namespace: string; cluster: string }) {
+  return [
+    "kubectl",
+    "--context",
+    target.cluster,
+    "exec",
+    "-n",
+    target.namespace,
+    "-it",
+    target.name,
+    "--",
+    "/bin/sh",
+  ].map(shellQuote).join(" ");
+}
+
+async function openTerminal(command: string) {
+  if (process.platform !== "darwin") {
+    throw new Error("Interactive exec is only wired to open Terminal on macOS for now.");
+  }
+
+  await exec("osascript", [
+    "-e",
+    "tell application \"Terminal\" to activate",
+    "-e",
+    `tell application "Terminal" to do script "${applescriptString(command)}"`,
+  ], { timeout: 5_000 });
+}
+
+function shellQuote(value: string) {
+  if (/^[A-Za-z0-9._/:=@-]+$/.test(value)) {
+    return value;
+  }
+
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function applescriptString(value: string) {
+  return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
 }
 
 function resourceStatus(item: KubeItem) {
