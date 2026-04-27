@@ -8,12 +8,13 @@ const version = requiredOption(options, "version");
 const sha256 = requiredOption(options, "sha256");
 const url = requiredOption(options, "url");
 const output = options.output ?? "packaging/homebrew/Casks/kite.rb";
+const caskUrl = versionedUrl(url, version);
 
 const cask = `cask "kite" do
   version "${version}"
   sha256 "${sha256}"
 
-  url "${url}"
+  url "${caskUrl}"
   name "Kite"
   desc "Native Kubernetes cockpit"
   homepage "https://github.com/rootsec1/kite"
@@ -68,4 +69,8 @@ function requiredOption(options, key) {
     throw new Error(`Missing required --${key}`);
   }
   return value;
+}
+
+function versionedUrl(url, version) {
+  return url.split(version).join("#{version}");
 }

@@ -73,6 +73,25 @@ The `Release` workflow will:
 
 No Apple Developer account, signing certificate, App Store Connect key, or notarization secret is required for this flow.
 
+## Official Homebrew Cask Status
+
+Kite is not ready for `Homebrew/homebrew-cask` yet. The official audit currently blocks it for:
+
+- Gatekeeper signature verification failure because the app is unsigned.
+- GitHub notability below Homebrew's threshold for new casks.
+
+The custom tap remains the correct distribution path until both are fixed. To prepare an official cask PR:
+
+1. Sign and notarize the macOS app with a Developer ID certificate.
+2. Build public adoption until the repository passes Homebrew's notability audit.
+3. Run:
+
+```bash
+brew audit --cask --new rootsec1/kite/kite
+```
+
+4. Submit to `Homebrew/homebrew-cask` only after the audit passes.
+
 ## Verify Release
 
 ```bash

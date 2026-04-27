@@ -64,6 +64,8 @@ brew install --cask kite
 
 Current macOS builds are unsigned and not notarized. On first launch, macOS may block Kite as an unidentified developer. Open it with right-click > Open, or use System Settings > Privacy & Security > Open Anyway after the first blocked launch.
 
+Kite is not in the official `Homebrew/homebrew-cask` tap yet. The public custom tap is the supported install path until the app is signed/notarized and passes Homebrew's new-cask notability audit.
+
 ## Local Kubernetes Demo
 
 ```bash
