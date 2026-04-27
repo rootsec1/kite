@@ -4,6 +4,23 @@
   "private": true,
   "type": "module",
   "description": "A native, UI-first Kubernetes cockpit built with Tauri, Rust, and React.",
+  "license": "Apache-2.0",
+  "author": "Kite contributors",
+  "homepage": "https://github.com/rootsec1/kite#readme",
+  "bugs": {
+    "url": "https://github.com/rootsec1/kite/issues"
+  },
+  "keywords": [
+    "kubernetes",
+    "tauri",
+    "k8s",
+    "desktop",
+    "macos"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/rootsec1/kite.git"
+  },
   "scripts": {
     "dev": "tauri dev",
     "dev:web": "vite --host 127.0.0.1 --port 1420",

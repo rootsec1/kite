@@ -1,24 +1,43 @@
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { ResourceDetails, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
 
 export function Inspector({
+  collapsed,
   details,
   detailsError,
   detailsLoading,
   error,
+  onToggle,
   resource,
 }: {
+  collapsed: boolean;
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
   error: string;
+  onToggle: () => void;
   resource: ResourceRow | null;
 }) {
+  if (collapsed) {
+    return (
+      <aside className="inspector-rail" aria-label="Collapsed inspector">
+        <button type="button" onClick={onToggle} aria-label="Open inspector">
+          <PanelRightOpen size={16} />
+          <span>Events</span>
+          {resource ? <StatusDot state={resource.status} /> : null}
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="inspector">
       <header>
         <span>Events</span>
-        {resource ? <StatusDot state={resource.status} /> : null}
+        <button type="button" onClick={onToggle} aria-label="Collapse inspector">
+          <PanelRightClose size={16} />
+        </button>
       </header>
 
       {resource ? (

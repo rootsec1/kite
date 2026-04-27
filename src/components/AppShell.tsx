@@ -15,6 +15,7 @@ const navItems = navSections.flatMap((section) => section.items);
 export function AppShell({ data }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const activeItem = useMemo(() => navItems.find((item) => item.id === activeId), [activeId]);
   const activeSection = useMemo(
     () => navSections.find((section) => section.items.some((item) => item.id === activeId)),
@@ -24,10 +25,11 @@ export function AppShell({ data }: AppShellProps) {
 
   const counts = useMemo(() => countByKind(data.visibleResources), [data.visibleResources]);
   const scopedResources = useMemo(() => {
-    if (!activeItem?.kind) {
-      return data.visibleResources;
-    }
-    return data.visibleResources.filter((resource) => resource.kind === activeItem.kind);
+    const resources = activeItem?.kind
+      ? data.visibleResources.filter((resource) => resource.kind === activeItem.kind)
+      : data.visibleResources;
+
+    return resources.slice().sort(compareResourcesForDebugging);
   }, [activeItem?.kind, data.visibleResources]);
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
@@ -54,7 +56,7 @@ export function AppShell({ data }: AppShellProps) {
 
         <main className="workspace">
           <Toolbar count={scopedResources.length} data={data} scope={activeItem?.label ?? "Overview"} />
-          <section className="content-grid">
+          <section className={inspectorOpen ? "content-grid" : "content-grid inspector-collapsed"}>
             <div className="primary-pane">
               {detailResource ? (
                 <ResourceDetail
@@ -86,11 +88,13 @@ export function AppShell({ data }: AppShellProps) {
             </div>
 
             <Inspector
+              collapsed={!inspectorOpen}
               details={data.resourceDetails}
               detailsError={data.detailsError}
               detailsLoading={data.detailsLoading}
               error={data.error}
               resource={data.selectedResource}
+              onToggle={() => setInspectorOpen((open) => !open)}
             />
           </section>
         </main>
@@ -105,4 +109,25 @@ function countByKind(resources: ResourceRow[]) {
     counts.set(resource.kind, (counts.get(resource.kind) ?? 0) + 1);
   }
   return counts;
+}
+
+const systemNamespaces = new Set(["cluster", "default", "kube-system", "kube-public", "kube-node-lease"]);
+const statusRank = new Map([
+  ["critical", 0],
+  ["warning", 1],
+  ["syncing", 2],
+  ["healthy", 3],
+]);
+
+function compareResourcesForDebugging(left: ResourceRow, right: ResourceRow) {
+  const statusDelta = (statusRank.get(left.status) ?? 4) - (statusRank.get(right.status) ?? 4);
+  if (statusDelta !== 0) return statusDelta;
+
+  const namespaceDelta = Number(systemNamespaces.has(left.namespace)) - Number(systemNamespaces.has(right.namespace));
+  if (namespaceDelta !== 0) return namespaceDelta;
+
+  const selectorDelta = Number(Object.keys(right.selector).length > 0) - Number(Object.keys(left.selector).length > 0);
+  if (selectorDelta !== 0) return selectorDelta;
+
+  return left.name.localeCompare(right.name);
 }

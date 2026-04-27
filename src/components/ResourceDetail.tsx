@@ -102,15 +102,38 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
   const containers = pod?.containers ?? [];
   const ready = pod ? `${pod.readyContainers}/${pod.totalContainers || containers.length}` : "syncing";
   const restartTotal = containers.reduce((sum, container) => sum + container.restartCount, resource.restarts);
+  const failingConditions = pod?.conditions.filter((condition) => condition.status !== "True") ?? [];
 
   return (
     <section className="pod-debug-panel" aria-label="Pod runtime status">
+      <div className="pod-status-line">
+        <div>
+          <StatusDot state={resource.status} />
+          <strong>{pod?.phase ?? resource.status}</strong>
+          <span>{ready} containers ready</span>
+        </div>
+        <small>
+          {pod?.podIp ? `pod ${pod.podIp}` : "pod ip pending"}
+          {pod?.qosClass ? ` / ${pod.qosClass}` : ""}
+        </small>
+      </div>
+
       <div className="pod-vitals">
         <RuntimeTile icon={Activity} label="Phase" value={pod?.phase ?? resource.status} tone={resource.status} />
         <RuntimeTile icon={CheckCircle2} label="Ready" value={ready} tone={pod?.readyContainers === pod?.totalContainers ? "healthy" : "warning"} />
         <RuntimeTile icon={RotateCw} label="Restarts" value={String(restartTotal)} tone={restartTotal > 0 ? "warning" : "healthy"} />
         <RuntimeTile icon={GitCommitHorizontal} label="Node" value={pod?.nodeName || "pending"} tone="syncing" />
       </div>
+
+      {failingConditions.length ? (
+        <div className="pod-conditions">
+          {failingConditions.slice(0, 4).map((condition) => (
+            <span key={condition.type}>
+              {condition.type}: {condition.reason || condition.status}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="container-strip">
         {containers.length ? (
@@ -297,7 +320,7 @@ function HierarchyGroups({
   groups: HierarchyGroup[];
   onOpenResource: (id: string) => void;
 }) {
-  const visibleGroups = useMemo(() => groups.filter((group) => group.resources.length > 0), [groups]);
+  const visibleGroups = useMemo(() => groups.filter((group) => group.title), [groups]);
   const groupSignature = useMemo(
     () => visibleGroups.map((group) => `${group.title}:${group.resources.length}`).join("|"),
     [visibleGroups],
@@ -345,16 +368,23 @@ function HierarchyGroups({
             <strong>{activeGroup.resources.length}</strong>
           </header>
           <div className="hierarchy-table">
-            {activeGroup.resources.map((child) => (
-              <button key={child.id} type="button" onClick={() => onOpenResource(child.id)}>
-                <span className="name-cell">
-                  <StatusDot state={child.status} />
-                  <strong>{child.name}</strong>
-                </span>
-                <span>{child.kind}</span>
-                <span>{child.age}</span>
-              </button>
-            ))}
+            {activeGroup.resources.length ? (
+              activeGroup.resources.map((child) => (
+                <button key={child.id} type="button" onClick={() => onOpenResource(child.id)}>
+                  <span className="name-cell">
+                    <StatusDot state={child.status} />
+                    <strong>{child.name}</strong>
+                  </span>
+                  <span>{child.kind}</span>
+                  <span>{child.age}</span>
+                </button>
+              ))
+            ) : (
+              <div className="hierarchy-empty">
+                <strong>No {activeGroup.title.toLowerCase()}</strong>
+                <span>This object has no live resources in this relationship.</span>
+              </div>
+            )}
           </div>
       </section>
     </section>

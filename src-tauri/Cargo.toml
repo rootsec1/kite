@@ -5,6 +5,11 @@ description = "A native, UI-first Kubernetes cockpit."
 authors = ["Kite contributors"]
 edition = "2021"
 rust-version = "1.88"
+license = "Apache-2.0"
+homepage = "https://github.com/rootsec1/kite"
+repository = "https://github.com/rootsec1/kite"
+readme = "../README.md"
+keywords = ["kubernetes", "tauri", "desktop", "macos"]
 
 [lib]
 name = "kite_lib"

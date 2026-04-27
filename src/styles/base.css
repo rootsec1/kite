@@ -274,6 +274,10 @@ button {
   min-block-size: 0;
 }
 
+.content-grid.inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr) 52px;
+}
+
 .primary-pane {
   min-block-size: 0;
   overflow-y: auto;
@@ -359,7 +363,8 @@ button {
 
 .resource-panel,
 .pressure-panel,
-.inspector {
+.inspector,
+.inspector-rail {
   border: 1px solid var(--line);
   background: var(--surface);
 }
@@ -563,6 +568,37 @@ button {
   background: var(--line);
 }
 
+.pod-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-block-size: 54px;
+  padding-inline: 14px;
+  background: var(--surface);
+}
+
+.pod-status-line div {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-inline-size: 0;
+}
+
+.pod-status-line strong {
+  font-size: 18px;
+}
+
+.pod-status-line span,
+.pod-status-line small,
+.pod-conditions span {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .pod-vitals {
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr));
@@ -610,6 +646,21 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 1px;
+}
+
+.pod-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+
+.pod-conditions span {
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--orange) 45%, var(--line));
+  color: var(--orange);
+  background: var(--surface-soft);
 }
 
 .container-card {
@@ -946,6 +997,20 @@ button {
   background: var(--surface-soft);
 }
 
+.hierarchy-empty {
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  min-block-size: 180px;
+  padding: 24px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+.hierarchy-empty strong {
+  color: var(--text);
+}
+
 .inspector {
   display: grid;
   align-content: start;
@@ -963,6 +1028,48 @@ button {
   align-items: center;
   min-block-size: 28px;
   border-block-end: 1px solid var(--line);
+}
+
+.inspector header button,
+.inspector-rail button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.inspector header button {
+  inline-size: 30px;
+  block-size: 30px;
+}
+
+.inspector-rail {
+  display: grid;
+  place-items: start center;
+  min-block-size: 0;
+  padding-block: 14px;
+  border-block: 0;
+  border-inline-end: 0;
+}
+
+.inspector-rail button {
+  flex-direction: column;
+  gap: 9px;
+  inline-size: 34px;
+  min-block-size: 128px;
+  padding-block: 10px;
+}
+
+.inspector-rail span {
+  writing-mode: vertical-rl;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .inspector h2 {
