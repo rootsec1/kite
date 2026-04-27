@@ -84,14 +84,14 @@ summary:focus-visible {
   position: relative;
   display: flex;
   gap: 12px;
-  align-items: center;
-  min-block-size: 64px;
-  padding-inline: 18px;
+  align-items: flex-end;
+  min-block-size: 112px;
+  padding: 52px 18px 18px;
   border-block-end: 1px solid var(--line);
 }
 
 .brand.with-window-controls {
-  padding-inline-start: 76px;
+  padding-inline-start: 42px;
 }
 
 .brand::before,
@@ -135,7 +135,7 @@ summary:focus-visible {
 
 .window-controls {
   position: absolute;
-  inset-block-start: 24px;
+  inset-block-start: 22px;
   inset-inline-start: 18px;
   display: flex;
   gap: 8px;
