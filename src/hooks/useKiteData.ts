@@ -108,6 +108,8 @@ export function useKiteData() {
     }
 
     let cancelled = false;
+    setPodActionResult(null);
+    setResourceDetails({ yaml: "", events: [], logs: "" });
     void refreshResourceDetails(selectedResource).then((details) => {
       if (!cancelled && details) {
         setResourceDetails(details);

@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, RotateCw, Skull, Star, TerminalSquare } from "lucide-react";
-import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  Box,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  GitCommitHorizontal,
+  RotateCw,
+  Skull,
+  Star,
+  TerminalSquare,
+  type LucideIcon,
+} from "lucide-react";
+import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceEvent, ResourceRow } from "../types/kube";
 import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
 
@@ -100,7 +114,10 @@ export function ResourceDetail({
       {result ? <ActionResult result={result} onConfirm={() => onRunPodAction(result.action, true)} /> : null}
 
       {isPod ? (
-        <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+        <div className="pod-observe-grid">
+          <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+          <PodEventTimeline details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+        </div>
       ) : (
         <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
       )}
@@ -208,6 +225,79 @@ function ActionResult({ onConfirm, result }: { onConfirm: () => void; result: Po
       ) : null}
     </div>
   );
+}
+
+function PodEventTimeline({
+  details,
+  detailsError,
+  detailsLoading,
+}: {
+  details: ResourceDetails;
+  detailsError: string;
+  detailsLoading: boolean;
+}) {
+  const events = details.events.slice(0, 8);
+  const warningCount = details.events.filter((event) => isWarningEvent(event)).length;
+
+  return (
+    <section className="pod-event-timeline" aria-label="Pod event timeline">
+      <header>
+        <div>
+          <span>Events</span>
+          <strong>{detailsLoading ? "syncing" : `${details.events.length} seen`}</strong>
+        </div>
+        {warningCount > 0 ? <small>{warningCount} warn</small> : <small>steady</small>}
+      </header>
+
+      <div className="pod-event-list">
+        {detailsLoading ? (
+          <EventTimelineEmpty icon={Clock3} label="Loading events" value="Reading latest Kubernetes events." />
+        ) : events.length ? (
+          events.map((event, index) => <EventTimelineRow event={event} key={`${event.reason}-${event.age}-${index}`} />)
+        ) : (
+          <EventTimelineEmpty icon={CheckCircle2} label="No pod events" value={detailsError || "Kubernetes has no recent events for this pod."} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function EventTimelineRow({ event }: { event: ResourceEvent }) {
+  const warning = isWarningEvent(event);
+  const Icon = warning ? AlertTriangle : CheckCircle2;
+
+  return (
+    <article className={warning ? "pod-event-row warning" : "pod-event-row"}>
+      <Icon size={15} />
+      <div>
+        <span>{event.age}</span>
+        <strong>{event.reason || event.type}</strong>
+        <p>{event.message || event.type}</p>
+      </div>
+    </article>
+  );
+}
+
+function EventTimelineEmpty({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="pod-event-empty">
+      <Icon size={15} />
+      <strong>{label}</strong>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function isWarningEvent(event: ResourceEvent) {
+  return event.type.toLowerCase() === "warning";
 }
 
 type HierarchyGroup = {

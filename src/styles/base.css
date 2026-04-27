@@ -934,6 +934,117 @@ summary:focus-visible {
   border-color: rgba(255, 121, 88, 0.42);
 }
 
+.pod-observe-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 14px;
+  align-items: start;
+}
+
+.pod-event-timeline {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pod-event-timeline header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-block-size: 52px;
+  padding-inline: 14px;
+  border-block-end: 1px solid var(--line);
+}
+
+.pod-event-timeline header div {
+  display: grid;
+  gap: 3px;
+}
+
+.pod-event-timeline header span,
+.pod-event-timeline header small,
+.pod-event-row span,
+.pod-event-empty span {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pod-event-timeline header strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.pod-event-timeline header small {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.pod-event-list {
+  display: grid;
+  max-block-size: 728px;
+  overflow: auto;
+}
+
+.pod-event-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  min-block-size: 88px;
+  padding: 13px 14px;
+  border-block-end: 1px solid var(--line);
+}
+
+.pod-event-row svg,
+.pod-event-empty svg {
+  margin-block-start: 2px;
+  color: var(--green-deep);
+}
+
+.pod-event-row.warning svg {
+  color: var(--orange);
+}
+
+.pod-event-row div {
+  display: grid;
+  gap: 5px;
+  min-inline-size: 0;
+}
+
+.pod-event-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-event-row p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pod-event-empty {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px 10px;
+  min-block-size: 180px;
+  padding: 18px 14px;
+  align-content: center;
+  color: var(--text-soft);
+}
+
+.pod-event-empty strong,
+.pod-event-empty span {
+  grid-column: 2;
+}
+
 .terminal-panel {
   position: relative;
   display: grid;
@@ -1600,7 +1711,8 @@ summary:focus-visible {
   }
 
   .pod-vitals,
-  .container-strip {
+  .container-strip,
+  .pod-observe-grid {
     grid-template-columns: 1fr;
   }
 

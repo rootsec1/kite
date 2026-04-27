@@ -16,7 +16,8 @@
   }
 
   .runtime-tile,
-  .container-card {
+  .container-card,
+  .pod-event-row {
     animation: surface-enter 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 
