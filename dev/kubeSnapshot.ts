@@ -31,6 +31,16 @@ type KubeList = {
   items?: KubeItem[];
 };
 
+type HelmRelease = {
+  name?: string;
+  namespace?: string;
+  revision?: string;
+  updated?: string;
+  status?: string;
+  chart?: string;
+  app_version?: string;
+};
+
 type KubeEvent = {
   type?: string;
   reason?: string;
@@ -69,7 +79,11 @@ export async function readKubeSnapshot() {
   const version = await kubectlJson(["version", "--output=json"]).catch(() => null);
   const lists = await Promise.all(resourceQueries.map((query) => readResourceList(query)));
   const items = lists.flatMap((list) => list.items ?? []);
-  const resources = items.map((item, index) => toResource(item, context.trim(), index));
+  const helmReleases = await readHelmReleases(context.trim());
+  const resources = [
+    ...items.map((item, index) => toResource(item, context.trim(), index)),
+    ...helmReleases,
+  ];
   const namespaces = items
     .filter((item) => item.kind === "Namespace")
     .map((item) => item.metadata?.name)
@@ -98,11 +112,56 @@ export async function readKubeSnapshot() {
 }
 
 export async function readResourceDetails(target: { kind: string; name: string; namespace: string }) {
+  if (target.kind === "HelmRelease") {
+    return readHelmDetails(target);
+  }
+
   const yaml = await readResourceYaml(target).catch((error) => errorMessage(error));
   const events = await readResourceEvents(target).catch(() => []);
   const logs = target.kind === "Pod" ? await readPodLogs(target).catch((error) => errorMessage(error)) : "";
 
   return { yaml, events, logs };
+}
+
+async function readHelmReleases(cluster: string) {
+  const releases = await exec("helm", ["list", "-A", "-o", "json"], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+    .then(({ stdout }) => JSON.parse(stdout) as HelmRelease[])
+    .catch(() => []);
+
+  return releases.map((release, index) => ({
+    id: `HelmRelease:${release.namespace ?? "default"}:${release.name ?? index}`,
+    kind: "HelmRelease",
+    name: release.name ?? `release-${index}`,
+    namespace: release.namespace ?? "default",
+    cluster,
+    status: release.status === "deployed" ? "healthy" : "warning",
+    age: age(release.updated),
+    cpu: release.status === "deployed" ? 12 : 44,
+    memory: release.status === "deployed" ? 20 : 52,
+    restarts: 0,
+    owner: release.chart ?? "",
+    image: release.app_version ?? release.revision ?? "",
+  }));
+}
+
+async function readHelmDetails(target: { name: string; namespace: string }) {
+  const [manifest, status, values] = await Promise.all([
+    exec("helm", ["get", "manifest", target.name, "-n", target.namespace], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+      .then(({ stdout }) => stdout)
+      .catch((error) => errorMessage(error)),
+    exec("helm", ["status", target.name, "-n", target.namespace], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+      .then(({ stdout }) => stdout)
+      .catch(() => ""),
+    exec("helm", ["get", "values", target.name, "-n", target.namespace, "-o", "yaml"], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+      .then(({ stdout }) => stdout)
+      .catch(() => ""),
+  ]);
+
+  return {
+    yaml: [manifest, values ? `\n---\n# values\n${values}` : ""].join(""),
+    events: status ? [{ type: "Normal", reason: "HelmStatus", message: status, age: "live" }] : [],
+    logs: "",
+  };
 }
 
 async function readResourceYaml(target: { kind: string; name: string; namespace: string }) {

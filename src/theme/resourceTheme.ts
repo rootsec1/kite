@@ -4,6 +4,7 @@ import {
   Clock3,
   Container,
   Database,
+  GalleryVerticalEnd,
   FileKey2,
   GitBranch,
   HardDrive,
@@ -68,6 +69,12 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
     ],
   },
   {
+    title: "Packages",
+    items: [
+      { id: "HelmRelease", label: "Helm", icon: GalleryVerticalEnd, kind: "HelmRelease" },
+    ],
+  },
+  {
     title: "Config",
     items: [
       { id: "ConfigMap", label: "ConfigMaps", icon: Settings2, kind: "ConfigMap" },
@@ -110,6 +117,7 @@ export const kindThemes: Record<string, KindTheme> = {
   ConfigMap: { label: "ConfigMaps", icon: Settings2, accent: "green", actions: ["Data", "YAML"] },
   Secret: { label: "Secrets", icon: FileKey2, accent: "orange", actions: ["Keys", "YAML"] },
   Role: { label: "RBAC", icon: Shield, accent: "orange", actions: ["Rules", "Bindings", "YAML"] },
+  HelmRelease: { label: "Helm", icon: GalleryVerticalEnd, accent: "blue", actions: ["Values", "Manifest", "Status"] },
 };
 
 export function themeForKind(kind?: string) {

@@ -37,6 +37,24 @@ struct RawContext {
     user: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct HelmRelease {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    namespace: String,
+    #[serde(default)]
+    revision: String,
+    #[serde(default)]
+    updated: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    chart: String,
+    #[serde(default)]
+    app_version: String,
+}
+
 #[tauri::command]
 pub fn list_kube_contexts() -> Result<Vec<KubeContextSummary>, String> {
     let path = kubeconfig_path()?;
@@ -113,6 +131,7 @@ pub async fn live_snapshot() -> Result<LiveSnapshot, String> {
     resources.extend(list_services(client.clone(), &context).await?);
     resources.extend(list_nodes(client.clone(), &context).await?);
     resources.extend(list_namespaces(client.clone(), &context).await?);
+    resources.extend(list_helm_releases(&context).await.unwrap_or_default());
 
     resources.sort_by(|left, right| {
         left.namespace
@@ -185,6 +204,10 @@ pub fn guarded_action_preview(action: String, target: ActionTarget) -> ActionPre
 
 #[tauri::command]
 pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
+    if target.kind == "HelmRelease" {
+        return helm_details(target).await;
+    }
+
     let yaml = kubectl(resource_yaml_args(&target))
         .await
         .unwrap_or_else(|error| error);
@@ -205,6 +228,52 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
     };
 
     ResourceDetails { yaml, events, logs }
+}
+
+async fn helm_details(target: ActionTarget) -> ResourceDetails {
+    let manifest = command_output("helm", vec![
+        "get".to_string(),
+        "manifest".to_string(),
+        target.name.clone(),
+        "-n".to_string(),
+        target.namespace.clone(),
+    ])
+    .await
+    .unwrap_or_else(|error| error);
+    let values = command_output("helm", vec![
+        "get".to_string(),
+        "values".to_string(),
+        target.name.clone(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "-o".to_string(),
+        "yaml".to_string(),
+    ])
+    .await
+    .unwrap_or_default();
+    let status = command_output("helm", vec![
+        "status".to_string(),
+        target.name,
+        "-n".to_string(),
+        target.namespace,
+    ])
+    .await
+    .unwrap_or_default();
+
+    ResourceDetails {
+        yaml: format!("{manifest}\n---\n# values\n{values}"),
+        events: if status.is_empty() {
+            Vec::new()
+        } else {
+            vec![ResourceEvent {
+                type_: "Normal".to_string(),
+                reason: "HelmStatus".to_string(),
+                message: status,
+                age: "live".to_string(),
+            }]
+        },
+        logs: String::new(),
+    }
 }
 
 fn classify_action(action: &str) -> ActionRisk {
@@ -277,11 +346,15 @@ fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
 }
 
 async fn kubectl(args: Vec<String>) -> Result<String, String> {
-    let output = tokio::process::Command::new("kubectl")
+    command_output("kubectl", args).await
+}
+
+async fn command_output(command: &str, args: Vec<String>) -> Result<String, String> {
+    let output = tokio::process::Command::new(command)
         .args(args)
         .output()
         .await
-        .map_err(|error| format!("Unable to run kubectl: {error}"))?;
+        .map_err(|error| format!("Unable to run {command}: {error}"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -467,6 +540,28 @@ async fn list_namespaces(client: Client, cluster: &str) -> Result<Vec<ResourceSu
         .collect())
 }
 
+async fn list_helm_releases(cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let output = command_output("helm", vec!["list".to_string(), "-A".to_string(), "-o".to_string(), "json".to_string()]).await?;
+    let releases = serde_json::from_str::<Vec<HelmRelease>>(&output).map_err(|error| format!("Invalid Helm JSON: {error}"))?;
+
+    Ok(releases
+        .into_iter()
+        .map(|release| {
+            resource_summary(
+                "HelmRelease",
+                release.name,
+                if release.namespace.is_empty() { "default".to_string() } else { release.namespace },
+                cluster,
+                if release.status == "deployed" { HealthState::Healthy } else { HealthState::Warning },
+                0,
+                if release.app_version.is_empty() { release.revision } else { release.app_version },
+            )
+            .with_owner(release.chart)
+            .with_age(short_age(&release.updated))
+        })
+        .collect())
+}
+
 fn resource_summary(
     kind: &str,
     name: String,
@@ -498,6 +593,23 @@ fn resource_summary(
         restarts,
         owner: namespace,
         image,
+    }
+}
+
+trait ResourceSummaryPatch {
+    fn with_owner(self, owner: String) -> Self;
+    fn with_age(self, age: String) -> Self;
+}
+
+impl ResourceSummaryPatch for ResourceSummary {
+    fn with_owner(mut self, owner: String) -> Self {
+        self.owner = owner;
+        self
+    }
+
+    fn with_age(mut self, age: String) -> Self {
+        self.age = age;
+        self
     }
 }
 
