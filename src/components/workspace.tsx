@@ -12,11 +12,6 @@ import type { NavItem } from "../theme/resourceTheme";
 export function Toolbar({ count, data, scope }: { count: number; data: KiteData; scope: string }) {
   return (
     <header className="toolbar">
-      <div className="traffic-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
       <label className="search-box">
         <Search size={16} />
         <input

@@ -10,11 +10,12 @@ import { NamespacePressure, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } fr
 
 type AppShellProps = {
   data: KiteData;
+  usesNativeWindowControls: boolean;
 };
 
 const navItems = navSections.flatMap((section) => section.items);
 
-export function AppShell({ data }: AppShellProps) {
+export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
   const [detailOpen, setDetailOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -57,7 +58,14 @@ export function AppShell({ data }: AppShellProps) {
   return (
     <div className="kite-window">
       <div className="control-center">
-        <Sidebar activeId={activeId} clusterName={clusterName} counts={counts} pinnedCount={data.pinnedCount} onSelect={selectNavigation} />
+        <Sidebar
+          activeId={activeId}
+          clusterName={clusterName}
+          counts={counts}
+          pinnedCount={data.pinnedCount}
+          showWindowControlFallback={!usesNativeWindowControls}
+          onSelect={selectNavigation}
+        />
 
         <main className="workspace">
           <Toolbar count={scopedResources.length} data={data} scope={activeItem?.label ?? "Overview"} />

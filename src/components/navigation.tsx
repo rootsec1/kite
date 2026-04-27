@@ -11,17 +11,26 @@ export function Sidebar({
   clusterName,
   counts,
   pinnedCount,
+  showWindowControlFallback,
   onSelect,
 }: {
   activeId: string;
   clusterName: string;
   counts: Map<string, number>;
   pinnedCount: number;
+  showWindowControlFallback: boolean;
   onSelect: (id: string) => void;
 }) {
   return (
     <aside className="sidebar">
       <div className="brand">
+        {showWindowControlFallback ? (
+          <div className="window-control-fallback" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        ) : null}
         <div className="brand-mark">
           <Boxes size={18} />
         </div>

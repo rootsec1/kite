@@ -5,7 +5,7 @@
 html,
 body,
 #root {
-  min-block-size: 100%;
+  block-size: 100%;
   margin: 0;
 }
 
@@ -28,26 +28,52 @@ button {
   color: inherit;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--green) 72%, white);
+  outline-offset: 2px;
+}
+
+.nav-groups,
+.primary-pane,
+.inspector,
+.inspector-rail,
+.scope-tabs,
+.log-source-tabs,
+.terminal-output,
+.code-pane,
+.log-pane,
+.event-pane,
+.inspector-yaml pre {
+  scrollbar-color: color-mix(in srgb, var(--green-deep) 28%, transparent) transparent;
+  scrollbar-gutter: stable;
+}
+
 .kite-window {
-  min-block-size: 100vh;
-  padding: 22px;
+  block-size: 100dvh;
+  overflow: hidden;
 }
 
 .control-center {
   display: grid;
   grid-template-columns: 276px minmax(0, 1fr);
-  min-inline-size: 1120px;
-  min-block-size: calc(100vh - 44px);
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.9);
-  box-shadow: var(--shadow);
 }
 
 .sidebar {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  block-size: 100%;
   min-block-size: 0;
+  overflow: hidden;
   border-inline-end: 1px solid var(--line);
   background:
     linear-gradient(180deg, rgba(63, 199, 158, 0.08), transparent 220px),
@@ -59,8 +85,8 @@ button {
   display: flex;
   gap: 12px;
   align-items: center;
-  min-block-size: 82px;
-  padding-inline: 20px;
+  min-block-size: 64px;
+  padding-inline: 76px 18px;
   border-block-end: 1px solid var(--line);
 }
 
@@ -103,10 +129,29 @@ button {
   letter-spacing: 0.04em;
 }
 
+.window-control-fallback {
+  position: absolute;
+  inset-block-start: 24px;
+  inset-inline-start: 18px;
+  display: flex;
+  gap: 8px;
+}
+
+.window-control-fallback span {
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 999px;
+}
+
+.window-control-fallback span:nth-child(1) { background: #ff6b5e; }
+.window-control-fallback span:nth-child(2) { background: #ffc247; }
+.window-control-fallback span:nth-child(3) { background: #35c968; }
+
 .nav-groups {
   min-block-size: 0;
   overflow-y: auto;
   padding: 18px 14px 22px;
+  overscroll-behavior: contain;
 }
 
 .nav-section {
@@ -186,36 +231,22 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: 64px minmax(0, 1fr);
   min-inline-size: 0;
   min-block-size: 0;
+  overflow: hidden;
 }
 
 .toolbar {
   position: relative;
   display: grid;
-  grid-template-columns: 74px minmax(160px, 1fr) minmax(170px, 1.1fr) 110px 104px 144px minmax(62px, auto) 38px;
-  gap: 10px;
+  grid-template-columns: minmax(210px, 1fr) minmax(220px, 1.12fr) 112px 112px 156px minmax(66px, auto) 40px;
+  gap: 8px;
   align-items: center;
-  padding-inline: 22px;
+  padding-inline: 18px 22px;
   border-block-end: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.92);
 }
-
-.traffic-dots {
-  display: flex;
-  gap: 8px;
-}
-
-.traffic-dots span {
-  inline-size: 12px;
-  block-size: 12px;
-  border-radius: 999px;
-}
-
-.traffic-dots span:nth-child(1) { background: #ff6b5e; }
-.traffic-dots span:nth-child(2) { background: #ffc247; }
-.traffic-dots span:nth-child(3) { background: #35c968; }
 
 .search-box {
   display: grid;
@@ -293,6 +324,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   min-block-size: 0;
+  overflow: hidden;
 }
 
 .content-grid.inspector-collapsed {
@@ -301,10 +333,11 @@ button {
 
 .primary-pane {
   min-block-size: 0;
-  overflow-y: auto;
-  padding: 22px 24px 28px;
+  overflow: auto;
+  padding: 20px 22px 24px;
   border-inline-end: 1px solid var(--line);
   background: rgba(247, 249, 249, 0.76);
+  overscroll-behavior: contain;
 }
 
 .status-dot {
@@ -318,7 +351,7 @@ button {
   display: grid;
   grid-template-columns: repeat(5, minmax(120px, 1fr));
   gap: 1px;
-  margin-block-end: 16px;
+  margin-block-end: 14px;
   border: 1px solid var(--line);
   background: var(--line);
 }
@@ -328,8 +361,8 @@ button {
   grid-template-columns: auto 1fr;
   gap: 8px 12px;
   align-items: center;
-  min-block-size: 108px;
-  padding: 18px;
+  min-block-size: 100px;
+  padding: 16px 18px;
   background: var(--surface);
 }
 
@@ -350,7 +383,7 @@ button {
 .scope-tabs {
   display: flex;
   gap: 0;
-  margin-block-end: 16px;
+  margin-block-end: 14px;
   overflow-x: auto;
   border: 1px solid var(--line);
   background: var(--line);
@@ -391,7 +424,7 @@ button {
 }
 
 .resource-panel {
-  margin-block-end: 16px;
+  margin-block-end: 14px;
 }
 
 .resource-panel > header,
@@ -474,8 +507,7 @@ button {
 }
 
 .table-body {
-  max-block-size: 430px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .resource-row {
@@ -488,8 +520,6 @@ button {
   color: var(--text-soft);
   text-align: start;
   cursor: pointer;
-  content-visibility: auto;
-  contain-intrinsic-size: 48px;
 }
 
 .resource-row.selected {
@@ -1311,6 +1341,7 @@ button {
   padding: 22px;
   border: 0;
   background: var(--surface);
+  overscroll-behavior: contain;
 }
 
 .inspector header {
@@ -1341,9 +1372,11 @@ button {
   display: grid;
   place-items: start center;
   min-block-size: 0;
+  overflow-y: auto;
   padding-block: 14px;
   border-block: 0;
   border-inline-end: 0;
+  overscroll-behavior: contain;
 }
 
 .inspector-rail button {

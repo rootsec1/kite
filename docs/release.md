@@ -11,9 +11,9 @@ brew tap rootsec1/kite
 brew install --cask kite
 ```
 
-The current public release is `v0.1.0`:
+The current public release is `v0.1.1`:
 
-- GitHub release: `https://github.com/rootsec1/kite/releases/tag/v0.1.0`
+- GitHub release: `https://github.com/rootsec1/kite/releases/tag/v0.1.1`
 - Homebrew tap cask: `https://github.com/rootsec1/homebrew-kite/blob/main/Casks/kite.rb`
 
 ## Required Setup
@@ -61,8 +61,8 @@ brew install --cask kite
 3. Tag and push:
 
 ```bash
-git tag v0.1.0
-git push origin main v0.1.0
+git tag v0.1.1
+git push origin main v0.1.1
 ```
 
 The `Release` workflow will:
@@ -96,7 +96,7 @@ brew audit --cask --new rootsec1/kite/kite
 
 ```bash
 gh run list --repo rootsec1/kite --workflow Release --limit 3
-gh release view v0.1.0 --repo rootsec1/kite
+gh release view v0.1.1 --repo rootsec1/kite
 gh api repos/rootsec1/homebrew-kite/contents/Casks/kite.rb --jq '.content' | base64 --decode
 ```
 
@@ -111,8 +111,8 @@ To dry-run cask generation:
 
 ```bash
 bun scripts/generate-homebrew-cask.mjs \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --sha256 0000000000000000000000000000000000000000000000000000000000000000 \
-  --url https://github.com/rootsec1/kite/releases/download/v0.1.0/Kite_0.1.0_universal.dmg \
+  --url https://github.com/rootsec1/kite/releases/download/v0.1.1/Kite_0.1.1_universal.dmg \
   --output /tmp/kite.rb
 ```
