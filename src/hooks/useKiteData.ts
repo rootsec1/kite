@@ -2,19 +2,6 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ActionPreview, LiveSnapshot, ResourceDetails, ResourceRow } from "../types/kube";
 
-type KubeContext = {
-  name: string;
-  cluster: string;
-  user: string;
-  current: boolean;
-};
-
-type ClusterProbe = {
-  reachable: boolean;
-  namespaces: string[];
-  message: string;
-};
-
 const canUseTauri = "__TAURI_INTERNALS__" in window;
 
 export function useKiteData() {
@@ -27,8 +14,6 @@ export function useKiteData() {
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState("");
-  const [contexts, setContexts] = useState<KubeContext[]>([]);
-  const [probe, setProbe] = useState<ClusterProbe | null>(null);
   const [actionPreview, setActionPreview] = useState<ActionPreview | null>(null);
   const [resourceDetails, setResourceDetails] = useState<ResourceDetails>({
     yaml: "",
@@ -41,6 +26,7 @@ export function useKiteData() {
   const [error, setError] = useState("");
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const queryTerms = useMemo(() => (deferredQuery ? deferredQuery.split(/\s+/) : []), [deferredQuery]);
   const namespaces = useMemo(() => {
     return Array.from(new Set(snapshot.resources.map((resource) => resource.namespace))).sort();
   }, [snapshot.resources]);
@@ -68,9 +54,9 @@ export function useKiteData() {
         .join(" ")
         .toLowerCase();
 
-      return deferredQuery.split(/\s+/).every((term) => haystack.includes(term));
+      return queryTerms.every((term) => haystack.includes(term));
     });
-  }, [deferredQuery, namespaceFilter, snapshot.resources, statusFilter]);
+  }, [deferredQuery, namespaceFilter, queryTerms, snapshot.resources, statusFilter]);
 
   const selectedResource = useMemo<ResourceRow | null>(() => {
     return visibleResources.find((resource) => resource.id === selectedId) ?? visibleResources[0] ?? null;
@@ -78,7 +64,6 @@ export function useKiteData() {
 
   useEffect(() => {
     void refreshLiveSnapshot();
-    void refreshKubeContexts();
   }, []);
 
   useEffect(() => {
@@ -120,34 +105,6 @@ export function useKiteData() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function refreshKubeContexts() {
-    if (!canUseTauri) {
-      setContexts([
-        { name: "edge-lab-k3d", cluster: "k3d-edge-lab", user: "local", current: true },
-        { name: "prod-us-east-1", cluster: "eks-prod", user: "sre", current: false },
-      ]);
-      return;
-    }
-
-    setContexts(await invoke<KubeContext[]>("list_kube_contexts"));
-  }
-
-  async function probeDefaultCluster() {
-    if (!canUseTauri) {
-      const nextSnapshot = await fetch("/api/kube/snapshot").then((response) => response.json() as Promise<LiveSnapshot>);
-      setSnapshot(nextSnapshot);
-      setSelectedId((current) => current || nextSnapshot.resources[0]?.id || "");
-      setProbe({
-        reachable: true,
-        namespaces: nextSnapshot.namespaceHeat.map((item) => item.namespace),
-        message: "Live read complete",
-      });
-      return;
-    }
-
-    setProbe(await invoke<ClusterProbe>("probe_default_cluster"));
   }
 
   async function previewAction(action: string) {
@@ -208,7 +165,6 @@ export function useKiteData() {
   return {
     actionPreview,
     clusters: snapshot.clusters,
-    contexts,
     detailsError,
     detailsLoading,
     error,
@@ -216,15 +172,12 @@ export function useKiteData() {
     namespaceHeat: snapshot.namespaceHeat,
     namespaces,
     namespaceFilter,
-    probe,
     query,
     resourceDetails,
     selectedResource,
     statusFilter,
     visibleResources,
-    onProbeDefaultCluster: probeDefaultCluster,
     onPreviewAction: previewAction,
-    onRefreshKubeContexts: refreshKubeContexts,
     onRefreshLiveSnapshot: refreshLiveSnapshot,
     onSelectResource: setSelectedId,
     onSetNamespaceFilter: setNamespaceFilter,

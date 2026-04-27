@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { Activity, AlertTriangle, CheckCircle2, CircleDashed } from "lucide-react";
 import type { ResourceRow } from "../types/kube";
 import { themeForKind } from "../theme/resourceTheme";
@@ -25,7 +25,7 @@ export function KindView({
 }) {
   const theme = themeForKind(kind);
   const Icon = theme.icon;
-  const counts = countStatuses(resources);
+  const counts = useMemo(() => countStatuses(resources), [resources]);
   const visibleTotal = Math.max(resources.length, 1);
 
   return (

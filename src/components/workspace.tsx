@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { memo, useCallback, type CSSProperties } from "react";
 import { Gauge, RefreshCw, Search } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import type { NamespaceHeat, ResourceRow } from "../types/kube";
@@ -99,22 +99,13 @@ export function ResourceTable({
         <div className="table-body">
           {resources.length ? (
             resources.map((resource, index) => (
-              <button
-                className={resource.id === selectedId ? "resource-row selected" : "resource-row"}
+              <ResourceRowButton
                 key={resource.id}
-                style={{ "--delay": `${Math.min(index, 18) * 28}ms` } as CSSProperties}
-                type="button"
-                onClick={() => onSelect(resource.id)}
-              >
-                <span className="name-cell">
-                  <StatusDot state={resource.status} />
-                  <strong>{resource.name}</strong>
-                </span>
-                <span>{resource.kind}</span>
-                <span>{resource.namespace}</span>
-                <span className={`status-chip ${resource.status}`}>{resource.status}</span>
-                <span>{resource.age}</span>
-              </button>
+                index={index}
+                resource={resource}
+                selected={resource.id === selectedId}
+                onSelect={onSelect}
+              />
             ))
           ) : (
             <div className="empty-state">
@@ -127,6 +118,38 @@ export function ResourceTable({
     </section>
   );
 }
+
+const ResourceRowButton = memo(function ResourceRowButton({
+  index,
+  onSelect,
+  resource,
+  selected,
+}: {
+  index: number;
+  onSelect: (id: string) => void;
+  resource: ResourceRow;
+  selected: boolean;
+}) {
+  const handleSelect = useCallback(() => onSelect(resource.id), [onSelect, resource.id]);
+
+  return (
+    <button
+      className={selected ? "resource-row selected" : "resource-row"}
+      style={{ "--delay": `${Math.min(index, 18) * 28}ms` } as CSSProperties}
+      type="button"
+      onClick={handleSelect}
+    >
+      <span className="name-cell">
+        <StatusDot state={resource.status} />
+        <strong>{resource.name}</strong>
+      </span>
+      <span>{resource.kind}</span>
+      <span>{resource.namespace}</span>
+      <span className={`status-chip ${resource.status}`}>{resource.status}</span>
+      <span>{resource.age}</span>
+    </button>
+  );
+});
 
 export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
   return (

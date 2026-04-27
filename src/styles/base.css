@@ -537,6 +537,8 @@ button {
   color: var(--text-soft);
   text-align: start;
   cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: 48px;
 }
 
 .resource-row.selected {

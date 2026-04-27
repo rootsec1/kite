@@ -12,8 +12,8 @@ use kube::{
 use serde::Deserialize;
 
 use crate::models::{
-    ActionPreview, ActionRisk, ActionTarget, ClusterProbe, ClusterSummary, HealthState, KubeContextSummary,
-    LiveSnapshot, NamespaceHeat, ResourceDetails, ResourceEvent, ResourceSummary,
+    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, HealthState, KubeContextSummary, LiveSnapshot,
+    NamespaceHeat, ResourceDetails, ResourceEvent, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -72,31 +72,6 @@ pub fn list_kube_contexts() -> Result<Vec<KubeContextSummary>, String> {
             user: entry.context.user,
         })
         .collect())
-}
-
-#[tauri::command]
-pub async fn probe_default_cluster() -> Result<ClusterProbe, String> {
-    let client = Client::try_default()
-        .await
-        .map_err(|error| format!("Unable to create Kubernetes client: {error}"))?;
-    let namespaces: Api<Namespace> = Api::all(client);
-    let params = ListParams::default().limit(24);
-    let list = namespaces
-        .list(&params)
-        .await
-        .map_err(|error| format!("Unable to list namespaces: {error}"))?;
-
-    let names = list
-        .items
-        .into_iter()
-        .filter_map(|namespace| namespace.metadata.name)
-        .collect::<Vec<_>>();
-
-    Ok(ClusterProbe {
-        reachable: true,
-        message: "Default Kubernetes context is reachable".to_string(),
-        namespaces: names,
-    })
 }
 
 #[tauri::command]

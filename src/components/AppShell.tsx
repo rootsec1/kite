@@ -10,9 +10,11 @@ type AppShellProps = {
   data: KiteData;
 };
 
+const navItems = navSections.flatMap((section) => section.items);
+
 export function AppShell({ data }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
-  const activeItem = navSections.flatMap((section) => section.items).find((item) => item.id === activeId);
+  const activeItem = useMemo(() => navItems.find((item) => item.id === activeId), [activeId]);
 
   const counts = useMemo(() => countByKind(data.visibleResources), [data.visibleResources]);
   const scopedResources = useMemo(() => {
@@ -22,7 +24,10 @@ export function AppShell({ data }: AppShellProps) {
     return data.visibleResources.filter((resource) => resource.kind === activeItem.kind);
   }, [activeItem?.kind, data.visibleResources]);
 
-  const warningCount = data.visibleResources.filter((resource) => resource.status !== "healthy").length;
+  const warningCount = useMemo(
+    () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
+    [data.visibleResources],
+  );
   const clusterName = data.clusters[0]?.name ?? "No context";
 
   return (

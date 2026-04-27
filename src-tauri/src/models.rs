@@ -11,14 +11,6 @@ pub struct KubeContextSummary {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ClusterProbe {
-    pub reachable: bool,
-    pub namespaces: Vec<String>,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LiveSnapshot {
     pub clusters: Vec<ClusterSummary>,
     pub namespace_heat: Vec<NamespaceHeat>,
