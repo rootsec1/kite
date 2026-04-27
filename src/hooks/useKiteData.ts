@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { labelFilterOptions, matchesLabelFilter } from "../lib/labels";
 import type { LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 
 const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(window.location.origin);
@@ -14,6 +15,7 @@ export function useKiteData() {
   const [query, setQuery] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [labelFilter, setLabelFilter] = useState("all");
   const [selectedId, setSelectedId] = useState("");
   const [podActionResult, setPodActionResult] = useState<PodActionResult | null>(null);
   const [resourceDetails, setResourceDetails] = useState<ResourceDetails>({
@@ -33,12 +35,29 @@ export function useKiteData() {
     return Array.from(new Set(snapshot.resources.map((resource) => resource.namespace))).sort();
   }, [snapshot.resources]);
 
-  const visibleResources = useMemo(() => {
+  const scopedResources = useMemo(() => {
     return snapshot.resources.filter((resource) => {
       if (namespaceFilter !== "all" && resource.namespace !== namespaceFilter) {
         return false;
       }
       if (statusFilter !== "all" && resource.status !== statusFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [namespaceFilter, snapshot.resources, statusFilter]);
+
+  const labelOptions = useMemo(() => labelFilterOptions(scopedResources), [scopedResources]);
+
+  useEffect(() => {
+    if (labelFilter !== "all" && !labelOptions.some((option) => option.value === labelFilter)) {
+      setLabelFilter("all");
+    }
+  }, [labelFilter, labelOptions]);
+
+  const visibleResources = useMemo(() => {
+    return scopedResources.filter((resource) => {
+      if (!matchesLabelFilter(resource, labelFilter)) {
         return false;
       }
       if (!deferredQuery) {
@@ -58,7 +77,7 @@ export function useKiteData() {
 
       return queryTerms.every((term) => haystack.includes(term));
     });
-  }, [deferredQuery, namespaceFilter, queryTerms, snapshot.resources, statusFilter]);
+  }, [deferredQuery, labelFilter, queryTerms, scopedResources]);
 
   const selectedResource = useMemo<ResourceRow | null>(() => {
     return visibleResources.find((resource) => resource.id === selectedId) ?? visibleResources[0] ?? null;
@@ -222,6 +241,8 @@ export function useKiteData() {
     detailsLoading,
     error,
     loading,
+    labelFilter,
+    labelOptions,
     namespaceHeat: snapshot.namespaceHeat,
     namespaces,
     namespaceFilter,
@@ -234,6 +255,7 @@ export function useKiteData() {
     onRefreshLiveSnapshot: refreshLiveSnapshot,
     onRefreshResourceDetails: refreshSelectedResourceDetails,
     onRunPodAction: runPodAction,
+    onSetLabelFilter: setLabelFilter,
     onSelectResource: setSelectedId,
     onSetNamespaceFilter: setNamespaceFilter,
     onSetQuery: setQuery,

@@ -194,7 +194,7 @@ button {
 .toolbar {
   position: relative;
   display: grid;
-  grid-template-columns: 92px minmax(260px, 1fr) 150px 130px auto 44px;
+  grid-template-columns: 92px minmax(230px, 1fr) 150px 130px 190px auto 44px;
   gap: 10px;
   align-items: center;
   padding-inline: 22px;
@@ -228,7 +228,8 @@ button {
   background: var(--surface);
 }
 
-.toolbar select {
+.toolbar select,
+.label-filter {
   min-block-size: 38px;
   min-inline-size: 0;
   border: 1px solid var(--line);
@@ -236,6 +237,26 @@ button {
   background: var(--surface);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.label-filter {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  padding-inline: 10px 0;
+  background: var(--surface);
+}
+
+.label-filter svg {
+  color: var(--green-deep);
+}
+
+.label-filter select {
+  inline-size: 100%;
+  min-block-size: 36px;
+  border: 0;
+  background: transparent;
 }
 
 .search-box input {
@@ -400,13 +421,13 @@ button {
 .table-head,
 .resource-row {
   display: grid;
-  grid-template-columns: minmax(240px, 1.8fr) 110px 150px 72px;
+  grid-template-columns: minmax(220px, 1.6fr) 104px 142px 64px minmax(170px, 0.9fr);
   align-items: center;
 }
 
 .resource-table.without-kind .table-head,
 .resource-table.without-kind .resource-row {
-  grid-template-columns: minmax(240px, 1.8fr) minmax(140px, 0.8fr) 72px;
+  grid-template-columns: minmax(220px, 1.7fr) minmax(130px, 0.8fr) 64px minmax(170px, 0.9fr);
 }
 
 .table-head {
@@ -462,6 +483,33 @@ button {
 .name-cell strong {
   white-space: nowrap;
   font-weight: 500;
+}
+
+.label-pills {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.label-pills small {
+  overflow: hidden;
+  max-inline-size: 132px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  color: var(--green-deep);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--surface-soft);
+}
+
+.label-pills.muted {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .status-dot.warning { color: #7d5317; background: var(--yellow); }
@@ -1219,7 +1267,7 @@ button {
   }
 
   .toolbar {
-    grid-template-columns: 92px minmax(280px, 1fr) 130px 120px auto 44px;
+    grid-template-columns: 92px minmax(280px, 1fr) 130px 120px 170px auto 44px;
   }
 
   .summary-strip {

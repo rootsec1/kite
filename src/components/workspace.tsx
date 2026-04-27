@@ -1,6 +1,7 @@
 import { memo, useCallback, type CSSProperties } from "react";
-import { Gauge, RefreshCw, Search } from "lucide-react";
+import { Gauge, RefreshCw, Search, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
+import { primaryLabels } from "../lib/labels";
 import type { NamespaceHeat, ResourceRow } from "../types/kube";
 import { overviewCards } from "./navigation";
 import { StatusDot } from "./status";
@@ -36,6 +37,17 @@ export function Toolbar({ count, data, scope }: { count: number; data: KiteData;
         <option value="critical">Fail</option>
         <option value="syncing">Sync</option>
       </select>
+      <label className="label-filter">
+        <Tag size={14} />
+        <select value={data.labelFilter} onChange={(event) => data.onSetLabelFilter(event.target.value)} aria-label="Label filter">
+          <option value="all">All labels</option>
+          {data.labelOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} ({option.count})
+            </option>
+          ))}
+        </select>
+      </label>
       <span className="scope-readout">{scope} · {count}</span>
       <button className={data.loading ? "icon-button loading" : "icon-button"} type="button" onClick={data.onRefreshLiveSnapshot}>
         <RefreshCw size={16} />
@@ -135,6 +147,7 @@ export function ResourceTable({
           {showKind ? <span>Kind</span> : null}
           <span>Namespace</span>
           <span>Age</span>
+          <span>Labels</span>
         </div>
         <div className="table-body">
           {resources.length ? (
@@ -189,9 +202,26 @@ const ResourceRowButton = memo(function ResourceRowButton({
       {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>
       <span>{resource.age}</span>
+      <LabelPills resource={resource} />
     </button>
   );
 });
+
+function LabelPills({ resource }: { resource: ResourceRow }) {
+  const labels = primaryLabels(resource);
+
+  if (!labels.length) {
+    return <span className="label-pills muted">none</span>;
+  }
+
+  return (
+    <span className="label-pills">
+      {labels.map((label) => (
+        <small key={label}>{label}</small>
+      ))}
+    </span>
+  );
+}
 
 export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
   return (
