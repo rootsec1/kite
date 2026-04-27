@@ -4,6 +4,7 @@ use k8s_openapi::api::{
     apps::v1::Deployment,
     core::v1::{Namespace, Node, Pod, Service},
 };
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     api::ListParams,
     Api, Client, ResourceExt,
@@ -131,6 +132,7 @@ pub async fn live_snapshot() -> Result<LiveSnapshot, String> {
     resources.extend(list_services(client.clone(), &context).await?);
     resources.extend(list_nodes(client.clone(), &context).await?);
     resources.extend(list_namespaces(client.clone(), &context).await?);
+    resources.extend(list_crds(client.clone(), &context).await?);
     resources.extend(list_helm_releases(&context).await.unwrap_or_default());
 
     resources.sort_by(|left, right| {
@@ -558,6 +560,31 @@ async fn list_helm_releases(cluster: &str) -> Result<Vec<ResourceSummary>, Strin
             )
             .with_owner(release.chart)
             .with_age(short_age(&release.updated))
+        })
+        .collect())
+}
+
+async fn list_crds(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let crds = Api::<CustomResourceDefinition>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list CRDs: {error}"))?;
+
+    Ok(crds
+        .items
+        .into_iter()
+        .map(|crd| {
+            let group = crd.spec.group.clone();
+            resource_summary(
+                "CustomResourceDefinition",
+                crd.name_any(),
+                "cluster".to_string(),
+                cluster,
+                HealthState::Healthy,
+                0,
+                group.clone(),
+            )
+            .with_owner(group)
         })
         .collect())
 }

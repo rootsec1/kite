@@ -72,6 +72,7 @@ const resourceQueries = [
   { name: "storageclasses.storage.k8s.io", namespaced: false },
   { name: "clusterroles.rbac.authorization.k8s.io", namespaced: false },
   { name: "clusterrolebindings.rbac.authorization.k8s.io", namespaced: false },
+  { name: "customresourcedefinitions.apiextensions.k8s.io", namespaced: false },
 ];
 
 export async function readKubeSnapshot() {

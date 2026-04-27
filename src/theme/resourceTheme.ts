@@ -80,6 +80,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
       { id: "ConfigMap", label: "ConfigMaps", icon: Settings2, kind: "ConfigMap" },
       { id: "Secret", label: "Secrets", icon: FileKey2, kind: "Secret" },
       { id: "Role", label: "RBAC", icon: Shield, kind: "Role" },
+      { id: "CustomResourceDefinition", label: "CRDs", icon: Boxes, kind: "CustomResourceDefinition" },
     ],
   },
 ];
@@ -118,6 +119,7 @@ export const kindThemes: Record<string, KindTheme> = {
   Secret: { label: "Secrets", icon: FileKey2, accent: "orange", actions: ["Keys", "YAML"] },
   Role: { label: "RBAC", icon: Shield, accent: "orange", actions: ["Rules", "Bindings", "YAML"] },
   HelmRelease: { label: "Helm", icon: GalleryVerticalEnd, accent: "blue", actions: ["Values", "Manifest", "Status"] },
+  CustomResourceDefinition: { label: "CRDs", icon: Boxes, accent: "blue", actions: ["Versions", "Schema", "YAML"] },
 };
 
 export function themeForKind(kind?: string) {
