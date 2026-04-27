@@ -67,6 +67,24 @@ pub struct ResourceSummary {
     pub image: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceDetails {
+    pub yaml: String,
+    pub events: Vec<ResourceEvent>,
+    pub logs: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceEvent {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub reason: String,
+    pub message: String,
+    pub age: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthState {

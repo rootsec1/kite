@@ -47,6 +47,9 @@ export function AppShell({ data }: AppShellProps) {
             </div>
 
             <Inspector
+              details={data.resourceDetails}
+              detailsError={data.detailsError}
+              detailsLoading={data.detailsLoading}
               error={data.error}
               resource={data.selectedResource}
               onPreviewAction={data.onPreviewAction}

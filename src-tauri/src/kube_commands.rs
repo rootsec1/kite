@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use crate::models::{
     ActionPreview, ActionRisk, ActionTarget, ClusterProbe, ClusterSummary, HealthState, KubeContextSummary,
-    LiveSnapshot, NamespaceHeat, ResourceSummary,
+    LiveSnapshot, NamespaceHeat, ResourceDetails, ResourceEvent, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -183,12 +183,123 @@ pub fn guarded_action_preview(action: String, target: ActionTarget) -> ActionPre
     }
 }
 
+#[tauri::command]
+pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
+    let yaml = kubectl(resource_yaml_args(&target))
+        .await
+        .unwrap_or_else(|error| error);
+    let events = resource_events(&target).await.unwrap_or_default();
+    let logs = if target.kind == "Pod" {
+        kubectl(vec![
+            "logs".to_string(),
+            target.name.clone(),
+            "-n".to_string(),
+            target.namespace.clone(),
+            "--tail=240".to_string(),
+            "--timestamps".to_string(),
+        ])
+        .await
+        .unwrap_or_else(|error| error)
+    } else {
+        String::new()
+    };
+
+    ResourceDetails { yaml, events, logs }
+}
+
 fn classify_action(action: &str) -> ActionRisk {
     match action {
         "delete" | "apply" | "edit" | "scale" | "set-image" | "rollback" => ActionRisk::High,
         "restart" | "debug" | "exec" | "node-shell" | "port-forward" | "trigger-cronjob" => ActionRisk::Medium,
         _ => ActionRisk::Low,
     }
+}
+
+async fn resource_events(target: &ActionTarget) -> Result<Vec<ResourceEvent>, String> {
+    let mut args = vec![
+        "get".to_string(),
+        "events".to_string(),
+        "--field-selector".to_string(),
+        format!("involvedObject.name={}", target.name),
+        "-o".to_string(),
+        "json".to_string(),
+    ];
+
+    if target.namespace == "cluster" {
+        args.insert(2, "-A".to_string());
+    } else {
+        args.insert(2, target.namespace.clone());
+        args.insert(2, "-n".to_string());
+    }
+
+    let output = kubectl(args).await?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid events JSON: {error}"))?;
+    let events = parsed
+        .get("items")
+        .and_then(|items| items.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|event| ResourceEvent {
+                    type_: text_field(event, "type", "Normal"),
+                    reason: text_field(event, "reason", "Event"),
+                    message: text_field(event, "message", ""),
+                    age: event
+                        .get("lastTimestamp")
+                        .or_else(|| event.get("eventTime"))
+                        .or_else(|| event.pointer("/metadata/creationTimestamp"))
+                        .and_then(|value| value.as_str())
+                        .map(short_age)
+                        .unwrap_or_else(|| "live".to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(events)
+}
+
+fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
+    let mut args = vec![
+        "get".to_string(),
+        target.kind.clone(),
+        target.name.clone(),
+        "-o".to_string(),
+        "yaml".to_string(),
+    ];
+
+    if target.namespace != "cluster" {
+        args.insert(3, target.namespace.clone());
+        args.insert(3, "-n".to_string());
+    }
+
+    args
+}
+
+async fn kubectl(args: Vec<String>) -> Result<String, String> {
+    let output = tokio::process::Command::new("kubectl")
+        .args(args)
+        .output()
+        .await
+        .map_err(|error| format!("Unable to run kubectl: {error}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+fn text_field(value: &serde_json::Value, field: &str, fallback: &str) -> String {
+    value
+        .get(field)
+        .and_then(|field| field.as_str())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn short_age(timestamp: &str) -> String {
+    timestamp.split('T').next().unwrap_or(timestamp).to_string()
 }
 
 fn kubeconfig_path() -> Result<PathBuf, String> {

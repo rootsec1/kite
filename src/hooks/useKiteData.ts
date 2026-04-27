@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ActionPreview, LiveSnapshot, ResourceRow } from "../types/kube";
+import type { ActionPreview, LiveSnapshot, ResourceDetails, ResourceRow } from "../types/kube";
 
 type KubeContext = {
   name: string;
@@ -28,6 +28,13 @@ export function useKiteData() {
   const [contexts, setContexts] = useState<KubeContext[]>([]);
   const [probe, setProbe] = useState<ClusterProbe | null>(null);
   const [actionPreview, setActionPreview] = useState<ActionPreview | null>(null);
+  const [resourceDetails, setResourceDetails] = useState<ResourceDetails>({
+    yaml: "",
+    events: [],
+    logs: "",
+  });
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -62,6 +69,24 @@ export function useKiteData() {
     void refreshLiveSnapshot();
     void refreshKubeContexts();
   }, []);
+
+  useEffect(() => {
+    if (!selectedResource) {
+      setResourceDetails({ yaml: "", events: [], logs: "" });
+      return;
+    }
+
+    let cancelled = false;
+    void refreshResourceDetails(selectedResource).then((details) => {
+      if (!cancelled && details) {
+        setResourceDetails(details);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedResource]);
 
   async function refreshLiveSnapshot() {
     setLoading(true);
@@ -135,15 +160,52 @@ export function useKiteData() {
     setActionPreview(await invoke<ActionPreview>("guarded_action_preview", { action, target }));
   }
 
+  async function refreshResourceDetails(resource: ResourceRow) {
+    setDetailsLoading(true);
+    setDetailsError("");
+
+    const target = {
+      kind: resource.kind,
+      name: resource.name,
+      namespace: resource.namespace,
+      cluster: resource.cluster,
+    };
+
+    try {
+      if (canUseTauri) {
+        return await invoke<ResourceDetails>("resource_details", { target });
+      }
+
+      const params = new URLSearchParams({
+        kind: target.kind,
+        name: target.name,
+        namespace: target.namespace,
+      });
+      const response = await fetch(`/api/kube/details?${params}`);
+      if (!response.ok) {
+        throw new Error(`Resource details failed: ${response.status}`);
+      }
+      return await response.json() as ResourceDetails;
+    } catch (caught) {
+      setDetailsError(caught instanceof Error ? caught.message : "Unable to read resource details");
+      return { yaml: "", events: [], logs: "" };
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
   return {
     actionPreview,
     clusters: snapshot.clusters,
     contexts,
+    detailsError,
+    detailsLoading,
     error,
     loading,
     namespaceHeat: snapshot.namespaceHeat,
     probe,
     query,
+    resourceDetails,
     selectedResource,
     visibleResources,
     onProbeDefaultCluster: probeDefaultCluster,

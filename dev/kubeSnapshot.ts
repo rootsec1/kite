@@ -31,6 +31,15 @@ type KubeList = {
   items?: KubeItem[];
 };
 
+type KubeEvent = {
+  type?: string;
+  reason?: string;
+  message?: string;
+  lastTimestamp?: string;
+  eventTime?: string;
+  metadata?: { creationTimestamp?: string };
+};
+
 const resourceQueries = [
   { name: "pods", namespaced: true },
   { name: "deployments.apps", namespaced: true },
@@ -86,6 +95,50 @@ export async function readKubeSnapshot() {
     namespaceHeat: namespaces.slice(0, 10).map((namespace) => toNamespaceHeat(namespace, resources)),
     resources,
   };
+}
+
+export async function readResourceDetails(target: { kind: string; name: string; namespace: string }) {
+  const yaml = await readResourceYaml(target).catch((error) => errorMessage(error));
+  const events = await readResourceEvents(target).catch(() => []);
+  const logs = target.kind === "Pod" ? await readPodLogs(target).catch((error) => errorMessage(error)) : "";
+
+  return { yaml, events, logs };
+}
+
+async function readResourceYaml(target: { kind: string; name: string; namespace: string }) {
+  const args = ["get", target.kind, target.name, "-o", "yaml"];
+  if (target.namespace && target.namespace !== "cluster") {
+    args.splice(3, 0, "-n", target.namespace);
+  }
+  return kubectlText(args);
+}
+
+async function readResourceEvents(target: { kind: string; name: string; namespace: string }) {
+  const args = [
+    "get",
+    "events",
+    "--field-selector",
+    `involvedObject.name=${target.name}`,
+    "-o",
+    "json",
+  ];
+  if (target.namespace && target.namespace !== "cluster") {
+    args.splice(2, 0, "-n", target.namespace);
+  } else {
+    args.splice(2, 0, "-A");
+  }
+
+  const list = await kubectlJson<{ items?: KubeEvent[] }>(args);
+  return (list.items ?? []).map((event) => ({
+    type: event.type ?? "Normal",
+    reason: event.reason ?? "Event",
+    message: event.message ?? "",
+    age: age(event.lastTimestamp ?? event.eventTime ?? event.metadata?.creationTimestamp),
+  }));
+}
+
+async function readPodLogs(target: { name: string; namespace: string }) {
+  return kubectlText(["logs", target.name, "-n", target.namespace, "--tail=240", "--timestamps"]);
 }
 
 async function readResourceList(query: { name: string; namespaced: boolean }) {
@@ -194,4 +247,8 @@ function age(timestamp?: string) {
   const days = Math.max(0, Math.floor((Date.now() - created) / 86_400_000));
   if (days > 0) return `${days}d`;
   return "today";
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unable to read resource details";
 }

@@ -36,6 +36,19 @@ export type ResourceRow = {
   image: string;
 };
 
+export type ResourceEvent = {
+  type: string;
+  reason: string;
+  message: string;
+  age: string;
+};
+
+export type ResourceDetails = {
+  yaml: string;
+  events: ResourceEvent[];
+  logs: string;
+};
+
 export type LiveSnapshot = {
   clusters: Cluster[];
   namespaceHeat: NamespaceHeat[];

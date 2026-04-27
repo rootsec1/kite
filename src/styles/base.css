@@ -698,6 +698,14 @@ button {
   gap: 8px;
 }
 
+.log-pane pre {
+  max-block-size: 290px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
 .log-pane strong {
   color: var(--text);
 }

@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { Braces, Clock3, FileText, TerminalSquare, type LucideIcon } from "lucide-react";
-import type { ResourceRow } from "../types/kube";
+import type { ResourceDetails, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
 
 export function Inspector({
+  details,
+  detailsError,
+  detailsLoading,
   error,
   resource,
   onPreviewAction,
 }: {
+  details: ResourceDetails;
+  detailsError: string;
+  detailsLoading: boolean;
   error: string;
   resource: ResourceRow | null;
   onPreviewAction: (action: string) => void;
@@ -38,7 +44,7 @@ export function Inspector({
             <TabButton active={tab === "logs"} icon={TerminalSquare} label="Logs" onClick={() => openTab("logs")} />
             <TabButton active={tab === "events"} icon={Clock3} label="Events" onClick={() => openTab("events")} />
           </div>
-          <InspectorTab resource={resource} tab={tab} />
+          <InspectorTab details={details} detailsError={detailsError} detailsLoading={detailsLoading} resource={resource} tab={tab} />
         </>
       ) : (
         <div className="empty-state">
@@ -69,16 +75,28 @@ function TabButton({
   );
 }
 
-function InspectorTab({ resource, tab }: { resource: ResourceRow; tab: "overview" | "yaml" | "logs" | "events" }) {
+function InspectorTab({
+  details,
+  detailsError,
+  detailsLoading,
+  resource,
+  tab,
+}: {
+  details: ResourceDetails;
+  detailsError: string;
+  detailsLoading: boolean;
+  resource: ResourceRow;
+  tab: "overview" | "yaml" | "logs" | "events";
+}) {
   if (tab === "yaml") {
-    return <pre className="code-pane">{summaryYaml(resource)}</pre>;
+    return <pre className="code-pane">{detailsLoading ? "Loading YAML..." : details.yaml || detailsError || summaryYaml(resource)}</pre>;
   }
 
   if (tab === "logs") {
     return (
       <div className="log-pane">
-        <span>{resource.kind === "Pod" ? "live log target" : "logs available on pods"}</span>
-        <strong>{resource.kind === "Pod" ? resource.name : "select a pod"}</strong>
+        <span>{resource.kind === "Pod" ? "tail --240" : "logs are pod-scoped"}</span>
+        <pre>{detailsLoading ? "Loading logs..." : details.logs || (resource.kind === "Pod" ? detailsError || "No log lines returned." : "Select a pod to stream logs.")}</pre>
       </div>
     );
   }
@@ -86,9 +104,15 @@ function InspectorTab({ resource, tab }: { resource: ResourceRow; tab: "overview
   if (tab === "events") {
     return (
       <div className="event-pane">
-        <Detail label="Status" value={resource.status} />
-        <Detail label="Restarts" value={String(resource.restarts)} />
-        <Detail label="Age" value={resource.age} />
+        {detailsLoading ? (
+          <Detail label="Events" value="Loading..." />
+        ) : details.events.length ? (
+          details.events.map((event, index) => (
+            <Detail key={`${event.reason}-${index}`} label={`${event.type} / ${event.reason}`} value={event.message || event.age} />
+          ))
+        ) : (
+          <Detail label="Events" value={detailsError || "No events found"} />
+        )}
       </div>
     );
   }
