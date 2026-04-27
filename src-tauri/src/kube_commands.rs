@@ -2,7 +2,7 @@ use std::{env, fs, path::PathBuf};
 
 use k8s_openapi::api::{
     apps::v1::Deployment,
-    core::v1::{Namespace, Node, Pod, Service},
+    core::v1::{Event, Namespace, Node, Pod, Service},
 };
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
@@ -130,6 +130,7 @@ pub async fn live_snapshot() -> Result<LiveSnapshot, String> {
     resources.extend(list_pods(client.clone(), &context).await?);
     resources.extend(list_deployments(client.clone(), &context).await?);
     resources.extend(list_services(client.clone(), &context).await?);
+    resources.extend(list_events(client.clone(), &context).await?);
     resources.extend(list_nodes(client.clone(), &context).await?);
     resources.extend(list_namespaces(client.clone(), &context).await?);
     resources.extend(list_crds(client.clone(), &context).await?);
@@ -485,6 +486,32 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
                 0,
                 service.spec.and_then(|spec| spec.type_).unwrap_or_default(),
             )
+        })
+        .collect())
+}
+
+async fn list_events(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let events = Api::<Event>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list events: {error}"))?;
+
+    Ok(events
+        .items
+        .into_iter()
+        .map(|event| {
+            let event_type = event.type_.clone().unwrap_or_else(|| "Normal".to_string());
+            let reason = event.reason.clone().unwrap_or_default();
+            resource_summary(
+                "Event",
+                event.name_any(),
+                event.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                if event_type == "Warning" { HealthState::Warning } else { HealthState::Healthy },
+                0,
+                event_type,
+            )
+            .with_owner(reason)
         })
         .collect())
 }

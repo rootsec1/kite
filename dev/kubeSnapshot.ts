@@ -5,6 +5,7 @@ const exec = promisify(execFile);
 
 type KubeItem = {
   kind?: string;
+  type?: string;
   metadata?: {
     name?: string;
     namespace?: string;
@@ -58,6 +59,7 @@ const resourceQueries = [
   { name: "jobs.batch", namespaced: true },
   { name: "cronjobs.batch", namespaced: true },
   { name: "services", namespaced: true },
+  { name: "events", namespaced: true },
   { name: "ingresses.networking.k8s.io", namespaced: true },
   { name: "gateways.gateway.networking.k8s.io", namespaced: true },
   { name: "httproutes.gateway.networking.k8s.io", namespaced: true },
@@ -249,6 +251,10 @@ function toResource(item: KubeItem, cluster: string, index: number) {
 }
 
 function resourceStatus(item: KubeItem) {
+  if (item.kind === "Event") {
+    return item.type === "Warning" ? "warning" : "healthy";
+  }
+
   if (item.kind === "PersistentVolumeClaim" || item.kind === "PersistentVolume") {
     return item.status?.phase === "Bound" || item.status?.phase === "Available" ? "healthy" : "warning";
   }

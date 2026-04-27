@@ -39,6 +39,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
       { id: "Pod", label: "Pods", icon: Container, kind: "Pod" },
       { id: "Node", label: "Nodes", icon: Server, kind: "Node" },
       { id: "Namespace", label: "Namespaces", icon: Layers3, kind: "Namespace" },
+      { id: "Event", label: "Events", icon: Clock3, kind: "Event" },
     ],
   },
   {
@@ -120,6 +121,7 @@ export const kindThemes: Record<string, KindTheme> = {
   Role: { label: "RBAC", icon: Shield, accent: "orange", actions: ["Rules", "Bindings", "YAML"] },
   HelmRelease: { label: "Helm", icon: GalleryVerticalEnd, accent: "blue", actions: ["Values", "Manifest", "Status"] },
   CustomResourceDefinition: { label: "CRDs", icon: Boxes, accent: "blue", actions: ["Versions", "Schema", "YAML"] },
+  Event: { label: "Events", icon: Clock3, accent: "orange", actions: ["Involved", "Reason", "YAML"] },
 };
 
 export function themeForKind(kind?: string) {
