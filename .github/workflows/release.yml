@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v prefix"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: Build signed macOS release
+    runs-on: macos-latest
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      HOMEBREW_TAP_REPOSITORY: rootsec1/homebrew-kite
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+          echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Validate release secrets
+        run: |
+          missing=0
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required secret: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare App Store Connect API key
+        run: |
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Build signed and notarized universal DMG
+        run: bun run tauri:build -- --target universal-apple-darwin
+
+      - name: Normalize release assets
+        run: |
+          mkdir -p release-assets
+          DMG_PATH="$(find src-tauri/target -path '*/bundle/dmg/*.dmg' -print -quit)"
+          if [ -z "$DMG_PATH" ]; then
+            echo "::error::No DMG was produced by Tauri"
+            exit 1
+          fi
+          DMG_NAME="Kite_${RELEASE_VERSION}_universal.dmg"
+          cp "$DMG_PATH" "release-assets/$DMG_NAME"
+          shasum -a 256 "release-assets/$DMG_NAME" > release-assets/checksums.txt
+          DMG_SHA256="$(cut -d ' ' -f 1 release-assets/checksums.txt)"
+          DMG_URL="https://github.com/rootsec1/kite/releases/download/${RELEASE_TAG}/${DMG_NAME}"
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+          echo "DMG_SHA256=$DMG_SHA256" >> "$GITHUB_ENV"
+          echo "DMG_URL=$DMG_URL" >> "$GITHUB_ENV"
+
+      - name: Generate Homebrew cask
+        run: |
+          bun scripts/generate-homebrew-cask.mjs \
+            --version "$RELEASE_VERSION" \
+            --sha256 "$DMG_SHA256" \
+            --url "$DMG_URL" \
+            --output release-assets/kite.rb
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Kite ${{ env.RELEASE_VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/${{ env.DMG_NAME }}
+            release-assets/checksums.txt
+            release-assets/kite.rb
+
+      - name: Update Homebrew tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPOSITORY}.git" homebrew-tap
+          mkdir -p homebrew-tap/Casks
+          cp release-assets/kite.rb homebrew-tap/Casks/kite.rb
+          cd homebrew-tap
+          git add Casks/kite.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew cask already up to date."
+          else
+            git commit -m "Update Kite to ${RELEASE_VERSION}"
+            git push origin HEAD:main
+          fi

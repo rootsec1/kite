@@ -74,7 +74,12 @@ bun run tauri:build
 ```
 
 Release artifacts are written to `src-tauri/target/release/bundle/macos/Kite.app` and `src-tauri/target/release/bundle/dmg/`.
-Public distribution still requires an Apple Developer signing identity and notarization.
+Public distribution uses the signed, notarized GitHub release workflow and the Homebrew cask flow in [docs/release.md](docs/release.md).
+
+```bash
+brew tap rootsec1/kite
+brew install --cask kite
+```
 
 ## Contributing
 
