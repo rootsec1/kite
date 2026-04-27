@@ -1,0 +1,23 @@
+:root {
+  color-scheme: light;
+  font-family: "Aptos", "SF Pro Text", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --bg: #f7f9f9;
+  --bg-deep: #061314;
+  --surface: #ffffff;
+  --surface-soft: #f2f6f5;
+  --line: #d8dcdf;
+  --line-bright: #cbd2d4;
+  --text: #071014;
+  --text-soft: #4b5458;
+  --muted: #8f999d;
+  --green: #3fc79e;
+  --green-deep: #0b4b44;
+  --blue: #7ec8e3;
+  --orange: #fe7957;
+  --red: #d11111;
+  --yellow: #e8ab53;
+  --shadow: 0 18px 54px rgba(7, 16, 20, 0.08);
+}

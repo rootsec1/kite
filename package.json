@@ -1,0 +1,31 @@
+{
+  "name": "kite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A native, UI-first Kubernetes cockpit built with Tauri, Rust, and React.",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:web": "vite --host 127.0.0.1 --port 1420",
+    "build": "bun run typecheck && bun run build:web",
+    "build:web": "vite build",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.0",
+    "lucide-react": "^0.554.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
+  }
+}

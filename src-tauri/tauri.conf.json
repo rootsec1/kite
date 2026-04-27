@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kite",
+  "version": "0.1.0",
+  "identifier": "dev.kite.desktop",
+  "build": {
+    "beforeDevCommand": "bun run dev:web",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "bun run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Kite",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1180,
+        "minHeight": 760,
+        "decorations": false,
+        "transparent": true,
+        "visible": true,
+        "resizable": true,
+        "titleBarStyle": "Overlay"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Native Kubernetes cockpit",
+    "longDescription": "Kite is a native, UI-first Kubernetes cockpit built with Tauri, Rust, and React."
+  }
+}
