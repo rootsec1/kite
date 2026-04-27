@@ -41,7 +41,7 @@ export function AppShell({ data }: AppShellProps) {
     [data.visibleResources],
   );
 
-  const clusterName = data.clusters[0]?.name ?? "No context";
+  const clusterName = data.clusters[0]?.name ?? data.selectedContext ?? "No context";
   const detailResource = detailOpen ? data.selectedResource : null;
 
   function openResource(id: string) {

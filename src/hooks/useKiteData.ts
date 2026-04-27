@@ -2,11 +2,12 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "rea
 import { invoke } from "@tauri-apps/api/core";
 import { labelFilterOptions, matchesLabelFilter } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
-import type { LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
+import type { KubeContextSummary, LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 
 const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(window.location.origin);
 const canUseTauri = "__TAURI_INTERNALS__" in window && !isViteDevBrowser;
 const pinnedStorageKey = "kite:pinned-resources:v1";
+const selectedContextStorageKey = "kite:selected-context:v1";
 
 export function useKiteData() {
   const [snapshot, setSnapshot] = useState<LiveSnapshot>({
@@ -14,6 +15,8 @@ export function useKiteData() {
     namespaceHeat: [],
     resources: [],
   });
+  const [contexts, setContexts] = useState<KubeContextSummary[]>([]);
+  const [selectedContext, setSelectedContext] = useState(readSelectedContext);
   const [query, setQuery] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -94,7 +97,7 @@ export function useKiteData() {
   }, [selectedId, visibleResources]);
 
   useEffect(() => {
-    void refreshLiveSnapshot();
+    void refreshKubeContextsAndSnapshot();
   }, []);
 
   useEffect(() => {
@@ -116,15 +119,29 @@ export function useKiteData() {
     };
   }, [selectedResource]);
 
-  async function refreshLiveSnapshot() {
+  async function refreshKubeContextsAndSnapshot() {
+    try {
+      const nextContexts = await readKubeContexts();
+      const nextContext = chooseContext(selectedContext, nextContexts);
+      setContexts(nextContexts);
+      setSelectedContext(nextContext);
+      writeSelectedContext(nextContext);
+      await refreshLiveSnapshot(nextContext);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to read Kubernetes contexts");
+      setLoading(false);
+    }
+  }
+
+  async function refreshLiveSnapshot(contextOverride = selectedContext) {
     setLoading(true);
     setError("");
 
     try {
-      const nextSnapshot = await readLiveSnapshot();
+      const nextSnapshot = await readLiveSnapshot(contextOverride);
 
       setSnapshot(nextSnapshot);
-      setSelectedId((current) => current || nextSnapshot.resources[0]?.id || "");
+      setSelectedId((current) => nextSnapshot.resources.some((resource) => resource.id === current) ? current : nextSnapshot.resources[0]?.id || "");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to read Kubernetes state");
     } finally {
@@ -132,16 +149,40 @@ export function useKiteData() {
     }
   }
 
-  async function readLiveSnapshot() {
+  async function readKubeContexts() {
     if (canUseTauri) {
       try {
-        return await invoke<LiveSnapshot>("live_snapshot");
+        return await invoke<KubeContextSummary[]>("list_kube_contexts");
       } catch {
         // Tauri dev sometimes runs the same UI in a plain browser; the Vite API keeps local QA working.
       }
     }
 
-    const response = await fetch("/api/kube/snapshot");
+    const response = await fetch("/api/kube/contexts");
+    if (!response.ok) {
+      throw new Error(`Kubernetes contexts failed: ${response.status}`);
+    }
+    const nextContexts = await response.json() as KubeContextSummary[];
+    if (!Array.isArray(nextContexts)) {
+      throw new Error("Kubernetes contexts response was not a list");
+    }
+    return nextContexts;
+  }
+
+  async function readLiveSnapshot(context: string) {
+    if (canUseTauri) {
+      try {
+        return await invoke<LiveSnapshot>("live_snapshot", { context });
+      } catch {
+        // Tauri dev sometimes runs the same UI in a plain browser; the Vite API keeps local QA working.
+      }
+    }
+
+    const params = new URLSearchParams();
+    if (context) {
+      params.set("context", context);
+    }
+    const response = await fetch(`/api/kube/snapshot?${params}`);
     if (!response.ok) {
       throw new Error(`Kubernetes snapshot failed: ${response.status}`);
     }
@@ -150,6 +191,17 @@ export function useKiteData() {
       throw new Error("Kubernetes snapshot response did not include resources");
     }
     return nextSnapshot;
+  }
+
+  function switchContext(context: string) {
+    setSelectedContext(context);
+    writeSelectedContext(context);
+    setNamespaceFilter("all");
+    setLabelFilter("all");
+    setSelectedId("");
+    setPodActionResult(null);
+    setResourceDetails({ yaml: "", events: [], logs: "" });
+    void refreshLiveSnapshot(context);
   }
 
   async function runPodAction(action: string, confirmed = false) {
@@ -248,6 +300,7 @@ export function useKiteData() {
         kind: target.kind,
         name: target.name,
         namespace: target.namespace,
+        cluster: target.cluster,
       });
       const response = await fetch(`/api/kube/details?${params}`);
       if (!response.ok) {
@@ -264,6 +317,7 @@ export function useKiteData() {
 
   return {
     clusters: snapshot.clusters,
+    contexts,
     allResources: snapshot.resources,
     detailsError,
     detailsLoading,
@@ -281,9 +335,10 @@ export function useKiteData() {
     query,
     resourceDetails,
     selectedResource,
+    selectedContext,
     statusFilter,
     visibleResources,
-    onRefreshLiveSnapshot: refreshLiveSnapshot,
+    onRefreshLiveSnapshot: () => refreshLiveSnapshot(),
     onRefreshResourceDetails: refreshSelectedResourceDetails,
     onRunPodAction: runPodAction,
     onTogglePinnedResource: togglePinnedResource,
@@ -292,6 +347,7 @@ export function useKiteData() {
     onSelectResource: setSelectedId,
     onSetNamespaceFilter: setNamespaceFilter,
     onSetQuery: setQuery,
+    onSetSelectedContext: switchContext,
     onSetStatusFilter: setStatusFilter,
   };
 }
@@ -314,4 +370,27 @@ function writePinnedResourceKeys(keys: Set<string>) {
   } catch {
     // Pinning should never break cluster browsing when local storage is unavailable.
   }
+}
+
+function readSelectedContext() {
+  try {
+    return window.localStorage.getItem(selectedContextStorageKey) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeSelectedContext(context: string) {
+  try {
+    window.localStorage.setItem(selectedContextStorageKey, context);
+  } catch {
+    // Context selection is still usable for the current session without storage.
+  }
+}
+
+function chooseContext(selectedContext: string, contexts: KubeContextSummary[]) {
+  if (selectedContext && contexts.some((context) => context.name === selectedContext)) {
+    return selectedContext;
+  }
+  return contexts.find((context) => context.current)?.name ?? contexts[0]?.name ?? "";
 }

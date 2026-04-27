@@ -26,6 +26,21 @@ export function Toolbar({ count, data, scope }: { count: number; data: KiteData;
         />
         <kbd>⌘ K</kbd>
       </label>
+      <select
+        value={data.contexts.some((context) => context.name === data.selectedContext) ? data.selectedContext : ""}
+        onChange={(event) => data.onSetSelectedContext(event.target.value)}
+        aria-label="Kubernetes context"
+      >
+        {data.contexts.length ? (
+          data.contexts.map((context) => (
+            <option key={context.name} value={context.name}>
+              {context.current ? "* " : ""}{context.name}
+            </option>
+          ))
+        ) : (
+          <option value="">No contexts</option>
+        )}
+      </select>
       <select value={data.namespaceFilter} onChange={(event) => data.onSetNamespaceFilter(event.target.value)} aria-label="Namespace filter">
         <option value="all">All ns</option>
         {data.namespaces.map((namespace) => (

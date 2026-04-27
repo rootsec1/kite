@@ -46,6 +46,19 @@ type KubeList = {
   items?: KubeItem[];
 };
 
+type KubeContext = {
+  name?: string;
+  context?: {
+    cluster?: string;
+    user?: string;
+  };
+};
+
+type KubeConfigView = {
+  "current-context"?: string;
+  contexts?: KubeContext[];
+};
+
 type HelmRelease = {
   name?: string;
   namespace?: string;
@@ -91,12 +104,24 @@ const resourceQueries = [
   { name: "customresourcedefinitions.apiextensions.k8s.io", namespaced: false },
 ];
 
-export async function readKubeSnapshot() {
-  const context = await kubectlText(["config", "current-context"]).catch(() => "no-context");
-  const version = await kubectlJson(["version", "--output=json"]).catch(() => null);
-  const lists = await Promise.all(resourceQueries.map((query) => readResourceList(query)));
+export async function readKubeContexts() {
+  const view = await kubectlJson<KubeConfigView>(["config", "view", "--raw", "-o", "json"]);
+  const current = view["current-context"] ?? "";
+  return (view.contexts ?? []).map((entry) => ({
+    name: entry.name ?? "",
+    cluster: entry.context?.cluster ?? "",
+    user: entry.context?.user ?? "",
+    current: entry.name === current,
+  })).filter((entry) => entry.name);
+}
+
+export async function readKubeSnapshot(selectedContext?: string) {
+  const contexts = await readKubeContexts().catch(() => []);
+  const context = selectedContext || contexts.find((entry) => entry.current)?.name || contexts[0]?.name || "no-context";
+  const version = await kubectlJson(["version", "--output=json"], context).catch(() => null);
+  const lists = await Promise.all(resourceQueries.map((query) => readResourceList(query, context)));
   const items = lists.flatMap((list) => list.items ?? []);
-  const helmReleases = await readHelmReleases(context.trim());
+  const helmReleases = await readHelmReleases(context);
   const resources = [
     ...items.map((item, index) => toResource(item, context.trim(), index)),
     ...helmReleases,
@@ -128,7 +153,7 @@ export async function readKubeSnapshot() {
   };
 }
 
-export async function readResourceDetails(target: { kind: string; name: string; namespace: string }) {
+export async function readResourceDetails(target: { kind: string; name: string; namespace: string; cluster: string }) {
   if (target.kind === "HelmRelease") {
     return readHelmDetails(target);
   }
@@ -154,7 +179,16 @@ export async function runPodAction(input: {
   }
 
   if (action === "logs") {
-    const command = `kubectl logs ${target.name} -n ${target.namespace} --all-containers=true --prefix=true --tail=240 --timestamps`;
+    const command = displayKubectlCommand([
+      "logs",
+      target.name,
+      "-n",
+      target.namespace,
+      "--all-containers=true",
+      "--prefix=true",
+      "--tail=240",
+      "--timestamps",
+    ], target.cluster);
     return readPodLogs(target)
       .then((output) => podActionResult(action, "executed", "Read latest pod logs.", output, command))
       .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
@@ -180,12 +214,12 @@ export async function runPodAction(input: {
       return podActionResult(action, "blocked", args.error);
     }
 
-    const command = `kubectl ${args.join(" ")}`;
+    const command = displayKubectlCommand(args, target.cluster);
     if (!input.confirmed) {
       return podActionResult(action, "blocked", `Confirm to run against ${target.namespace}/${target.name}.`, "", command, true);
     }
 
-    return kubectlText(args)
+    return kubectlText(args, target.cluster)
       .then((output) => podActionResult(action, "executed", "Action completed.", output, command))
       .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
   }
@@ -194,7 +228,7 @@ export async function runPodAction(input: {
 }
 
 async function readHelmReleases(cluster: string) {
-  const releases = await exec("helm", ["list", "-A", "-o", "json"], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+  const releases = await exec("helm", helmArgs(["list", "-A", "-o", "json"], cluster), { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
     .then(({ stdout }) => JSON.parse(stdout) as HelmRelease[])
     .catch(() => []);
 
@@ -216,15 +250,15 @@ async function readHelmReleases(cluster: string) {
   }));
 }
 
-async function readHelmDetails(target: { name: string; namespace: string }) {
+async function readHelmDetails(target: { name: string; namespace: string; cluster: string }) {
   const [manifest, status, values] = await Promise.all([
-    exec("helm", ["get", "manifest", target.name, "-n", target.namespace], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+    exec("helm", helmArgs(["get", "manifest", target.name, "-n", target.namespace], target.cluster), { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
       .then(({ stdout }) => stdout)
       .catch((error) => errorMessage(error)),
-    exec("helm", ["status", target.name, "-n", target.namespace], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+    exec("helm", helmArgs(["status", target.name, "-n", target.namespace], target.cluster), { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
       .then(({ stdout }) => stdout)
       .catch(() => ""),
-    exec("helm", ["get", "values", target.name, "-n", target.namespace, "-o", "yaml"], { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
+    exec("helm", helmArgs(["get", "values", target.name, "-n", target.namespace, "-o", "yaml"], target.cluster), { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 })
       .then(({ stdout }) => stdout)
       .catch(() => ""),
   ]);
@@ -236,15 +270,15 @@ async function readHelmDetails(target: { name: string; namespace: string }) {
   };
 }
 
-async function readResourceYaml(target: { kind: string; name: string; namespace: string }) {
+async function readResourceYaml(target: { kind: string; name: string; namespace: string; cluster: string }) {
   const args = ["get", target.kind, target.name, "-o", "yaml"];
   if (target.namespace && target.namespace !== "cluster") {
     args.splice(3, 0, "-n", target.namespace);
   }
-  return kubectlText(args);
+  return kubectlText(args, target.cluster);
 }
 
-async function readResourceEvents(target: { kind: string; name: string; namespace: string }) {
+async function readResourceEvents(target: { kind: string; name: string; namespace: string; cluster: string }) {
   const args = [
     "get",
     "events",
@@ -259,7 +293,7 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
     args.splice(2, 0, "-A");
   }
 
-  const list = await kubectlJson<{ items?: KubeEvent[] }>(args);
+  const list = await kubectlJson<{ items?: KubeEvent[] }>(args, target.cluster);
   return (list.items ?? []).map((event) => ({
     type: event.type ?? "Normal",
     reason: event.reason ?? "Event",
@@ -268,7 +302,7 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
   }));
 }
 
-async function readPodLogs(target: { name: string; namespace: string }) {
+async function readPodLogs(target: { name: string; namespace: string; cluster: string }) {
   return kubectlText([
     "logs",
     target.name,
@@ -278,11 +312,11 @@ async function readPodLogs(target: { name: string; namespace: string }) {
     "--prefix=true",
     "--tail=240",
     "--timestamps",
-  ]);
+  ], target.cluster);
 }
 
-async function readPodDetails(target: { name: string; namespace: string }) {
-  const pod = await kubectlJson<KubeItem>(["get", "pod", target.name, "-n", target.namespace, "-o", "json"]);
+async function readPodDetails(target: { name: string; namespace: string; cluster: string }) {
+  const pod = await kubectlJson<KubeItem>(["get", "pod", target.name, "-n", target.namespace, "-o", "json"], target.cluster);
   const containers = pod.status?.containerStatuses ?? [];
 
   return {
@@ -313,22 +347,22 @@ async function readPodDetails(target: { name: string; namespace: string }) {
   };
 }
 
-async function readResourceList(query: { name: string; namespaced: boolean }) {
+async function readResourceList(query: { name: string; namespaced: boolean }, context: string) {
   const args = ["get", query.name, "-o", "json"];
   if (query.namespaced) {
     args.splice(2, 0, "-A");
   }
 
-  return kubectlJson<KubeList>(args).catch(() => ({ items: [] }));
+  return kubectlJson<KubeList>(args, context).catch(() => ({ items: [] }));
 }
 
-async function kubectlJson<T = any>(args: string[]) {
-  const text = await kubectlText(args);
+async function kubectlJson<T = any>(args: string[], context = "") {
+  const text = await kubectlText(args, context);
   return JSON.parse(text) as T;
 }
 
-async function kubectlText(args: string[]) {
-  const { stdout } = await exec("kubectl", args, { timeout: 12_000, maxBuffer: 20 * 1024 * 1024 });
+async function kubectlText(args: string[], context = "") {
+  const { stdout } = await exec("kubectl", kubectlArgs(args, context), { timeout: 12_000, maxBuffer: 20 * 1024 * 1024 });
   return stdout;
 }
 
@@ -369,7 +403,7 @@ function selectorLabels(selector: KubeItem["spec"]["selector"]) {
   return selector as Record<string, string>;
 }
 
-async function restartArgs(target: { name: string; namespace: string }) {
+async function restartArgs(target: { name: string; namespace: string; cluster: string }) {
   const owner = await kubectlText([
     "get",
     "pod",
@@ -378,7 +412,7 @@ async function restartArgs(target: { name: string; namespace: string }) {
     target.namespace,
     "-o",
     "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}",
-  ]);
+  ], target.cluster);
   const [kind, name] = owner.split("/");
   if (!kind || !name) {
     throw new Error("Pod has no owning workload to restart.");
@@ -428,6 +462,18 @@ function podExecCommand(target: { name: string; namespace: string; cluster: stri
     "--",
     "/bin/sh",
   ].map(shellQuote).join(" ");
+}
+
+function kubectlArgs(args: string[], context: string) {
+  return context ? ["--context", context, ...args] : args;
+}
+
+function displayKubectlCommand(args: string[], context: string) {
+  return `kubectl ${kubectlArgs(args, context).map(shellQuote).join(" ")}`;
+}
+
+function helmArgs(args: string[], context: string) {
+  return context ? [...args, "--kube-context", context] : args;
 }
 
 async function openTerminal(command: string) {

@@ -194,7 +194,7 @@ button {
 .toolbar {
   position: relative;
   display: grid;
-  grid-template-columns: 92px minmax(230px, 1fr) 150px 130px 190px auto 44px;
+  grid-template-columns: 74px minmax(160px, 1fr) minmax(170px, 1.1fr) 110px 104px 144px minmax(62px, auto) 38px;
   gap: 10px;
   align-items: center;
   padding-inline: 22px;
@@ -1475,7 +1475,7 @@ button {
   }
 
   .toolbar {
-    grid-template-columns: 92px minmax(280px, 1fr) 130px 120px 170px auto 44px;
+    grid-template-columns: 74px minmax(160px, 1fr) minmax(170px, 1.1fr) 110px 104px 144px minmax(62px, auto) 38px;
   }
 
   .summary-strip {

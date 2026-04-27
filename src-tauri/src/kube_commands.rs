@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, env, fs, path::PathBuf};
+use std::collections::BTreeMap;
 
 use k8s_openapi::api::{
     apps::v1::Deployment,
@@ -7,6 +7,7 @@ use k8s_openapi::api::{
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     api::ListParams,
+    config::{Config, KubeConfigOptions, Kubeconfig},
     Api, Client, ResourceExt,
 };
 use serde::Deserialize;
@@ -15,28 +16,6 @@ use crate::models::{
     ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, HealthState, KubeContextSummary, LiveSnapshot,
     NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, ResourceDetails, ResourceEvent, ResourceSummary,
 };
-
-#[derive(Debug, Deserialize)]
-struct RawKubeconfig {
-    #[serde(default, rename = "current-context")]
-    current_context: String,
-    #[serde(default)]
-    contexts: Vec<NamedContext>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NamedContext {
-    name: String,
-    context: RawContext,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawContext {
-    #[serde(default)]
-    cluster: String,
-    #[serde(default)]
-    user: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct HelmRelease {
@@ -58,34 +37,30 @@ struct HelmRelease {
 
 #[tauri::command]
 pub fn list_kube_contexts() -> Result<Vec<KubeContextSummary>, String> {
-    let path = kubeconfig_path()?;
-    let raw = fs::read_to_string(&path).map_err(|error| format!("Unable to read {}: {error}", path.display()))?;
-    let config: RawKubeconfig = serde_yaml::from_str(&raw).map_err(|error| format!("Invalid kubeconfig: {error}"))?;
+    let config = Kubeconfig::read().map_err(|error| format!("Unable to read kubeconfig: {error}"))?;
+    let current_context = config.current_context.unwrap_or_default();
 
     Ok(config
         .contexts
         .into_iter()
-        .map(|entry| KubeContextSummary {
-            current: entry.name == config.current_context,
-            name: entry.name,
-            cluster: entry.context.cluster,
-            user: entry.context.user,
+        .filter_map(|entry| {
+            let context = entry.context?;
+            Some(KubeContextSummary {
+                current: entry.name == current_context,
+                name: entry.name,
+                cluster: context.cluster,
+                user: context.user.unwrap_or_default(),
+            })
         })
         .collect())
 }
 
 #[tauri::command]
-pub async fn live_snapshot() -> Result<LiveSnapshot, String> {
+pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, String> {
     let started = std::time::Instant::now();
-    let client = Client::try_default()
-        .await
-        .map_err(|error| format!("Unable to create Kubernetes client: {error}"))?;
     let contexts = list_kube_contexts().unwrap_or_default();
-    let context = contexts
-        .iter()
-        .find(|context| context.current)
-        .map(|context| context.name.clone())
-        .unwrap_or_else(|| "current-context".to_string());
+    let context = selected_context_name(context, &contexts)?;
+    let client = client_for_context(&context).await?;
     let version = client
         .apiserver_version()
         .await
@@ -221,10 +196,16 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
     let is_local = is_local_context(&target.cluster);
     match normalized.as_str() {
         "logs" => {
-            let command = format!(
-                "kubectl logs {} -n {} --all-containers=true --prefix=true --tail=240 --timestamps",
-                target.name, target.namespace
-            );
+            let command = display_kubectl_command(&target, &[
+                "logs".to_string(),
+                target.name.clone(),
+                "-n".to_string(),
+                target.namespace.clone(),
+                "--all-containers=true".to_string(),
+                "--prefix=true".to_string(),
+                "--tail=240".to_string(),
+                "--timestamps".to_string(),
+            ]);
             match pod_logs(&target).await
             {
                 Ok(output) => pod_action_result(normalized, PodActionStatus::Executed, "Read latest pod logs.".to_string(), output, command, false),
@@ -266,32 +247,50 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
 }
 
 async fn helm_details(target: ActionTarget) -> ResourceDetails {
-    let manifest = command_output("helm", vec![
-        "get".to_string(),
-        "manifest".to_string(),
-        target.name.clone(),
-        "-n".to_string(),
-        target.namespace.clone(),
-    ])
+    let manifest = command_output(
+        "helm",
+        helm_target_args(
+            &target,
+            vec![
+                "get".to_string(),
+                "manifest".to_string(),
+                target.name.clone(),
+                "-n".to_string(),
+                target.namespace.clone(),
+            ],
+        ),
+    )
     .await
     .unwrap_or_else(|error| error);
-    let values = command_output("helm", vec![
-        "get".to_string(),
-        "values".to_string(),
-        target.name.clone(),
-        "-n".to_string(),
-        target.namespace.clone(),
-        "-o".to_string(),
-        "yaml".to_string(),
-    ])
+    let values = command_output(
+        "helm",
+        helm_target_args(
+            &target,
+            vec![
+                "get".to_string(),
+                "values".to_string(),
+                target.name.clone(),
+                "-n".to_string(),
+                target.namespace.clone(),
+                "-o".to_string(),
+                "yaml".to_string(),
+            ],
+        ),
+    )
     .await
     .unwrap_or_default();
-    let status = command_output("helm", vec![
-        "status".to_string(),
-        target.name,
-        "-n".to_string(),
-        target.namespace,
-    ])
+    let status = command_output(
+        "helm",
+        helm_target_args(
+            &target,
+            vec![
+                "status".to_string(),
+                target.name.clone(),
+                "-n".to_string(),
+                target.namespace.clone(),
+            ],
+        ),
+    )
     .await
     .unwrap_or_default();
 
@@ -313,29 +312,35 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
 }
 
 async fn pod_logs(target: &ActionTarget) -> Result<String, String> {
-    kubectl(vec![
-        "logs".to_string(),
-        target.name.clone(),
-        "-n".to_string(),
-        target.namespace.clone(),
-        "--all-containers=true".to_string(),
-        "--prefix=true".to_string(),
-        "--tail=240".to_string(),
-        "--timestamps".to_string(),
-    ])
+    kubectl(kubectl_target_args(
+        target,
+        vec![
+            "logs".to_string(),
+            target.name.clone(),
+            "-n".to_string(),
+            target.namespace.clone(),
+            "--all-containers=true".to_string(),
+            "--prefix=true".to_string(),
+            "--tail=240".to_string(),
+            "--timestamps".to_string(),
+        ],
+    ))
     .await
 }
 
 async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
-    let output = kubectl(vec![
-        "get".to_string(),
-        "pod".to_string(),
-        target.name.clone(),
-        "-n".to_string(),
-        target.namespace.clone(),
-        "-o".to_string(),
-        "json".to_string(),
-    ])
+    let output = kubectl(kubectl_target_args(
+        target,
+        vec![
+            "get".to_string(),
+            "pod".to_string(),
+            target.name.clone(),
+            "-n".to_string(),
+            target.namespace.clone(),
+            "-o".to_string(),
+            "json".to_string(),
+        ],
+    ))
     .await?;
     let pod = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid pod JSON: {error}"))?;
     let status = pod.get("status").unwrap_or(&serde_json::Value::Null);
@@ -435,7 +440,7 @@ async fn guarded_pod_write(action: String, target: ActionTarget, confirmed: bool
             target.namespace.clone(),
         ]
     };
-    let display_command = format!("kubectl {}", command.join(" "));
+    let display_command = display_kubectl_command(&target, &command);
 
     if !confirmed {
         return pod_action_result(
@@ -448,14 +453,14 @@ async fn guarded_pod_write(action: String, target: ActionTarget, confirmed: bool
         );
     }
 
-    match kubectl(command).await {
+    match kubectl(kubectl_target_args(&target, command)).await {
         Ok(output) => pod_action_result(action, PodActionStatus::Executed, "Action completed.".to_string(), output, display_command, false),
         Err(error) => pod_action_result(action, PodActionStatus::Failed, error, String::new(), display_command, false),
     }
 }
 
 async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
-    let owner = kubectl(vec![
+    let owner = kubectl(kubectl_target_args(target, vec![
         "get".to_string(),
         "pod".to_string(),
         target.name.clone(),
@@ -463,7 +468,7 @@ async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
         target.namespace.clone(),
         "-o".to_string(),
         "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}".to_string(),
-    ])
+    ]))
     .await?;
 
     let Some((kind, name)) = owner.split_once('/') else {
@@ -538,7 +543,7 @@ async fn resource_events(target: &ActionTarget) -> Result<Vec<ResourceEvent>, St
         args.insert(2, "-n".to_string());
     }
 
-    let output = kubectl(args).await?;
+    let output = kubectl(kubectl_target_args(target, args)).await?;
     let parsed = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid events JSON: {error}"))?;
     let events = parsed
         .get("items")
@@ -579,11 +584,60 @@ fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
         args.insert(3, "-n".to_string());
     }
 
+    add_context_args(&mut args, &target.cluster);
     args
 }
 
 async fn kubectl(args: Vec<String>) -> Result<String, String> {
     command_output("kubectl", args).await
+}
+
+fn kubectl_target_args(target: &ActionTarget, args: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut args = args.into_iter().collect::<Vec<_>>();
+    add_context_args(&mut args, &target.cluster);
+    args
+}
+
+fn display_kubectl_command(target: &ActionTarget, args: &[String]) -> String {
+    let args = kubectl_target_args(target, args.iter().cloned());
+    format!("kubectl {}", args.join(" "))
+}
+
+fn add_context_args(args: &mut Vec<String>, context: &str) {
+    if context.is_empty() {
+        return;
+    }
+
+    args.insert(0, context.to_string());
+    args.insert(0, "--context".to_string());
+}
+
+async fn client_for_context(context: &str) -> Result<Client, String> {
+    let options = KubeConfigOptions {
+        context: if context.is_empty() { None } else { Some(context.to_string()) },
+        ..KubeConfigOptions::default()
+    };
+    let config = Config::from_kubeconfig(&options)
+        .await
+        .map_err(|error| format!("Unable to load kube context {context}: {error}"))?;
+
+    Client::try_from(config).map_err(|error| format!("Unable to create Kubernetes client for {context}: {error}"))
+}
+
+fn selected_context_name(context: Option<String>, contexts: &[KubeContextSummary]) -> Result<String, String> {
+    if let Some(context) = context.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+        if contexts.is_empty() || contexts.iter().any(|entry| entry.name == context) {
+            return Ok(context);
+        }
+        return Err(format!("Kubernetes context {context} was not found in kubeconfig."));
+    }
+
+    contexts
+        .iter()
+        .find(|context| context.current)
+        .or_else(|| contexts.first())
+        .map(|context| context.name.clone())
+        .ok_or_else(|| "No Kubernetes contexts found in kubeconfig.".to_string())
 }
 
 async fn command_output(command: &str, args: Vec<String>) -> Result<String, String> {
@@ -598,6 +652,15 @@ async fn command_output(command: &str, args: Vec<String>) -> Result<String, Stri
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+fn helm_target_args(target: &ActionTarget, args: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut args = args.into_iter().collect::<Vec<_>>();
+    if !target.cluster.is_empty() {
+        args.push("--kube-context".to_string());
+        args.push(target.cluster.clone());
+    }
+    args
 }
 
 fn pod_exec_command(target: &ActionTarget) -> String {
@@ -680,18 +743,6 @@ fn text_field(value: &serde_json::Value, field: &str, fallback: &str) -> String 
 
 fn short_age(timestamp: &str) -> String {
     timestamp.split('T').next().unwrap_or(timestamp).to_string()
-}
-
-fn kubeconfig_path() -> Result<PathBuf, String> {
-    if let Ok(path) = env::var("KUBECONFIG") {
-        let first = env::split_paths(&path)
-            .next()
-            .ok_or_else(|| "KUBECONFIG is set but empty".to_string())?;
-        return Ok(first);
-    }
-
-    let home = env::var("HOME").map_err(|_| "HOME is not set and KUBECONFIG was not provided".to_string())?;
-    Ok(PathBuf::from(home).join(".kube").join("config"))
 }
 
 async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
@@ -891,7 +942,12 @@ async fn list_namespaces(client: Client, cluster: &str) -> Result<Vec<ResourceSu
 }
 
 async fn list_helm_releases(cluster: &str) -> Result<Vec<ResourceSummary>, String> {
-    let output = command_output("helm", vec!["list".to_string(), "-A".to_string(), "-o".to_string(), "json".to_string()]).await?;
+    let mut args = vec!["list".to_string(), "-A".to_string(), "-o".to_string(), "json".to_string()];
+    if !cluster.is_empty() {
+        args.push("--kube-context".to_string());
+        args.push(cluster.to_string());
+    }
+    let output = command_output("helm", args).await?;
     let releases = serde_json::from_str::<Vec<HelmRelease>>(&output).map_err(|error| format!("Invalid Helm JSON: {error}"))?;
 
     Ok(releases

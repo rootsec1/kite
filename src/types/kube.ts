@@ -13,6 +13,13 @@ export type Cluster = {
   warnings: number;
 };
 
+export type KubeContextSummary = {
+  name: string;
+  cluster: string;
+  user: string;
+  current: boolean;
+};
+
 export type NamespaceHeat = {
   namespace: string;
   cpu: number;
