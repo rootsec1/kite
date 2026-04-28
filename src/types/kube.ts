@@ -42,7 +42,14 @@ export type ResourceRow = {
   owner: string;
   image: string;
   labels: Record<string, string>;
+  references: ResourceReference[];
   selector: Record<string, string>;
+};
+
+export type ResourceReference = {
+  kind: string;
+  namespace: string;
+  name: string;
 };
 
 export type ResourceEvent = {

@@ -60,7 +60,16 @@ pub struct ResourceSummary {
     pub owner: String,
     pub image: String,
     pub labels: BTreeMap<String, String>,
+    pub references: Vec<ResourceReference>,
     pub selector: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceReference {
+    pub kind: String,
+    pub namespace: String,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize)]

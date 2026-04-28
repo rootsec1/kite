@@ -23,6 +23,7 @@ type KubeItem = {
     nodeName?: string;
     selector?: Record<string, string> | { matchLabels?: Record<string, string> };
     type?: string;
+    volumes?: KubeVolume[];
     claimRef?: { namespace?: string; name?: string };
     template?: { spec?: { containers?: Array<{ image?: string }> } };
   };
@@ -48,6 +49,12 @@ type KubeContainerStatus = {
   ready?: boolean;
   restartCount?: number;
   state?: Record<string, { reason?: string }>;
+};
+
+type KubeVolume = {
+  configMap?: { name?: string };
+  persistentVolumeClaim?: { claimName?: string };
+  secret?: { secretName?: string };
 };
 
 type KubeList = {
@@ -429,8 +436,25 @@ function toResource(item: KubeItem, cluster: string, index: number) {
       item.spec?.template?.spec?.containers?.[0]?.image ??
       "",
     labels: item.metadata?.labels ?? {},
+    references: volumeReferences(item, namespace),
     selector: selectorLabels(item.spec?.selector),
   };
+}
+
+function volumeReferences(item: KubeItem, namespace: string) {
+  return (item.spec?.volumes ?? []).flatMap((volume) => {
+    const references = [];
+    if (volume.configMap?.name) {
+      references.push({ kind: "ConfigMap", namespace, name: volume.configMap.name });
+    }
+    if (volume.secret?.secretName) {
+      references.push({ kind: "Secret", namespace, name: volume.secret.secretName });
+    }
+    if (volume.persistentVolumeClaim?.claimName) {
+      references.push({ kind: "PersistentVolumeClaim", namespace, name: volume.persistentVolumeClaim.claimName });
+    }
+    return references;
+  });
 }
 
 function ownerForResource(item: KubeItem, fallback: string) {

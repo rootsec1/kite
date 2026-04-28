@@ -1,4 +1,4 @@
-import { GitBranch, Layers3, Network, type LucideIcon } from "lucide-react";
+import { GitBranch, HardDrive, Layers3, Network, type LucideIcon } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
@@ -37,7 +37,7 @@ export function PodLinkStrip({
             {resources.slice(0, 3).map((item) => (
               <button key={item.id} type="button" onClick={() => onOpenResource(item.id)}>
                 <StatusDot state={item.status} />
-                <span>{item.kind}</span>
+                <span title={item.kind}>{compactKind(item.kind)}</span>
                 <strong>{item.name}</strong>
               </button>
             ))}
@@ -55,11 +55,13 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[]): PodLinkGroup[]
     ...namespaceResources.filter((item) => workloadKinds.has(item.kind) && ownsPod(item, pod)),
   ]);
   const serviceResources = namespaceResources.filter((item) => item.kind === "Service" && matchesSelector(pod, item.selector));
+  const mountedResources = resources.filter((item) => pod.references.some((reference) => matchesReference(item, reference)));
   const namespace = resources.filter((item) => item.kind === "Namespace" && item.name === pod.namespace);
 
   return [
     { title: "Owner", icon: GitBranch, resources: ownerResources },
     { title: "Services", icon: Network, resources: serviceResources },
+    { title: "Mounts", icon: HardDrive, resources: mountedResources },
     { title: "Namespace", icon: Layers3, resources: namespace },
   ];
 }
@@ -94,4 +96,23 @@ function uniqueResources(resources: ResourceRow[]) {
     seen.add(resource.id);
     return true;
   });
+}
+
+function matchesReference(resource: ResourceRow, reference: ResourceRow["references"][number]) {
+  return resource.kind === reference.kind && resource.namespace === reference.namespace && resource.name === reference.name;
+}
+
+function compactKind(kind: string) {
+  switch (kind) {
+    case "ConfigMap":
+      return "CM";
+    case "PersistentVolumeClaim":
+      return "PVC";
+    case "PersistentVolume":
+      return "PV";
+    case "StatefulSet":
+      return "STS";
+    default:
+      return kind;
+  }
 }

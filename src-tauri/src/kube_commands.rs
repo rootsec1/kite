@@ -21,7 +21,7 @@ use serde::Deserialize;
 
 use crate::models::{
     ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, HealthState, KubeContextSummary, LiveSnapshot,
-    NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, ResourceDetails, ResourceEvent, ResourceSummary,
+    NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, ResourceDetails, ResourceEvent, ResourceReference, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -810,6 +810,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
         .items
         .into_iter()
         .map(|pod| {
+            let namespace = pod.namespace().unwrap_or_else(|| "default".to_string());
             let restarts = pod.status.as_ref().map(pod_restart_count).unwrap_or(0);
             let image = pod
                 .status
@@ -827,10 +828,12 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .map(|owner| format!("{}/{}", owner.kind, owner.name))
                 .unwrap_or_default();
             let labels = pod.metadata.labels.clone().unwrap_or_default();
+            let references = pod_volume_references(&pod, &namespace);
 
-            resource_summary("Pod", pod.name_any(), pod.namespace().unwrap_or_else(|| "default".to_string()), cluster, status, restarts, image)
+            resource_summary("Pod", pod.name_any(), namespace, cluster, status, restarts, image)
                 .with_labels(labels)
                 .with_owner(owner)
+                .with_references(references)
         })
         .collect())
 }
@@ -1528,7 +1531,42 @@ fn resource_summary(
         owner: namespace,
         image,
         labels: BTreeMap::new(),
+        references: Vec::new(),
         selector: BTreeMap::new(),
+    }
+}
+
+fn pod_volume_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
+    pod.spec
+        .as_ref()
+        .and_then(|spec| spec.volumes.as_deref())
+        .unwrap_or_default()
+        .iter()
+        .flat_map(|volume| {
+            let mut references = Vec::new();
+            if let Some(config_map) = volume.config_map.as_ref() {
+                if !config_map.name.is_empty() {
+                    references.push(resource_reference("ConfigMap", namespace, &config_map.name));
+                }
+            }
+            if let Some(secret) = volume.secret.as_ref().and_then(|source| source.secret_name.as_ref()) {
+                references.push(resource_reference("Secret", namespace, secret));
+            }
+            if let Some(claim) = volume.persistent_volume_claim.as_ref() {
+                if !claim.claim_name.is_empty() {
+                    references.push(resource_reference("PersistentVolumeClaim", namespace, &claim.claim_name));
+                }
+            }
+            references
+        })
+        .collect()
+}
+
+fn resource_reference(kind: &str, namespace: &str, name: &str) -> ResourceReference {
+    ResourceReference {
+        kind: kind.to_string(),
+        namespace: namespace.to_string(),
+        name: name.to_string(),
     }
 }
 
@@ -1647,7 +1685,10 @@ fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k8s_openapi::api::core::v1::{ContainerState, ContainerStateWaiting, PodStatus};
+    use k8s_openapi::api::core::v1::{
+        ConfigMapVolumeSource, ContainerState, ContainerStateWaiting, PersistentVolumeClaimVolumeSource, PodSpec, PodStatus,
+        SecretVolumeSource, Volume,
+    };
 
     #[test]
     fn running_ready_pod_without_restarts_is_healthy() {
@@ -1696,6 +1737,47 @@ mod tests {
         assert_eq!(event_field_selector(&target), "involvedObject.name=api,involvedObject.kind=Pod");
     }
 
+    #[test]
+    fn pod_volume_references_track_mounted_resources() {
+        let mut pod = Pod::default();
+        pod.spec = Some(PodSpec {
+            volumes: Some(vec![
+                Volume {
+                    config_map: Some(ConfigMapVolumeSource {
+                        name: "app-config".to_string(),
+                        ..ConfigMapVolumeSource::default()
+                    }),
+                    ..Volume::default()
+                },
+                Volume {
+                    secret: Some(SecretVolumeSource {
+                        secret_name: Some("app-secret".to_string()),
+                        ..SecretVolumeSource::default()
+                    }),
+                    ..Volume::default()
+                },
+                Volume {
+                    persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                        claim_name: "app-data".to_string(),
+                        ..PersistentVolumeClaimVolumeSource::default()
+                    }),
+                    ..Volume::default()
+                },
+            ]),
+            ..PodSpec::default()
+        });
+
+        let references = pod_volume_references(&pod, "default");
+
+        assert_eq!(references.len(), 3);
+        assert_eq!(references[0].kind, "ConfigMap");
+        assert_eq!(references[0].name, "app-config");
+        assert_eq!(references[1].kind, "Secret");
+        assert_eq!(references[1].name, "app-secret");
+        assert_eq!(references[2].kind, "PersistentVolumeClaim");
+        assert_eq!(references[2].name, "app-data");
+    }
+
     fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {
         Pod {
             status: Some(PodStatus {
@@ -1727,6 +1809,7 @@ trait ResourceSummaryPatch {
     fn with_owner(self, owner: String) -> Self;
     fn with_age(self, age: String) -> Self;
     fn with_labels(self, labels: BTreeMap<String, String>) -> Self;
+    fn with_references(self, references: Vec<ResourceReference>) -> Self;
     fn with_selector(self, selector: BTreeMap<String, String>) -> Self;
 }
 
@@ -1743,6 +1826,11 @@ impl ResourceSummaryPatch for ResourceSummary {
 
     fn with_labels(mut self, labels: BTreeMap<String, String>) -> Self {
         self.labels = labels;
+        self
+    }
+
+    fn with_references(mut self, references: Vec<ResourceReference>) -> Self {
+        self.references = references;
         self
     }
 
