@@ -94,6 +94,10 @@ export type ContainerDetails = {
   restartCount: number;
   state: string;
   reason: string;
+  message: string;
+  exitCode: number | null;
+  lastReason: string;
+  lastExitCode: number | null;
 };
 
 export type LiveSnapshot = {

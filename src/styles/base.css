@@ -1076,6 +1076,17 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.container-diagnostic {
+  overflow: hidden;
+  max-inline-size: 100%;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--orange) 36%, var(--line));
+  color: #7d5317;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--yellow) 13%, var(--surface));
+}
+
 .container-card.ready {
   box-shadow: inset 0 2px 0 rgba(63, 199, 158, 0.52);
 }

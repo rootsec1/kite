@@ -48,7 +48,14 @@ type KubeContainerStatus = {
   image?: string;
   ready?: boolean;
   restartCount?: number;
-  state?: Record<string, { reason?: string }>;
+  state?: Record<string, ContainerStateDetails>;
+  lastState?: Record<string, ContainerStateDetails>;
+};
+
+type ContainerStateDetails = {
+  reason?: string;
+  message?: string;
+  exitCode?: number;
 };
 
 type KubeVolume = {
@@ -379,6 +386,8 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
 function containerDetails(containers: KubeContainerStatus[] | undefined, role: "app" | "init" | "ephemeral") {
   return (containers ?? []).map((container) => {
     const stateName = Object.keys(container.state ?? {})[0] ?? "unknown";
+    const state = container.state?.[stateName] ?? {};
+    const lastTerminated = container.lastState?.terminated ?? {};
     return {
       name: container.name ?? "container",
       role,
@@ -386,7 +395,11 @@ function containerDetails(containers: KubeContainerStatus[] | undefined, role: "
       ready: Boolean(container.ready),
       restartCount: container.restartCount ?? 0,
       state: stateName,
-      reason: container.state?.[stateName]?.reason ?? "",
+      reason: state.reason ?? "",
+      message: state.message ?? "",
+      exitCode: state.exitCode ?? null,
+      lastReason: lastTerminated.reason ?? "",
+      lastExitCode: lastTerminated.exitCode ?? null,
     };
   });
 }

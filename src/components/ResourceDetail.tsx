@@ -219,6 +219,8 @@ function RuntimeTile({
 }
 
 function ContainerCard({ container }: { container: ContainerDetails }) {
+  const diagnostic = containerDiagnostic(container);
+
   return (
     <article className={container.ready ? "container-card ready" : "container-card warn"}>
       <div>
@@ -227,6 +229,7 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
         <small className="container-role">{container.role}</small>
       </div>
       <span>{container.state}{container.reason ? ` / ${container.reason}` : ""}</span>
+      {diagnostic ? <small className="container-diagnostic" title={diagnostic}>{diagnostic}</small> : null}
       {container.image ? (
         <span className="container-image">
           <ImageIcon size={13} />
@@ -236,6 +239,17 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
       <small>{container.restartCount} restarts</small>
     </article>
   );
+}
+
+function containerDiagnostic(container: ContainerDetails) {
+  const parts = [
+    container.exitCode == null ? "" : `exit ${container.exitCode}`,
+    container.message,
+    container.lastReason ? `last ${container.lastReason}` : "",
+    container.lastExitCode == null ? "" : `last exit ${container.lastExitCode}`,
+  ].filter(Boolean);
+
+  return parts.join(" / ");
 }
 
 function ActionResult({

@@ -116,6 +116,10 @@ pub struct ContainerDetails {
     pub restart_count: u32,
     pub state: String,
     pub reason: String,
+    pub message: String,
+    pub exit_code: Option<u32>,
+    pub last_reason: String,
+    pub last_exit_code: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]

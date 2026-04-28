@@ -431,12 +431,11 @@ fn container_details(container: &serde_json::Value, role: &str) -> ContainerDeta
         .and_then(|states| states.keys().next())
         .cloned()
         .unwrap_or_else(|| "unknown".to_string());
-    let reason = state
-        .get(&state_name)
-        .and_then(|value| value.get("reason"))
-        .and_then(|value| value.as_str())
-        .unwrap_or("")
-        .to_string();
+    let state_body = state.get(&state_name).unwrap_or(&serde_json::Value::Null);
+    let last_terminated = container
+        .get("lastState")
+        .and_then(|last_state| last_state.get("terminated"))
+        .unwrap_or(&serde_json::Value::Null);
 
     ContainerDetails {
         name: text_field(container, "name", "container"),
@@ -451,7 +450,11 @@ fn container_details(container: &serde_json::Value, role: &str) -> ContainerDeta
             .and_then(|value| value.as_u64())
             .unwrap_or(0) as u32,
         state: state_name,
-        reason,
+        reason: text_field(state_body, "reason", ""),
+        message: text_field(state_body, "message", ""),
+        exit_code: numeric_field(state_body, "exitCode"),
+        last_reason: text_field(last_terminated, "reason", ""),
+        last_exit_code: numeric_field(last_terminated, "exitCode"),
     }
 }
 
@@ -794,6 +797,13 @@ fn text_field(value: &serde_json::Value, field: &str, fallback: &str) -> String 
         .and_then(|field| field.as_str())
         .unwrap_or(fallback)
         .to_string()
+}
+
+fn numeric_field(value: &serde_json::Value, field: &str) -> Option<u32> {
+    value
+        .get(field)
+        .and_then(|field| field.as_u64())
+        .map(|value| value.min(u32::MAX as u64) as u32)
 }
 
 fn short_age(timestamp: &str) -> String {
