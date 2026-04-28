@@ -298,7 +298,7 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
     "get",
     "events",
     "--field-selector",
-    `involvedObject.name=${target.name}`,
+    eventFieldSelector(target),
     "-o",
     "json",
   ];
@@ -315,6 +315,10 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
     message: event.message ?? "",
     age: age(event.lastTimestamp ?? event.eventTime ?? event.metadata?.creationTimestamp),
   }));
+}
+
+function eventFieldSelector(target: { kind: string; name: string }) {
+  return `involvedObject.name=${target.name},involvedObject.kind=${target.kind}`;
 }
 
 async function readPodLogs(target: { name: string; namespace: string; cluster: string }) {

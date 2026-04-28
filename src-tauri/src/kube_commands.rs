@@ -552,7 +552,7 @@ async fn resource_events(target: &ActionTarget) -> Result<Vec<ResourceEvent>, St
         "get".to_string(),
         "events".to_string(),
         "--field-selector".to_string(),
-        format!("involvedObject.name={}", target.name),
+        event_field_selector(target),
         "-o".to_string(),
         "json".to_string(),
     ];
@@ -589,6 +589,10 @@ async fn resource_events(target: &ActionTarget) -> Result<Vec<ResourceEvent>, St
         .unwrap_or_default();
 
     Ok(events)
+}
+
+fn event_field_selector(target: &ActionTarget) -> String {
+    format!("involvedObject.name={},involvedObject.kind={}", target.name, target.kind)
 }
 
 fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
@@ -1623,6 +1627,18 @@ mod tests {
         let pod = pod_with_status("Running", vec![container_status(false, 0, None)]);
 
         assert_eq!(pod_status(&pod, 0), HealthState::Warning);
+    }
+
+    #[test]
+    fn event_selector_scopes_to_resource_kind_and_name() {
+        let target = ActionTarget {
+            kind: "Pod".to_string(),
+            name: "api".to_string(),
+            namespace: "default".to_string(),
+            cluster: "kind-kite".to_string(),
+        };
+
+        assert_eq!(event_field_selector(&target), "involvedObject.name=api,involvedObject.kind=Pod");
     }
 
     fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {
