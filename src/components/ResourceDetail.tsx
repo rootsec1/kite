@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, RotateCw, Skull, Star, TerminalSquare } from "lucide-react";
 import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
+import { PodEventRail } from "./PodEventRail";
 import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
 
@@ -100,7 +101,10 @@ export function ResourceDetail({
       {result ? <ActionResult result={result} onConfirm={() => onRunPodAction(result.action, true)} /> : null}
 
       {isPod ? (
-        <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+        <>
+          <PodEventRail details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+          <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+        </>
       ) : (
         <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
       )}

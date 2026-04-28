@@ -863,6 +863,133 @@ summary:focus-visible {
   background: var(--surface-soft);
 }
 
+.pod-event-rail {
+  display: grid;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pod-event-rail header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-block-size: 52px;
+  padding-inline: 14px;
+  border-block-end: 1px solid var(--line);
+}
+
+.pod-event-rail header div {
+  display: grid;
+  gap: 3px;
+}
+
+.pod-event-rail header span,
+.pod-event-rail header small,
+.pod-event-item span,
+.pod-event-item time,
+.pod-event-empty span {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pod-event-rail header strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.pod-event-rail header small {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.pod-event-rail header small.warning {
+  color: var(--orange);
+  border-color: color-mix(in srgb, var(--orange) 52%, var(--line));
+}
+
+.pod-event-list {
+  display: grid;
+}
+
+.pod-event-item {
+  display: grid;
+  grid-template-columns: 12px minmax(130px, 0.46fr) minmax(260px, 1fr) 64px;
+  gap: 12px;
+  align-items: start;
+  min-block-size: 54px;
+  padding: 11px 14px;
+  border-block-end: 1px solid var(--line);
+}
+
+.pod-event-item:last-child {
+  border-block-end: 0;
+}
+
+.pod-event-item i {
+  inline-size: 8px;
+  block-size: 8px;
+  margin-block-start: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.pod-event-item.warning i {
+  background: var(--orange);
+}
+
+.pod-event-item div {
+  display: grid;
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.pod-event-item strong,
+.pod-event-item p,
+.pod-event-empty strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pod-event-item strong {
+  white-space: nowrap;
+}
+
+.pod-event-item p {
+  display: -webkit-box;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pod-event-item time {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.pod-event-empty {
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  min-block-size: 120px;
+  padding: 18px;
+  text-align: center;
+}
+
+.pod-event-empty strong {
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
 .container-card {
   display: grid;
   gap: 8px;
