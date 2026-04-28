@@ -296,6 +296,7 @@ function HierarchyGroups({
 const workloadKinds = new Set(["Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet"]);
 const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
 const configKinds = new Set(["ConfigMap", "Secret", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
+const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
 
 function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): HierarchyGroup[] {
@@ -338,6 +339,10 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     ];
   }
 
+  if (accessKinds.has(resource.kind)) {
+    return accessHierarchyFor(resource, resources);
+  }
+
   if (trafficKinds.has(resource.kind)) {
     return [
       { title: "Services", resources: resources.filter((item) => item.kind === "Service" && item.namespace === resource.namespace) },
@@ -359,6 +364,78 @@ function ownsPod(owner: ResourceRow, pod: ResourceRow) {
     return true;
   }
   return matchesSelector(pod, owner.selector) || matchesSelector(pod, owner.labels);
+}
+
+function accessHierarchyFor(resource: ResourceRow, resources: ResourceRow[]): HierarchyGroup[] {
+  if (resource.kind === "Role") {
+    return [
+      { title: "Bindings", resources: accessBindingsFor("Role", resource.name, resource.namespace, resources) },
+      { title: "Namespace access", resources: namespaceAccess(resource, resources) },
+    ];
+  }
+
+  if (resource.kind === "ClusterRole") {
+    return [
+      { title: "Cluster bindings", resources: accessBindingsFor("ClusterRole", resource.name, "cluster", resources) },
+      { title: "Namespace bindings", resources: accessBindingsFor("ClusterRole", resource.name, "", resources) },
+    ];
+  }
+
+  if (resource.kind === "RoleBinding" || resource.kind === "ClusterRoleBinding") {
+    const [roleKind, roleName] = roleReference(resource.owner);
+    return [
+      { title: "Referenced role", resources: referencedRole(resource, roleKind, roleName, resources) },
+      { title: "Sibling bindings", resources: siblingBindings(resource, resources) },
+    ];
+  }
+
+  return [];
+}
+
+function accessBindingsFor(kind: string, name: string, namespace: string, resources: ResourceRow[]) {
+  const owner = `${kind}/${name}`;
+  return resources.filter((item) => {
+    if (item.owner !== owner) {
+      return false;
+    }
+    if (namespace === "cluster") {
+      return item.kind === "ClusterRoleBinding";
+    }
+    if (namespace) {
+      return item.kind === "RoleBinding" && item.namespace === namespace;
+    }
+    return item.kind === "RoleBinding";
+  });
+}
+
+function namespaceAccess(resource: ResourceRow, resources: ResourceRow[]) {
+  return resources.filter(
+    (item) => item.id !== resource.id && item.namespace === resource.namespace && accessKinds.has(item.kind),
+  );
+}
+
+function referencedRole(resource: ResourceRow, roleKind: string, roleName: string, resources: ResourceRow[]) {
+  if (!roleKind || !roleName) {
+    return [];
+  }
+
+  return resources.filter((item) => {
+    if (item.kind !== roleKind || item.name !== roleName) {
+      return false;
+    }
+    return roleKind === "ClusterRole" || item.namespace === resource.namespace;
+  });
+}
+
+function siblingBindings(resource: ResourceRow, resources: ResourceRow[]) {
+  return resources.filter(
+    (item) => item.id !== resource.id && item.kind === resource.kind && item.owner === resource.owner,
+  );
+}
+
+function roleReference(owner: string) {
+  const [kind = "", name = ""] = owner.split("/", 2);
+  return [kind, name] as const;
 }
 
 function workloadsForPods(pods: ResourceRow[], resources: ResourceRow[]) {

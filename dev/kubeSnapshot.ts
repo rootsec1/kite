@@ -13,6 +13,10 @@ type KubeItem = {
     labels?: Record<string, string>;
     ownerReferences?: Array<{ kind?: string; name?: string }>;
   };
+  roleRef?: {
+    kind?: string;
+    name?: string;
+  };
   spec?: {
     providerID?: string;
     containers?: Array<{ image?: string }>;
@@ -373,7 +377,6 @@ function toResource(item: KubeItem, cluster: string, index: number) {
   const restarts = item.status?.containerStatuses?.reduce((sum, status) => sum + (status.restartCount ?? 0), 0) ?? 0;
   const status = resourceStatus(item);
   const pressure = Math.min(100, restarts * 9 + (status === "critical" ? 70 : status === "warning" ? 44 : 18));
-  const owner = item.metadata?.ownerReferences?.[0];
 
   return {
     id: `${kind}:${namespace}:${name}`,
@@ -386,7 +389,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
     cpu: pressure,
     memory: Math.min(100, pressure + 8),
     restarts,
-    owner: owner?.kind && owner?.name ? `${owner.kind}/${owner.name}` : namespace,
+    owner: ownerForResource(item, namespace),
     image:
       item.status?.containerStatuses?.[0]?.image ??
       item.spec?.containers?.[0]?.image ??
@@ -395,6 +398,15 @@ function toResource(item: KubeItem, cluster: string, index: number) {
     labels: item.metadata?.labels ?? {},
     selector: selectorLabels(item.spec?.selector),
   };
+}
+
+function ownerForResource(item: KubeItem, fallback: string) {
+  if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
+    return `${item.roleRef.kind}/${item.roleRef.name}`;
+  }
+
+  const owner = item.metadata?.ownerReferences?.[0];
+  return owner?.kind && owner?.name ? `${owner.kind}/${owner.name}` : fallback;
 }
 
 function selectorLabels(selector: KubeItem["spec"]["selector"]) {
