@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, env, path::PathBuf};
 
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
@@ -721,7 +721,7 @@ fn selected_context_name(context: Option<String>, contexts: &[KubeContextSummary
 }
 
 async fn command_output(command: &str, args: Vec<String>) -> Result<String, String> {
-    let output = tokio::process::Command::new(command)
+    let output = tokio::process::Command::new(command_path(command))
         .args(args)
         .output()
         .await
@@ -732,6 +732,28 @@ async fn command_output(command: &str, args: Vec<String>) -> Result<String, Stri
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+fn command_path(command: &str) -> PathBuf {
+    candidate_command_paths(command)
+        .into_iter()
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from(command))
+}
+
+fn candidate_command_paths(command: &str) -> Vec<PathBuf> {
+    let mut candidates = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).map(|dir| dir.join(command)).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    candidates.extend([
+        PathBuf::from("/opt/homebrew/bin").join(command),
+        PathBuf::from("/usr/local/bin").join(command),
+        PathBuf::from("/opt/local/bin").join(command),
+        PathBuf::from("/usr/bin").join(command),
+        PathBuf::from("/bin").join(command),
+    ]);
+    candidates
 }
 
 fn helm_target_args(target: &ActionTarget, args: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -760,7 +782,8 @@ fn pod_exec_command(target: &ActionTarget) -> String {
     ]);
 
     format!(
-        "kubectl {}",
+        "{} {}",
+        shell_quote(&command_path("kubectl").to_string_lossy()),
         args.iter()
             .map(|arg| shell_quote(arg))
             .collect::<Vec<_>>()
@@ -777,7 +800,7 @@ async fn open_terminal(command: &str) -> Result<(), String> {
         "tell application \"Terminal\" to do script \"{}\"",
         applescript_string(command)
     );
-    let output = tokio::process::Command::new("osascript")
+    let output = tokio::process::Command::new(command_path("osascript"))
         .args([
             "-e",
             "tell application \"Terminal\" to activate",
@@ -1767,6 +1790,14 @@ mod tests {
         };
 
         assert_eq!(event_field_selector(&target), "involvedObject.name=api,involvedObject.kind=Pod");
+    }
+
+    #[test]
+    fn command_candidates_include_gui_app_binary_locations() {
+        let candidates = candidate_command_paths("kubectl");
+
+        assert!(candidates.contains(&PathBuf::from("/opt/homebrew/bin/kubectl")));
+        assert!(candidates.contains(&PathBuf::from("/usr/local/bin/kubectl")));
     }
 
     #[test]
