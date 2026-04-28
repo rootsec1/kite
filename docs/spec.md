@@ -5,7 +5,7 @@ Kite is a native Kubernetes GUI focused on interface quality, speed, and local-f
 ## What
 
 - Tauri 2 desktop app with Rust backend and React frontend.
-- Multi-cluster Kubernetes cockpit with kubeconfig context switching, scoped resource exploration, pinned resources, sortable signal-aware inventory, pod-to-node debugging jumps, newest-first warning-prioritized pod events, guarded actions, searchable log workflows, YAML/diff inspection, and a simple visual control-plane map.
+- Multi-cluster Kubernetes cockpit with kubeconfig context switching, scoped resource exploration, pinned resources, sortable signal-aware inventory, pod-to-node debugging jumps, pod condition diagnostics, newest-first warning-prioritized pod events, guarded actions, searchable log workflows, YAML/diff inspection, and a simple visual control-plane map.
 - UI-first design system inspired by Endex's dense enterprise sections: dark green-black glass, thin grid lines, pale telemetry surfaces, emerald accents, and precise motion.
 
 ## Why

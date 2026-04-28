@@ -388,6 +388,7 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
                     type_: text_field(condition, "type", "Condition"),
                     status: text_field(condition, "status", "Unknown"),
                     reason: text_field(condition, "reason", ""),
+                    message: text_field(condition, "message", ""),
                 })
                 .collect::<Vec<_>>()
         })

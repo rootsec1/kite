@@ -36,7 +36,7 @@ type KubeItem = {
     replicas?: number;
     availableReplicas?: number;
     unavailableReplicas?: number;
-    conditions?: Array<{ type?: string; status?: string; reason?: string }>;
+    conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>;
     containerStatuses?: KubeContainerStatus[];
     ephemeralContainerStatuses?: KubeContainerStatus[];
     initContainerStatuses?: KubeContainerStatus[];
@@ -378,6 +378,7 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
       type: condition.type ?? "Condition",
       status: condition.status ?? "Unknown",
       reason: condition.reason ?? "",
+      message: condition.message ?? "",
     })),
     containers,
   };

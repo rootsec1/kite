@@ -178,15 +178,22 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
 
 function ConditionCell({ condition }: { condition: PodCondition }) {
   const state = conditionState(condition.status);
+  const diagnostic = conditionDiagnostic(condition);
 
   return (
     <article className={`pod-condition ${state}`}>
       <StatusDot state={state} />
       <span title={condition.type}>{formatConditionType(condition.type)}</span>
       <strong>{condition.status}</strong>
-      {condition.reason ? <small title={condition.reason}>{condition.reason}</small> : null}
+      {diagnostic ? <small title={diagnostic}>{diagnostic}</small> : null}
     </article>
   );
+}
+
+function conditionDiagnostic(condition: PodCondition) {
+  return [condition.reason, condition.message]
+    .filter((part, index, parts) => part && parts.indexOf(part) === index)
+    .join(" / ");
 }
 
 function formatConditionType(type: string) {

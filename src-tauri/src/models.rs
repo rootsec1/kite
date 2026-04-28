@@ -104,6 +104,7 @@ pub struct PodCondition {
     pub type_: String,
     pub status: String,
     pub reason: String,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]

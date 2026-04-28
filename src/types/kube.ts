@@ -84,6 +84,7 @@ export type PodCondition = {
   type: string;
   status: string;
   reason: string;
+  message: string;
 };
 
 export type ContainerDetails = {
