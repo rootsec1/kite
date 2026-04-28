@@ -4,8 +4,8 @@ use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
     batch::v1::{CronJob, Job},
     core::v1::{
-        ConfigMap, Event, Namespace, Node, PersistentVolume, PersistentVolumeClaim, Pod, Secret,
-        Service,
+        ConfigMap, ContainerStatus, Event, Namespace, Node, PersistentVolume, PersistentVolumeClaim,
+        Pod, Secret, Service,
     },
     networking::v1::Ingress,
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
@@ -789,13 +789,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .and_then(|statuses| statuses.first())
                 .map(|status| status.image.clone())
                 .unwrap_or_default();
-            let phase = pod.status.as_ref().and_then(|status| status.phase.as_deref());
-            let status = match phase {
-                Some("Running") | Some("Succeeded") => HealthState::Healthy,
-                Some("Failed") => HealthState::Critical,
-                Some(_) => HealthState::Warning,
-                None => HealthState::Syncing,
-            };
+            let status = pod_status(&pod, restarts);
             let owner = pod
                 .metadata
                 .owner_references
@@ -1556,6 +1550,105 @@ fn job_status(job: &Job) -> HealthState {
         HealthState::Healthy
     } else {
         HealthState::Warning
+    }
+}
+
+fn pod_status(pod: &Pod, restarts: u32) -> HealthState {
+    let Some(status) = pod.status.as_ref() else {
+        return HealthState::Syncing;
+    };
+
+    let phase = status.phase.as_deref().unwrap_or("");
+    if phase == "Failed" {
+        return HealthState::Critical;
+    }
+
+    if phase != "Succeeded" && pod_has_critical_container_state(status.container_statuses.as_deref()) {
+        return HealthState::Critical;
+    }
+
+    if phase == "Running" || phase == "Succeeded" {
+        let containers = status.container_statuses.as_deref().unwrap_or_default();
+        let all_ready = !containers.is_empty() && containers.iter().all(|container| container.ready);
+        if phase == "Succeeded" || (all_ready && restarts == 0) {
+            return HealthState::Healthy;
+        }
+    }
+
+    HealthState::Warning
+}
+
+fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> bool {
+    const CRITICAL_REASONS: &[&str] = &[
+        "CrashLoopBackOff",
+        "CreateContainerConfigError",
+        "CreateContainerError",
+        "ErrImagePull",
+        "ImagePullBackOff",
+        "InvalidImageName",
+        "RunContainerError",
+    ];
+
+    statuses.unwrap_or_default().iter().any(|container| {
+        container
+            .state
+            .as_ref()
+            .and_then(|state| state.waiting.as_ref())
+            .and_then(|waiting| waiting.reason.as_deref())
+            .is_some_and(|reason| CRITICAL_REASONS.contains(&reason))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use k8s_openapi::api::core::v1::{ContainerState, ContainerStateWaiting, PodStatus};
+
+    #[test]
+    fn running_ready_pod_without_restarts_is_healthy() {
+        let pod = pod_with_status("Running", vec![container_status(true, 0, None)]);
+
+        assert_eq!(pod_status(&pod, 0), HealthState::Healthy);
+    }
+
+    #[test]
+    fn running_crashlooping_pod_is_critical() {
+        let pod = pod_with_status("Running", vec![container_status(false, 5, Some("CrashLoopBackOff"))]);
+
+        assert_eq!(pod_status(&pod, 5), HealthState::Critical);
+    }
+
+    #[test]
+    fn running_unready_pod_is_warning() {
+        let pod = pod_with_status("Running", vec![container_status(false, 0, None)]);
+
+        assert_eq!(pod_status(&pod, 0), HealthState::Warning);
+    }
+
+    fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {
+        Pod {
+            status: Some(PodStatus {
+                phase: Some(phase.to_string()),
+                container_statuses: Some(containers),
+                ..PodStatus::default()
+            }),
+            ..Pod::default()
+        }
+    }
+
+    fn container_status(ready: bool, restart_count: i32, waiting_reason: Option<&str>) -> ContainerStatus {
+        ContainerStatus {
+            ready,
+            restart_count,
+            state: waiting_reason.map(|reason| ContainerState {
+                waiting: Some(ContainerStateWaiting {
+                    reason: Some(reason.to_string()),
+                    ..ContainerStateWaiting::default()
+                }),
+                ..ContainerState::default()
+            }),
+            ..ContainerStatus::default()
+        }
     }
 }
 

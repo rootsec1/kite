@@ -46,6 +46,8 @@ type KubeItem = {
   };
 };
 
+type KubeContainerStatus = NonNullable<NonNullable<KubeItem["status"]>["containerStatuses"]>[number];
+
 type KubeList = {
   items?: KubeItem[];
 };
@@ -107,6 +109,15 @@ const resourceQueries = [
   { name: "clusterrolebindings.rbac.authorization.k8s.io", namespaced: false },
   { name: "customresourcedefinitions.apiextensions.k8s.io", namespaced: false },
 ];
+const criticalPodContainerReasons = new Set([
+  "CrashLoopBackOff",
+  "CreateContainerConfigError",
+  "CreateContainerError",
+  "ErrImagePull",
+  "ImagePullBackOff",
+  "InvalidImageName",
+  "RunContainerError",
+]);
 
 export async function readKubeContexts() {
   const view = await kubectlJson<KubeConfigView>(["config", "view", "--raw", "-o", "json"]);
@@ -534,9 +545,7 @@ function resourceStatus(item: KubeItem) {
   }
 
   if (item.kind === "Pod") {
-    if (item.status?.phase === "Running" || item.status?.phase === "Succeeded") return "healthy";
-    if (item.status?.phase === "Failed") return "critical";
-    return "warning";
+    return podStatus(item);
   }
 
   if (item.kind === "Deployment") {
@@ -545,6 +554,26 @@ function resourceStatus(item: KubeItem) {
   }
 
   return "healthy";
+}
+
+function podStatus(item: KubeItem) {
+  const phase = item.status?.phase ?? "";
+  const containers = item.status?.containerStatuses ?? [];
+  const restarts = containers.reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
+
+  if (phase === "Failed") return "critical";
+  if (phase !== "Succeeded" && containers.some(hasCriticalContainerState)) return "critical";
+  if (phase === "Succeeded") return "healthy";
+  if (phase === "Running" && containers.length > 0 && containers.every((container) => container.ready) && restarts === 0) {
+    return "healthy";
+  }
+
+  return "warning";
+}
+
+function hasCriticalContainerState(container: KubeContainerStatus) {
+  const waitingReason = container.state?.waiting?.reason ?? "";
+  return criticalPodContainerReasons.has(waitingReason);
 }
 
 function toNamespaceHeat(namespace: string, resources: Array<ReturnType<typeof toResource>>) {
