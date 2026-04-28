@@ -56,6 +56,7 @@ export type ResourceDetails = {
   yaml: string;
   events: ResourceEvent[];
   logs: string;
+  previousLogs: string;
   pod?: PodDetails;
 };
 

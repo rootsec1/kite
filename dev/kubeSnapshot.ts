@@ -177,8 +177,9 @@ export async function readResourceDetails(target: { kind: string; name: string; 
   const events = await readResourceEvents(target).catch(() => []);
   const pod = target.kind === "Pod" ? await readPodDetails(target).catch(() => undefined) : undefined;
   const logs = target.kind === "Pod" ? await readPodLogs(target).catch((error) => errorMessage(error)) : "";
+  const previousLogs = target.kind === "Pod" ? await readPodLogs(target, true).catch(() => "") : "";
 
-  return { yaml, events, logs, pod };
+  return { yaml, events, logs, previousLogs, pod };
 }
 
 export async function runPodAction(input: {
@@ -282,6 +283,7 @@ async function readHelmDetails(target: { name: string; namespace: string; cluste
     yaml: [manifest, values ? `\n---\n# values\n${values}` : ""].join(""),
     events: status ? [{ type: "Normal", reason: "HelmStatus", message: status, age: "live" }] : [],
     logs: "",
+    previousLogs: "",
   };
 }
 
@@ -321,8 +323,8 @@ function eventFieldSelector(target: { kind: string; name: string }) {
   return `involvedObject.name=${target.name},involvedObject.kind=${target.kind}`;
 }
 
-async function readPodLogs(target: { name: string; namespace: string; cluster: string }) {
-  return kubectlText([
+async function readPodLogs(target: { name: string; namespace: string; cluster: string }, previous = false) {
+  const args = [
     "logs",
     target.name,
     "-n",
@@ -331,7 +333,11 @@ async function readPodLogs(target: { name: string; namespace: string; cluster: s
     "--prefix=true",
     "--tail=240",
     "--timestamps",
-  ], target.cluster);
+  ];
+  if (previous) {
+    args.push("--previous=true");
+  }
+  return kubectlText(args, target.cluster);
 }
 
 async function readPodDetails(target: { name: string; namespace: string; cluster: string }) {

@@ -69,6 +69,7 @@ pub struct ResourceDetails {
     pub yaml: String,
     pub events: Vec<ResourceEvent>,
     pub logs: String,
+    pub previous_logs: String,
     pub pod: Option<PodDetails>,
 }
 

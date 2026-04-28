@@ -1,5 +1,5 @@
-import { useDeferredValue, useMemo, useState } from "react";
-import { Layers, ListFilter, Rows3, Search } from "lucide-react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
 import type { ResourceDetails } from "../types/kube";
 
 const ansiPattern = /\u001b\[[0-9;]*m/g;
@@ -10,6 +10,7 @@ const logLevels = ["all", "info", "warn", "error", "debug"] as const;
 const allSourceFilter = "all";
 
 type LogLevel = (typeof logLevels)[number];
+type LogMode = "current" | "previous";
 
 type ParsedLogLine = {
   raw: string;
@@ -29,14 +30,24 @@ export function PodTerminal({
   detailsLoading: boolean;
 }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>("all");
+  const [logMode, setLogMode] = useState<LogMode>("current");
   const [sourceFilter, setSourceFilter] = useState(allSourceFilter);
   const [logQuery, setLogQuery] = useState("");
   const [wrapLines, setWrapLines] = useState(true);
   const deferredLogQuery = useDeferredValue(logQuery.trim().toLowerCase());
   const queryTerms = useMemo(() => (deferredLogQuery ? deferredLogQuery.split(/\s+/) : []), [deferredLogQuery]);
+  const hasPreviousLogs = Boolean(details.previousLogs.trim());
+  const activeLogMode = logMode === "previous" && hasPreviousLogs ? "previous" : "current";
+
+  useEffect(() => {
+    if (!hasPreviousLogs) {
+      setLogMode("current");
+    }
+  }, [hasPreviousLogs]);
 
   const logView = useMemo(() => {
-    const lines = parseLogLines(terminalOutput(details, detailsLoading, detailsError));
+    const selectedLogs = activeLogMode === "previous" ? details.previousLogs : details.logs;
+    const lines = parseLogLines(terminalOutput(selectedLogs, activeLogMode, detailsLoading, detailsError));
     const sourceCounts = new Map<string, number>();
 
     for (const line of lines) {
@@ -71,7 +82,7 @@ export function PodTerminal({
       totalLines: lines.length,
       visibleLines,
     };
-  }, [details.logs, detailsError, detailsLoading, levelFilter, queryTerms, sourceFilter]);
+  }, [activeLogMode, details.logs, details.previousLogs, detailsError, detailsLoading, levelFilter, queryTerms, sourceFilter]);
 
   return (
     <section className="terminal-panel">
@@ -92,6 +103,30 @@ export function PodTerminal({
           <Search size={14} />
           <input value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="Filter logs..." />
         </label>
+        <div className="log-mode-tabs" role="tablist" aria-label="Log stream">
+          <button
+            aria-selected={activeLogMode === "current"}
+            className={activeLogMode === "current" ? "active" : ""}
+            role="tab"
+            type="button"
+            onClick={() => setLogMode("current")}
+          >
+            <Radio size={14} />
+            <span>current</span>
+          </button>
+          <button
+            aria-disabled={!hasPreviousLogs}
+            aria-selected={activeLogMode === "previous"}
+            className={activeLogMode === "previous" ? "active" : ""}
+            disabled={!hasPreviousLogs}
+            role="tab"
+            type="button"
+            onClick={() => setLogMode("previous")}
+          >
+            <History size={14} />
+            <span>previous</span>
+          </button>
+        </div>
         <div className="log-level-tabs" role="tablist" aria-label="Log severity">
           <ListFilter size={14} />
           {logLevels.map((level) => (
@@ -150,7 +185,7 @@ export function PodTerminal({
           <i />
           <i />
           <i />
-          <span>kubectl logs --all-containers --prefix --tail=240</span>
+          <span>{activeLogMode === "previous" ? "kubectl logs --previous --all-containers --prefix --tail=240" : "kubectl logs --all-containers --prefix --tail=240"}</span>
         </div>
         <div className={wrapLines ? "terminal-output" : "terminal-output no-wrap"} role="log" aria-live="polite">
           {logView.visibleLines.length ? (
@@ -175,11 +210,14 @@ export function PodTerminal({
   );
 }
 
-function terminalOutput(details: ResourceDetails, detailsLoading: boolean, detailsError: string) {
-  if (detailsLoading && !details.logs) {
+function terminalOutput(output: string, mode: LogMode, detailsLoading: boolean, detailsError: string) {
+  if (detailsLoading && !output) {
     return "Connecting to pod log stream...";
   }
-  return details.logs || detailsError || "No log lines returned yet.";
+  if (mode === "previous") {
+    return output || "No previous container log returned.";
+  }
+  return output || detailsError || "No log lines returned yet.";
 }
 
 function parseLogLines(output: string): ParsedLogLine[] {

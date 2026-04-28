@@ -28,6 +28,7 @@ export function useKiteData() {
     yaml: "",
     events: [],
     logs: "",
+    previousLogs: "",
     pod: undefined,
   });
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -102,14 +103,14 @@ export function useKiteData() {
 
   useEffect(() => {
     if (!selectedResource) {
-      setResourceDetails({ yaml: "", events: [], logs: "" });
+      setResourceDetails({ yaml: "", events: [], logs: "", previousLogs: "" });
       setPodActionResult(null);
       return;
     }
 
     let cancelled = false;
     setPodActionResult(null);
-    setResourceDetails({ yaml: "", events: [], logs: "" });
+    setResourceDetails({ yaml: "", events: [], logs: "", previousLogs: "" });
     void refreshResourceDetails(selectedResource).then((details) => {
       if (!cancelled && details) {
         setResourceDetails(details);
@@ -202,7 +203,7 @@ export function useKiteData() {
     setLabelFilter("all");
     setSelectedId("");
     setPodActionResult(null);
-    setResourceDetails({ yaml: "", events: [], logs: "" });
+    setResourceDetails({ yaml: "", events: [], logs: "", previousLogs: "" });
     void refreshLiveSnapshot(context);
   }
 
@@ -311,7 +312,7 @@ export function useKiteData() {
       return await response.json() as ResourceDetails;
     } catch (caught) {
       setDetailsError(caught instanceof Error ? caught.message : "Unable to read resource details");
-      return { yaml: "", events: [], logs: "" };
+      return { yaml: "", events: [], logs: "", previousLogs: "" };
     } finally {
       setDetailsLoading(false);
     }

@@ -1279,7 +1279,7 @@ summary:focus-visible {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 10px 14px;
@@ -1299,6 +1299,7 @@ summary:focus-visible {
 }
 
 .log-search svg,
+.log-mode-tabs svg,
 .log-level-tabs > svg,
 .log-wrap svg {
   color: var(--green-deep);
@@ -1316,6 +1317,14 @@ summary:focus-visible {
   color: var(--muted);
 }
 
+.log-mode-tabs {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 32px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
 .log-level-tabs {
   display: inline-flex;
   align-items: center;
@@ -1329,6 +1338,7 @@ summary:focus-visible {
   margin-inline: 9px 4px;
 }
 
+.log-mode-tabs button,
 .log-level-tabs button,
 .log-wrap,
 .log-source-tabs button {
@@ -1343,10 +1353,16 @@ summary:focus-visible {
   cursor: pointer;
 }
 
+.log-mode-tabs button {
+  gap: 6px;
+  padding-inline: 10px;
+}
+
 .log-level-tabs button {
   padding-inline: 9px;
 }
 
+.log-mode-tabs button.active,
 .log-level-tabs button.active,
 .log-wrap.active,
 .log-source-tabs button.active {
@@ -1355,6 +1371,13 @@ summary:focus-visible {
   box-shadow: inset 0 -2px 0 var(--green);
 }
 
+.log-mode-tabs button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.log-mode-tabs span,
 .log-level-tabs span,
 .log-level-tabs strong,
 .log-wrap span,

@@ -192,12 +192,17 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         None
     };
     let logs = if target.kind == "Pod" {
-        pod_logs(&target).await.unwrap_or_else(|error| error)
+        pod_logs(&target, false).await.unwrap_or_else(|error| error)
+    } else {
+        String::new()
+    };
+    let previous_logs = if target.kind == "Pod" {
+        pod_logs(&target, true).await.unwrap_or_default()
     } else {
         String::new()
     };
 
-    ResourceDetails { yaml, events, logs, pod }
+    ResourceDetails { yaml, events, logs, previous_logs, pod }
 }
 
 #[tauri::command]
@@ -227,8 +232,7 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
                 "--tail=240".to_string(),
                 "--timestamps".to_string(),
             ]);
-            match pod_logs(&target).await
-            {
+            match pod_logs(&target, false).await {
                 Ok(output) => pod_action_result(normalized, PodActionStatus::Executed, "Read latest pod logs.".to_string(), output, command, false),
                 Err(error) => pod_action_result(normalized, PodActionStatus::Failed, error, String::new(), command, false),
             }
@@ -328,25 +332,27 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
             }]
         },
         logs: String::new(),
+        previous_logs: String::new(),
         pod: None,
     }
 }
 
-async fn pod_logs(target: &ActionTarget) -> Result<String, String> {
-    kubectl(kubectl_target_args(
-        target,
-        vec![
-            "logs".to_string(),
-            target.name.clone(),
-            "-n".to_string(),
-            target.namespace.clone(),
-            "--all-containers=true".to_string(),
-            "--prefix=true".to_string(),
-            "--tail=240".to_string(),
-            "--timestamps".to_string(),
-        ],
-    ))
-    .await
+async fn pod_logs(target: &ActionTarget, previous: bool) -> Result<String, String> {
+    let mut args = vec![
+        "logs".to_string(),
+        target.name.clone(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "--all-containers=true".to_string(),
+        "--prefix=true".to_string(),
+        "--tail=240".to_string(),
+        "--timestamps".to_string(),
+    ];
+    if previous {
+        args.push("--previous=true".to_string());
+    }
+
+    kubectl(kubectl_target_args(target, args)).await
 }
 
 async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
