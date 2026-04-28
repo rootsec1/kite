@@ -602,23 +602,7 @@ async fn resource_events(target: &ActionTarget) -> Result<Vec<ResourceEvent>, St
     let events = parsed
         .get("items")
         .and_then(|items| items.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .map(|event| ResourceEvent {
-                    type_: text_field(event, "type", "Normal"),
-                    reason: text_field(event, "reason", "Event"),
-                    message: text_field(event, "message", ""),
-                    age: event
-                        .get("lastTimestamp")
-                        .or_else(|| event.get("eventTime"))
-                        .or_else(|| event.pointer("/metadata/creationTimestamp"))
-                        .and_then(|value| value.as_str())
-                        .map(short_age)
-                        .unwrap_or_else(|| "live".to_string()),
-                })
-                .collect()
-        })
+        .map(|items| resource_events_from_items(items))
         .unwrap_or_default();
 
     Ok(events)
@@ -626,6 +610,43 @@ async fn resource_events(target: &ActionTarget) -> Result<Vec<ResourceEvent>, St
 
 fn event_field_selector(target: &ActionTarget) -> String {
     format!("involvedObject.name={},involvedObject.kind={}", target.name, target.kind)
+}
+
+fn resource_events_from_items(items: &[serde_json::Value]) -> Vec<ResourceEvent> {
+    let mut events = items
+        .iter()
+        .map(|event| (event_timestamp(event), resource_event(event)))
+        .collect::<Vec<_>>();
+    events.sort_by(|left, right| right.0.cmp(&left.0));
+    events.into_iter().map(|(_, event)| event).collect()
+}
+
+fn resource_event(event: &serde_json::Value) -> ResourceEvent {
+    ResourceEvent {
+        type_: text_field(event, "type", "Normal"),
+        reason: text_field(event, "reason", "Event"),
+        message: text_field(event, "message", ""),
+        age: event_age(event),
+    }
+}
+
+fn event_age(event: &serde_json::Value) -> String {
+    let timestamp = event_timestamp(event);
+    if timestamp.is_empty() {
+        "live".to_string()
+    } else {
+        short_age(&timestamp)
+    }
+}
+
+fn event_timestamp(event: &serde_json::Value) -> String {
+    event
+        .get("lastTimestamp")
+        .or_else(|| event.get("eventTime"))
+        .or_else(|| event.pointer("/metadata/creationTimestamp"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
@@ -1745,6 +1766,50 @@ mod tests {
         };
 
         assert_eq!(event_field_selector(&target), "involvedObject.name=api,involvedObject.kind=Pod");
+    }
+
+    #[test]
+    fn event_timestamp_prefers_latest_available_event_time() {
+        let event = serde_json::json!({
+            "eventTime": "2026-04-28T21:10:00Z",
+            "lastTimestamp": "2026-04-28T21:12:00Z",
+            "metadata": {
+                "creationTimestamp": "2026-04-28T21:08:00Z"
+            }
+        });
+
+        assert_eq!(event_timestamp(&event), "2026-04-28T21:12:00Z");
+        assert_eq!(event_age(&event), "2026-04-28");
+    }
+
+    #[test]
+    fn resource_events_are_newest_first() {
+        let items = vec![
+            serde_json::json!({
+                "type": "Normal",
+                "reason": "Pulled",
+                "lastTimestamp": "2026-04-28T21:10:00Z"
+            }),
+            serde_json::json!({
+                "type": "Warning",
+                "reason": "BackOff",
+                "eventTime": "2026-04-28T21:12:00Z"
+            }),
+            serde_json::json!({
+                "type": "Normal",
+                "reason": "Scheduled",
+                "metadata": {
+                    "creationTimestamp": "2026-04-28T21:08:00Z"
+                }
+            }),
+        ];
+
+        let events = resource_events_from_items(&items);
+
+        assert_eq!(
+            events.iter().map(|event| event.reason.as_str()).collect::<Vec<_>>(),
+            ["BackOff", "Pulled", "Scheduled"]
+        );
     }
 
     #[test]
