@@ -3,8 +3,12 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
     batch::v1::{CronJob, Job},
-    core::v1::{ConfigMap, Event, Namespace, Node, Pod, Secret, Service},
+    core::v1::{
+        ConfigMap, Event, Namespace, Node, PersistentVolume, PersistentVolumeClaim, Pod, Secret,
+        Service,
+    },
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
+    storage::v1::StorageClass,
 };
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
@@ -88,6 +92,9 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
     resources.extend(list_services(client.clone(), &context).await?);
     resources.extend(list_configmaps(client.clone(), &context).await?);
     resources.extend(list_secrets(client.clone(), &context).await?);
+    resources.extend(list_persistent_volume_claims(client.clone(), &context).await?);
+    resources.extend(list_persistent_volumes(client.clone(), &context).await?);
+    resources.extend(list_storage_classes(client.clone(), &context).await?);
     resources.extend(list_roles(client.clone(), &context).await?);
     resources.extend(list_role_bindings(client.clone(), &context).await?);
     resources.extend(list_cluster_roles(client.clone(), &context).await?);
@@ -1066,6 +1073,115 @@ async fn list_secrets(client: Client, cluster: &str) -> Result<Vec<ResourceSumma
         .collect())
 }
 
+async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let claims = Api::<PersistentVolumeClaim>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list PersistentVolumeClaims: {error}"))?;
+
+    Ok(claims
+        .items
+        .into_iter()
+        .map(|claim| {
+            let phase = claim
+                .status
+                .as_ref()
+                .and_then(|status| status.phase.as_deref())
+                .unwrap_or("Pending");
+            let labels = claim.metadata.labels.clone().unwrap_or_default();
+            let spec = claim.spec.as_ref();
+            let storage_class = spec
+                .and_then(|spec| spec.storage_class_name.clone())
+                .unwrap_or_default();
+            let volume_name = spec.and_then(|spec| spec.volume_name.clone()).unwrap_or_default();
+
+            resource_summary(
+                "PersistentVolumeClaim",
+                claim.name_any(),
+                claim.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                volume_phase_status(phase),
+                0,
+                storage_class,
+            )
+            .with_labels(labels)
+            .with_owner(volume_name)
+        })
+        .collect())
+}
+
+async fn list_persistent_volumes(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let volumes = Api::<PersistentVolume>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list PersistentVolumes: {error}"))?;
+
+    Ok(volumes
+        .items
+        .into_iter()
+        .map(|volume| {
+            let phase = volume
+                .status
+                .as_ref()
+                .and_then(|status| status.phase.as_deref())
+                .unwrap_or("Pending");
+            let labels = volume.metadata.labels.clone().unwrap_or_default();
+            let spec = volume.spec.as_ref();
+            let storage_class = spec
+                .and_then(|spec| spec.storage_class_name.clone())
+                .unwrap_or_default();
+            let claim_ref = spec
+                .and_then(|spec| spec.claim_ref.as_ref())
+                .map(|claim| {
+                    let namespace = claim.namespace.clone().unwrap_or_else(|| "default".to_string());
+                    let name = claim.name.clone().unwrap_or_default();
+                    format!("{namespace}/{name}")
+                })
+                .unwrap_or_default();
+
+            resource_summary(
+                "PersistentVolume",
+                volume.name_any(),
+                "cluster".to_string(),
+                cluster,
+                volume_phase_status(phase),
+                0,
+                storage_class,
+            )
+            .with_labels(labels)
+            .with_owner(claim_ref)
+        })
+        .collect())
+}
+
+async fn list_storage_classes(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let classes = Api::<StorageClass>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list StorageClasses: {error}"))?;
+
+    Ok(classes
+        .items
+        .into_iter()
+        .map(|class| {
+            let labels = class.metadata.labels.clone().unwrap_or_default();
+            let reclaim_policy = class.reclaim_policy.clone().unwrap_or_default();
+
+            resource_summary(
+                "StorageClass",
+                class.name_any(),
+                "cluster".to_string(),
+                cluster,
+                HealthState::Healthy,
+                0,
+                class.provisioner,
+            )
+            .with_labels(labels)
+            .with_owner(reclaim_policy)
+        })
+        .collect())
+}
+
 async fn list_roles(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let roles = Api::<Role>::all(client)
         .list(&ListParams::default())
@@ -1353,6 +1469,14 @@ fn workload_status(ready: i32, desired: i32) -> HealthState {
         HealthState::Critical
     } else {
         HealthState::Warning
+    }
+}
+
+fn volume_phase_status(phase: &str) -> HealthState {
+    match phase {
+        "Available" | "Bound" => HealthState::Healthy,
+        "Failed" | "Lost" => HealthState::Critical,
+        _ => HealthState::Warning,
     }
 }
 
