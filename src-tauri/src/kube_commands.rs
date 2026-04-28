@@ -7,6 +7,7 @@ use k8s_openapi::api::{
         ConfigMap, Event, Namespace, Node, PersistentVolume, PersistentVolumeClaim, Pod, Secret,
         Service,
     },
+    networking::v1::Ingress,
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
     storage::v1::StorageClass,
 };
@@ -90,6 +91,7 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
     resources.extend(list_jobs(client.clone(), &context).await?);
     resources.extend(list_cronjobs(client.clone(), &context).await?);
     resources.extend(list_services(client.clone(), &context).await?);
+    resources.extend(list_ingresses(client.clone(), &context).await?);
     resources.extend(list_configmaps(client.clone(), &context).await?);
     resources.extend(list_secrets(client.clone(), &context).await?);
     resources.extend(list_persistent_volume_claims(client.clone(), &context).await?);
@@ -1020,6 +1022,51 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
         .collect())
 }
 
+async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let ingresses = Api::<Ingress>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ingresses: {error}"))?;
+
+    Ok(ingresses
+        .items
+        .into_iter()
+        .map(|ingress| {
+            let labels = ingress.metadata.labels.clone().unwrap_or_default();
+            let spec = ingress.spec.as_ref();
+            let class = spec
+                .and_then(|spec| spec.ingress_class_name.clone())
+                .unwrap_or_default();
+            let hosts = spec
+                .and_then(|spec| spec.rules.as_ref())
+                .map(|rules| {
+                    rules
+                        .iter()
+                        .filter_map(|rule| rule.host.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let has_default_backend = spec.and_then(|spec| spec.default_backend.as_ref()).is_some();
+            let host_summary = if hosts.is_empty() {
+                class
+            } else {
+                hosts.join(", ")
+            };
+
+            resource_summary(
+                "Ingress",
+                ingress.name_any(),
+                ingress.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                ingress_status(hosts.len(), has_default_backend),
+                0,
+                host_summary,
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
 async fn list_configmaps(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let configmaps = Api::<ConfigMap>::all(client)
         .list(&ListParams::default())
@@ -1477,6 +1524,14 @@ fn volume_phase_status(phase: &str) -> HealthState {
         "Available" | "Bound" => HealthState::Healthy,
         "Failed" | "Lost" => HealthState::Critical,
         _ => HealthState::Warning,
+    }
+}
+
+fn ingress_status(host_count: usize, has_default_backend: bool) -> HealthState {
+    if host_count > 0 || has_default_backend {
+        HealthState::Healthy
+    } else {
+        HealthState::Warning
     }
 }
 
