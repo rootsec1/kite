@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
-import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
+import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
 import { PodLinkStrip } from "./PodLinkStrip";
 import { PodTerminal } from "./PodTerminal";
@@ -127,7 +127,6 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
   const restartTotal = containers.length
     ? containers.reduce((sum, container) => sum + container.restartCount, 0)
     : resource.restarts;
-  const failingConditions = pod?.conditions.filter((condition) => condition.status !== "True") ?? [];
 
   return (
     <section className="pod-debug-panel" aria-label="Pod runtime status">
@@ -150,12 +149,10 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
         <RuntimeTile icon={GitCommitHorizontal} label="Node" value={pod?.nodeName || "pending"} tone="syncing" />
       </div>
 
-      {failingConditions.length ? (
-        <div className="pod-conditions">
-          {failingConditions.slice(0, 4).map((condition) => (
-            <span key={condition.type}>
-              {condition.type}: {condition.reason || condition.status}
-            </span>
+      {pod?.conditions.length ? (
+        <div className="pod-condition-grid" aria-label="Pod conditions">
+          {pod.conditions.map((condition) => (
+            <ConditionCell condition={condition} key={condition.type} />
           ))}
         </div>
       ) : null}
@@ -172,6 +169,33 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
       </div>
     </section>
   );
+}
+
+function ConditionCell({ condition }: { condition: PodCondition }) {
+  const state = conditionState(condition.status);
+
+  return (
+    <article className={`pod-condition ${state}`}>
+      <StatusDot state={state} />
+      <span title={condition.type}>{formatConditionType(condition.type)}</span>
+      <strong>{condition.status}</strong>
+      {condition.reason ? <small title={condition.reason}>{condition.reason}</small> : null}
+    </article>
+  );
+}
+
+function formatConditionType(type: string) {
+  return type.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+}
+
+function conditionState(status: string): HealthState {
+  if (status === "True") {
+    return "healthy";
+  }
+  if (status === "False") {
+    return "warning";
+  }
+  return "syncing";
 }
 
 function RuntimeTile({

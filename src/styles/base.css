@@ -791,7 +791,9 @@ summary:focus-visible {
 
 .pod-status-line span,
 .pod-status-line small,
-.pod-conditions span {
+.pod-condition span,
+.pod-condition strong,
+.pod-condition small {
   color: var(--text-soft);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -844,6 +846,53 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.pod-condition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+
+.pod-condition {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 6px 9px;
+  align-items: center;
+  min-block-size: 58px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+
+.pod-condition .status-dot {
+  inline-size: 8px;
+  block-size: 8px;
+}
+
+.pod-condition span,
+.pod-condition small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-condition strong {
+  justify-self: end;
+  color: var(--text);
+}
+
+.pod-condition small {
+  grid-column: 2 / -1;
+  color: var(--muted);
+}
+
+.pod-condition.warning strong {
+  color: #7d5317;
+}
+
+.pod-condition.syncing strong {
+  color: #245d73;
+}
+
 .container-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -855,21 +904,6 @@ summary:focus-visible {
   padding: 3px 6px;
   border: 1px solid var(--line);
   color: var(--text-muted);
-  background: var(--surface-soft);
-}
-
-.pod-conditions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 14px;
-  background: var(--surface);
-}
-
-.pod-conditions span {
-  padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--orange) 45%, var(--line));
-  color: var(--orange);
   background: var(--surface-soft);
 }
 
