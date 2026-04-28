@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, RotateCw, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
 import { PodTerminal } from "./PodTerminal";
@@ -98,7 +98,7 @@ export function ResourceDetail({
         </>
       ) : null}
 
-      {result ? <ActionResult result={result} onConfirm={() => onRunPodAction(result.action, true)} /> : null}
+      {result ? <ActionResult resource={resource} result={result} onConfirm={() => onRunPodAction(result.action, true)} /> : null}
 
       {isPod ? (
         <>
@@ -210,21 +210,51 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
   );
 }
 
-function ActionResult({ onConfirm, result }: { onConfirm: () => void; result: PodActionResult }) {
+function ActionResult({
+  onConfirm,
+  resource,
+  result,
+}: {
+  onConfirm: () => void;
+  resource: ResourceRow;
+  result: PodActionResult;
+}) {
+  const risk = actionRisk(result.action);
+
   return (
-    <div className={`pod-action-result ${result.status}`}>
-      <div>
-        <span>{result.status}</span>
-        <strong>{result.message}</strong>
+    <div className={`pod-action-result ${result.status} ${risk}`}>
+      <ShieldAlert size={17} />
+      <div className="pod-action-body">
+        <div>
+          <span>{result.status}</span>
+          <strong>{result.message}</strong>
+        </div>
+        <div className="pod-action-target" aria-label="Pod action target">
+          <small>action {result.action}</small>
+          <small>context {resource.cluster || "current"}</small>
+          <small>ns {resource.namespace}</small>
+          <small>pod {resource.name}</small>
+          <small>risk {risk}</small>
+        </div>
         {result.command ? <code>{result.command}</code> : null}
       </div>
       {result.requiresConfirmation ? (
         <button type="button" onClick={onConfirm}>
-          Confirm
+          Confirm {result.action}
         </button>
       ) : null}
     </div>
   );
+}
+
+function actionRisk(action: string) {
+  if (action === "delete" || action === "kill") {
+    return "high";
+  }
+  if (action === "restart") {
+    return "medium";
+  }
+  return "low";
 }
 
 type HierarchyGroup = {
