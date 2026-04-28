@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
     batch::v1::{CronJob, Job},
-    core::v1::{Event, Namespace, Node, Pod, Service},
+    core::v1::{ConfigMap, Event, Namespace, Node, Pod, Secret, Service},
+    rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
 };
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
@@ -85,6 +86,12 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
     resources.extend(list_jobs(client.clone(), &context).await?);
     resources.extend(list_cronjobs(client.clone(), &context).await?);
     resources.extend(list_services(client.clone(), &context).await?);
+    resources.extend(list_configmaps(client.clone(), &context).await?);
+    resources.extend(list_secrets(client.clone(), &context).await?);
+    resources.extend(list_roles(client.clone(), &context).await?);
+    resources.extend(list_role_bindings(client.clone(), &context).await?);
+    resources.extend(list_cluster_roles(client.clone(), &context).await?);
+    resources.extend(list_cluster_role_bindings(client.clone(), &context).await?);
     resources.extend(list_events(client.clone(), &context).await?);
     resources.extend(list_nodes(client.clone(), &context).await?);
     resources.extend(list_namespaces(client.clone(), &context).await?);
@@ -1002,6 +1009,172 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
                 type_,
             )
             .with_selector(selector)
+        })
+        .collect())
+}
+
+async fn list_configmaps(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let configmaps = Api::<ConfigMap>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ConfigMaps: {error}"))?;
+
+    Ok(configmaps
+        .items
+        .into_iter()
+        .map(|configmap| {
+            let key_count = configmap.data.as_ref().map(|data| data.len()).unwrap_or(0);
+            let labels = configmap.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "ConfigMap",
+                configmap.name_any(),
+                configmap.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                HealthState::Healthy,
+                0,
+                format!("{key_count} keys"),
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
+async fn list_secrets(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let secrets = Api::<Secret>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list Secrets: {error}"))?;
+
+    Ok(secrets
+        .items
+        .into_iter()
+        .map(|secret| {
+            let labels = secret.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "Secret",
+                secret.name_any(),
+                secret.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                HealthState::Healthy,
+                0,
+                secret.type_.unwrap_or_default(),
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
+async fn list_roles(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let roles = Api::<Role>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list Roles: {error}"))?;
+
+    Ok(roles
+        .items
+        .into_iter()
+        .map(|role| {
+            let rule_count = role.rules.as_ref().map(|rules| rules.len()).unwrap_or(0);
+            let labels = role.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "Role",
+                role.name_any(),
+                role.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                HealthState::Healthy,
+                0,
+                format!("{rule_count} rules"),
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
+async fn list_role_bindings(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let bindings = Api::<RoleBinding>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list RoleBindings: {error}"))?;
+
+    Ok(bindings
+        .items
+        .into_iter()
+        .map(|binding| {
+            let role_ref = format!("{}/{}", binding.role_ref.kind, binding.role_ref.name);
+            let labels = binding.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "RoleBinding",
+                binding.name_any(),
+                binding.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                HealthState::Healthy,
+                0,
+                role_ref.clone(),
+            )
+            .with_labels(labels)
+            .with_owner(role_ref)
+        })
+        .collect())
+}
+
+async fn list_cluster_roles(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let roles = Api::<ClusterRole>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ClusterRoles: {error}"))?;
+
+    Ok(roles
+        .items
+        .into_iter()
+        .map(|role| {
+            let rule_count = role.rules.as_ref().map(|rules| rules.len()).unwrap_or(0);
+            let labels = role.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "ClusterRole",
+                role.name_any(),
+                "cluster".to_string(),
+                cluster,
+                HealthState::Healthy,
+                0,
+                format!("{rule_count} rules"),
+            )
+            .with_labels(labels)
+        })
+        .collect())
+}
+
+async fn list_cluster_role_bindings(
+    client: Client,
+    cluster: &str,
+) -> Result<Vec<ResourceSummary>, String> {
+    let bindings = Api::<ClusterRoleBinding>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ClusterRoleBindings: {error}"))?;
+
+    Ok(bindings
+        .items
+        .into_iter()
+        .map(|binding| {
+            let role_ref = format!("{}/{}", binding.role_ref.kind, binding.role_ref.name);
+            let labels = binding.metadata.labels.clone().unwrap_or_default();
+
+            resource_summary(
+                "ClusterRoleBinding",
+                binding.name_any(),
+                "cluster".to_string(),
+                cluster,
+                HealthState::Healthy,
+                0,
+                role_ref.clone(),
+            )
+            .with_labels(labels)
+            .with_owner(role_ref)
         })
         .collect())
 }
