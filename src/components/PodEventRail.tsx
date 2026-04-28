@@ -10,8 +10,7 @@ export function PodEventRail({
   detailsError: string;
   detailsLoading: boolean;
 }) {
-  const events = details.events.slice(0, 5);
-  const warningCount = details.events.filter(isWarningEvent).length;
+  const { events, warningCount } = eventRailView(details.events);
 
   return (
     <section className="pod-event-rail" aria-label="Pod event timeline">
@@ -69,6 +68,24 @@ function PodEventEmpty({ label, message }: { label: string; message: string }) {
       <strong>{message}</strong>
     </div>
   );
+}
+
+export function eventRailView(events: ResourceEvent[]) {
+  const warnings: ResourceEvent[] = [];
+  const normal: ResourceEvent[] = [];
+
+  for (const event of events) {
+    if (isWarningEvent(event)) {
+      warnings.push(event);
+    } else {
+      normal.push(event);
+    }
+  }
+
+  return {
+    events: [...warnings, ...normal].slice(0, 5),
+    warningCount: warnings.length,
+  };
 }
 
 function isWarningEvent(event: ResourceEvent) {
