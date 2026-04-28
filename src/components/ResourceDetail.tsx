@@ -79,7 +79,12 @@ export function ResourceDetail({
       {isPod ? (
         <>
           <PodStatusPanel details={details} resource={resource} />
-          <PodLinkStrip allResources={allResources} pod={resource} onOpenResource={onOpenResource} />
+          <PodLinkStrip
+            allResources={allResources}
+            nodeName={details.pod?.nodeName}
+            pod={resource}
+            onOpenResource={onOpenResource}
+          />
           <div className="pod-actions" aria-label="Pod actions">
             <button type="button" onClick={onRefreshDetails}>
               <FileText size={15} />

@@ -1,4 +1,4 @@
-import { GitBranch, HardDrive, Layers3, Network, type LucideIcon } from "lucide-react";
+import { GitBranch, HardDrive, Layers3, Network, Server, type LucideIcon } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
@@ -11,14 +11,16 @@ type PodLinkGroup = {
 
 export function PodLinkStrip({
   allResources,
+  nodeName,
   onOpenResource,
   pod,
 }: {
   allResources: ResourceRow[];
+  nodeName?: string;
   onOpenResource: (id: string) => void;
   pod: ResourceRow;
 }) {
-  const visibleLinks = podLinksFor(pod, allResources).filter((link) => link.resources.length);
+  const visibleLinks = podLinksFor(pod, allResources, nodeName).filter((link) => link.resources.length);
 
   if (!visibleLinks.length) {
     return null;
@@ -48,7 +50,7 @@ export function PodLinkStrip({
   );
 }
 
-function podLinksFor(pod: ResourceRow, resources: ResourceRow[]): PodLinkGroup[] {
+function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""): PodLinkGroup[] {
   const namespaceResources = resources.filter((item) => item.namespace === pod.namespace);
   const ownerResources = uniqueResources([
     ...directOwnerResources(pod, namespaceResources),
@@ -56,10 +58,12 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[]): PodLinkGroup[]
   ]);
   const serviceResources = namespaceResources.filter((item) => item.kind === "Service" && matchesSelector(pod, item.selector));
   const mountedResources = resources.filter((item) => pod.references.some((reference) => matchesReference(item, reference)));
+  const node = nodeName ? resources.filter((item) => item.kind === "Node" && item.name === nodeName) : [];
   const namespace = resources.filter((item) => item.kind === "Namespace" && item.name === pod.namespace);
 
   return [
     { title: "Owner", icon: GitBranch, resources: ownerResources },
+    { title: "Node", icon: Server, resources: node },
     { title: "Services", icon: Network, resources: serviceResources },
     { title: "Mounts", icon: HardDrive, resources: mountedResources },
     { title: "Namespace", icon: Layers3, resources: namespace },
