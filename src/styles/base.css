@@ -827,7 +827,8 @@ summary:focus-visible {
 .runtime-tile span,
 .container-card span,
 .container-card code,
-.container-card small {
+.container-card small,
+.container-role {
   color: var(--text-soft);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -847,6 +848,14 @@ summary:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 1px;
+}
+
+.container-role {
+  margin-inline-start: auto;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  background: var(--surface-soft);
 }
 
 .pod-conditions {

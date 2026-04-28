@@ -101,6 +101,7 @@ pub struct PodCondition {
 #[serde(rename_all = "camelCase")]
 pub struct ContainerDetails {
     pub name: String,
+    pub role: String,
     pub image: String,
     pub ready: bool,
     pub restart_count: u32,

@@ -81,6 +81,7 @@ export type PodCondition = {
 
 export type ContainerDetails = {
   name: string;
+  role: "app" | "init" | "ephemeral";
   image: string;
   ready: boolean;
   restartCount: number;

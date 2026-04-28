@@ -372,12 +372,12 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
     let pod = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid pod JSON: {error}"))?;
     let status = pod.get("status").unwrap_or(&serde_json::Value::Null);
     let spec = pod.get("spec").unwrap_or(&serde_json::Value::Null);
-    let containers = status
-        .get("containerStatuses")
-        .and_then(|value| value.as_array())
-        .map(|items| items.iter().map(container_details).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let ready_containers = containers.iter().filter(|container| container.ready).count();
+    let app_containers = container_status_details(status, "containerStatuses", "app");
+    let ready_containers = app_containers.iter().filter(|container| container.ready).count();
+    let total_containers = app_containers.len();
+    let mut containers = container_status_details(status, "initContainerStatuses", "init");
+    containers.extend(app_containers);
+    containers.extend(container_status_details(status, "ephemeralContainerStatuses", "ephemeral"));
     let conditions = status
         .get("conditions")
         .and_then(|value| value.as_array())
@@ -401,13 +401,30 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
         qos_class: text_field(status, "qosClass", ""),
         start_time: text_field(status, "startTime", ""),
         ready_containers,
-        total_containers: containers.len(),
+        total_containers,
         conditions,
         containers,
     })
 }
 
-fn container_details(container: &serde_json::Value) -> ContainerDetails {
+fn container_status_details(
+    status: &serde_json::Value,
+    field: &str,
+    role: &str,
+) -> Vec<ContainerDetails> {
+    status
+        .get(field)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|container| container_details(container, role))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn container_details(container: &serde_json::Value, role: &str) -> ContainerDetails {
     let state = container.get("state").unwrap_or(&serde_json::Value::Null);
     let state_name = state
         .as_object()
@@ -423,9 +440,16 @@ fn container_details(container: &serde_json::Value) -> ContainerDetails {
 
     ContainerDetails {
         name: text_field(container, "name", "container"),
+        role: role.to_string(),
         image: text_field(container, "image", ""),
-        ready: container.get("ready").and_then(|value| value.as_bool()).unwrap_or(false),
-        restart_count: container.get("restartCount").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
+        ready: container
+            .get("ready")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        restart_count: container
+            .get("restartCount")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as u32,
         state: state_name,
         reason,
     }
@@ -786,12 +810,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
         .items
         .into_iter()
         .map(|pod| {
-            let restarts = pod
-                .status
-                .as_ref()
-                .and_then(|status| status.container_statuses.as_ref())
-                .map(|statuses| statuses.iter().map(|status| status.restart_count as u32).sum())
-                .unwrap_or(0);
+            let restarts = pod.status.as_ref().map(pod_restart_count).unwrap_or(0);
             let image = pod
                 .status
                 .as_ref()
@@ -1573,7 +1592,11 @@ fn pod_status(pod: &Pod, restarts: u32) -> HealthState {
         return HealthState::Critical;
     }
 
-    if phase != "Succeeded" && pod_has_critical_container_state(status.container_statuses.as_deref()) {
+    if phase != "Succeeded"
+        && (pod_has_critical_container_state(status.init_container_statuses.as_deref())
+            || pod_has_critical_container_state(status.container_statuses.as_deref())
+            || pod_has_critical_container_state(status.ephemeral_container_statuses.as_deref()))
+    {
         return HealthState::Critical;
     }
 
@@ -1586,6 +1609,18 @@ fn pod_status(pod: &Pod, restarts: u32) -> HealthState {
     }
 
     HealthState::Warning
+}
+
+fn pod_restart_count(status: &k8s_openapi::api::core::v1::PodStatus) -> u32 {
+    status
+        .init_container_statuses
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .chain(status.container_statuses.as_deref().unwrap_or_default())
+        .chain(status.ephemeral_container_statuses.as_deref().unwrap_or_default())
+        .map(|status| status.restart_count as u32)
+        .sum()
 }
 
 fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> bool {
@@ -1623,9 +1658,23 @@ mod tests {
 
     #[test]
     fn running_crashlooping_pod_is_critical() {
-        let pod = pod_with_status("Running", vec![container_status(false, 5, Some("CrashLoopBackOff"))]);
+        let pod = pod_with_status(
+            "Running",
+            vec![container_status(false, 5, Some("CrashLoopBackOff"))],
+        );
 
         assert_eq!(pod_status(&pod, 5), HealthState::Critical);
+    }
+
+    #[test]
+    fn running_init_crashlooping_pod_is_critical() {
+        let mut pod = pod_with_status("Running", vec![container_status(false, 0, None)]);
+        if let Some(status) = pod.status.as_mut() {
+            status.init_container_statuses =
+                Some(vec![container_status(false, 3, Some("ImagePullBackOff"))]);
+        }
+
+        assert_eq!(pod_status(&pod, 3), HealthState::Critical);
     }
 
     #[test]

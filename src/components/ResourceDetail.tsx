@@ -200,6 +200,7 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
       <div>
         <StatusDot state={container.ready ? "healthy" : "warning"} />
         <strong>{container.name}</strong>
+        <small className="container-role">{container.role}</small>
       </div>
       <span>{container.state}{container.reason ? ` / ${container.reason}` : ""}</span>
       {container.image ? (

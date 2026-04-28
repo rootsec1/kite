@@ -36,17 +36,19 @@ type KubeItem = {
     availableReplicas?: number;
     unavailableReplicas?: number;
     conditions?: Array<{ type?: string; status?: string; reason?: string }>;
-    containerStatuses?: Array<{
-      name?: string;
-      image?: string;
-      ready?: boolean;
-      restartCount?: number;
-      state?: Record<string, { reason?: string }>;
-    }>;
+    containerStatuses?: KubeContainerStatus[];
+    ephemeralContainerStatuses?: KubeContainerStatus[];
+    initContainerStatuses?: KubeContainerStatus[];
   };
 };
 
-type KubeContainerStatus = NonNullable<NonNullable<KubeItem["status"]>["containerStatuses"]>[number];
+type KubeContainerStatus = {
+  name?: string;
+  image?: string;
+  ready?: boolean;
+  restartCount?: number;
+  state?: Record<string, { reason?: string }>;
+};
 
 type KubeList = {
   items?: KubeItem[];
@@ -342,7 +344,12 @@ async function readPodLogs(target: { name: string; namespace: string; cluster: s
 
 async function readPodDetails(target: { name: string; namespace: string; cluster: string }) {
   const pod = await kubectlJson<KubeItem>(["get", "pod", target.name, "-n", target.namespace, "-o", "json"], target.cluster);
-  const containers = pod.status?.containerStatuses ?? [];
+  const appContainers = pod.status?.containerStatuses ?? [];
+  const containers = [
+    ...containerDetails(pod.status?.initContainerStatuses, "init"),
+    ...containerDetails(appContainers, "app"),
+    ...containerDetails(pod.status?.ephemeralContainerStatuses, "ephemeral"),
+  ];
 
   return {
     phase: pod.status?.phase ?? "Unknown",
@@ -351,25 +358,30 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
     hostIp: pod.status?.hostIP ?? "",
     qosClass: pod.status?.qosClass ?? "",
     startTime: pod.status?.startTime ?? "",
-    readyContainers: containers.filter((container) => container.ready).length,
-    totalContainers: containers.length,
+    readyContainers: appContainers.filter((container) => container.ready).length,
+    totalContainers: appContainers.length,
     conditions: (pod.status?.conditions ?? []).map((condition) => ({
       type: condition.type ?? "Condition",
       status: condition.status ?? "Unknown",
       reason: condition.reason ?? "",
     })),
-    containers: containers.map((container) => {
-      const stateName = Object.keys(container.state ?? {})[0] ?? "unknown";
-      return {
-        name: container.name ?? "container",
-        image: container.image ?? "",
-        ready: Boolean(container.ready),
-        restartCount: container.restartCount ?? 0,
-        state: stateName,
-        reason: container.state?.[stateName]?.reason ?? "",
-      };
-    }),
+    containers,
   };
+}
+
+function containerDetails(containers: KubeContainerStatus[] | undefined, role: "app" | "init" | "ephemeral") {
+  return (containers ?? []).map((container) => {
+    const stateName = Object.keys(container.state ?? {})[0] ?? "unknown";
+    return {
+      name: container.name ?? "container",
+      role,
+      image: container.image ?? "",
+      ready: Boolean(container.ready),
+      restartCount: container.restartCount ?? 0,
+      state: stateName,
+      reason: container.state?.[stateName]?.reason ?? "",
+    };
+  });
 }
 
 async function readResourceList(query: { name: string; namespaced: boolean }, context: string) {
@@ -569,10 +581,15 @@ function resourceStatus(item: KubeItem) {
 function podStatus(item: KubeItem) {
   const phase = item.status?.phase ?? "";
   const containers = item.status?.containerStatuses ?? [];
-  const restarts = containers.reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
+  const allContainers = [
+    ...(item.status?.initContainerStatuses ?? []),
+    ...containers,
+    ...(item.status?.ephemeralContainerStatuses ?? []),
+  ];
+  const restarts = allContainers.reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
 
   if (phase === "Failed") return "critical";
-  if (phase !== "Succeeded" && containers.some(hasCriticalContainerState)) return "critical";
+  if (phase !== "Succeeded" && allContainers.some(hasCriticalContainerState)) return "critical";
   if (phase === "Succeeded") return "healthy";
   if (phase === "Running" && containers.length > 0 && containers.every((container) => container.ready) && restarts === 0) {
     return "healthy";
