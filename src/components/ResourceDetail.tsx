@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
+import { PodLinkStrip } from "./PodLinkStrip";
 import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
 
@@ -77,6 +79,7 @@ export function ResourceDetail({
       {isPod ? (
         <>
           <PodStatusPanel details={details} resource={resource} />
+          <PodLinkStrip allResources={allResources} pod={resource} onOpenResource={onOpenResource} />
           <div className="pod-actions" aria-label="Pod actions">
             <button type="button" onClick={onRefreshDetails}>
               <FileText size={15} />
@@ -340,7 +343,6 @@ function HierarchyGroups({
   );
 }
 
-const workloadKinds = new Set(["Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet"]);
 const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
 const configKinds = new Set(["ConfigMap", "Secret", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
@@ -401,16 +403,6 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     { title: "Pods in namespace", resources: resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace) },
     { title: "Workloads in namespace", resources: resources.filter((item) => item.namespace === resource.namespace && workloadKinds.has(item.kind)) },
   ];
-}
-
-function ownsPod(owner: ResourceRow, pod: ResourceRow) {
-  if (pod.owner.includes(`/${owner.name}`)) {
-    return true;
-  }
-  if (owner.kind === "Deployment" && pod.owner.startsWith(`ReplicaSet/${owner.name}-`)) {
-    return true;
-  }
-  return matchesSelector(pod, owner.selector) || matchesSelector(pod, owner.labels);
 }
 
 function accessHierarchyFor(resource: ResourceRow, resources: ResourceRow[]): HierarchyGroup[] {
@@ -487,9 +479,4 @@ function roleReference(owner: string) {
 
 function workloadsForPods(pods: ResourceRow[], resources: ResourceRow[]) {
   return resources.filter((item) => workloadKinds.has(item.kind) && pods.some((pod) => ownsPod(item, pod)));
-}
-
-function matchesSelector(resource: ResourceRow, selector: Record<string, string>) {
-  const entries = Object.entries(selector);
-  return entries.length > 0 && entries.every(([key, value]) => resource.labels[key] === value);
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { KiteData } from "../hooks/useKiteData";
 import { defaultResourceSort, nextResourceSort, sortResources } from "../lib/resourceSort";
 import { pinnedResourcesNavId } from "../theme/resourceTheme";
@@ -20,6 +20,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [resourceSort, setResourceSort] = useState(defaultResourceSort);
+  const primaryPaneRef = useRef<HTMLDivElement>(null);
   const activeItem = useMemo(() => navItems.find((item) => item.id === activeId), [activeId]);
   const activeSection = useMemo(
     () => navSections.find((section) => section.items.some((item) => item.id === activeId)),
@@ -48,11 +49,13 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   function openResource(id: string) {
     data.onSelectResource(id);
     setDetailOpen(true);
+    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
   }
 
   function selectNavigation(id: string) {
     setActiveId(id);
     setDetailOpen(false);
+    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
   }
 
   return (
@@ -70,7 +73,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
         <main className="workspace">
           <Toolbar count={scopedResources.length} data={data} scope={activeItem?.label ?? "Overview"} />
           <section className={inspectorOpen ? "content-grid" : "content-grid inspector-collapsed"}>
-            <div className="primary-pane">
+            <div className="primary-pane" ref={primaryPaneRef}>
               {detailResource ? (
                 <ResourceDetail
                   allResources={data.allResources}
