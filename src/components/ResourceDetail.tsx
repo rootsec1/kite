@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, RotateCw, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, RotateCw, Skull, Star, TerminalSquare } from "lucide-react";
 import type { ContainerDetails, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
 import { PodTerminal } from "./PodTerminal";
@@ -116,7 +116,14 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
   const pod = details.pod;
   const containers = pod?.containers ?? [];
   const ready = pod ? `${pod.readyContainers}/${pod.totalContainers || containers.length}` : "syncing";
-  const restartTotal = containers.reduce((sum, container) => sum + container.restartCount, resource.restarts);
+  const readyTone = !pod || pod.totalContainers === 0
+    ? "syncing"
+    : pod.readyContainers === pod.totalContainers
+      ? "healthy"
+      : "warning";
+  const restartTotal = containers.length
+    ? containers.reduce((sum, container) => sum + container.restartCount, 0)
+    : resource.restarts;
   const failingConditions = pod?.conditions.filter((condition) => condition.status !== "True") ?? [];
 
   return (
@@ -135,7 +142,7 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
 
       <div className="pod-vitals">
         <RuntimeTile icon={Activity} label="Phase" value={pod?.phase ?? resource.status} tone={resource.status} />
-        <RuntimeTile icon={CheckCircle2} label="Ready" value={ready} tone={pod?.readyContainers === pod?.totalContainers ? "healthy" : "warning"} />
+        <RuntimeTile icon={CheckCircle2} label="Ready" value={ready} tone={readyTone} />
         <RuntimeTile icon={RotateCw} label="Restarts" value={String(restartTotal)} tone={restartTotal > 0 ? "warning" : "healthy"} />
         <RuntimeTile icon={GitCommitHorizontal} label="Node" value={pod?.nodeName || "pending"} tone="syncing" />
       </div>
@@ -192,6 +199,12 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
         <strong>{container.name}</strong>
       </div>
       <span>{container.state}{container.reason ? ` / ${container.reason}` : ""}</span>
+      {container.image ? (
+        <span className="container-image">
+          <ImageIcon size={13} />
+          <code title={container.image}>{container.image}</code>
+        </span>
+      ) : null}
       <small>{container.restartCount} restarts</small>
     </article>
   );

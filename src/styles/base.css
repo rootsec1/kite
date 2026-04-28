@@ -826,6 +826,7 @@ summary:focus-visible {
 
 .runtime-tile span,
 .container-card span,
+.container-card code,
 .container-card small {
   color: var(--text-soft);
   font-family: var(--font-mono);
@@ -1007,6 +1008,27 @@ summary:focus-visible {
 
 .container-card strong {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.container-image {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-inline-size: 0;
+  text-transform: none;
+}
+
+.container-image svg {
+  color: var(--green-deep);
+}
+
+.container-image code {
+  overflow: hidden;
+  color: var(--text);
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
