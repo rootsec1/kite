@@ -94,6 +94,7 @@ export type ContainerDetails = {
   name: string;
   role: "app" | "init" | "ephemeral";
   image: string;
+  ports: number[];
   ready: boolean;
   restartCount: number;
   state: string;

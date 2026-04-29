@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
@@ -38,6 +38,7 @@ export function ResourceDetail({
 }: ResourceDetailProps) {
   const isPod = resource.kind === "Pod";
   const hierarchyGroups = useMemo(() => hierarchyFor(resource, allResources), [allResources, resource]);
+  const hasContainerPorts = Boolean(details.pod?.containers.some((container) => container.ports.length));
 
   useEffect(() => {
     if (!isPod) {
@@ -97,6 +98,12 @@ export function ResourceDetail({
               <TerminalSquare size={15} />
               Exec
             </button>
+            {hasContainerPorts ? (
+              <button type="button" onClick={() => onRunPodAction("port-forward")}>
+                <Network size={15} />
+                Port
+              </button>
+            ) : null}
             <button type="button" onClick={() => onRunPodAction("restart")}>
               <RotateCw size={15} />
               Restart
@@ -302,6 +309,13 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
         <span className="container-image">
           <ImageIcon size={13} />
           <code title={container.image}>{container.image}</code>
+        </span>
+      ) : null}
+      {container.ports.length ? (
+        <span className="container-ports" aria-label={`Ports ${container.ports.join(", ")}`}>
+          {container.ports.map((port) => (
+            <small key={port}>{port}</small>
+          ))}
         </span>
       ) : null}
       <small>{container.restartCount} restarts</small>

@@ -261,6 +261,30 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
                 ),
             }
         }
+        "port-forward" => match first_pod_port(&target).await {
+            Ok(port) => {
+                let command = pod_port_forward_command(&target, port);
+                match open_terminal(&command).await {
+                    Ok(()) => pod_action_result(
+                        normalized,
+                        PodActionStatus::Executed,
+                        format!("Opened Terminal forwarding to pod port {port}."),
+                        String::new(),
+                        command,
+                        false,
+                    ),
+                    Err(error) => pod_action_result(
+                        normalized,
+                        PodActionStatus::Ready,
+                        error,
+                        String::new(),
+                        command,
+                        false,
+                    ),
+                }
+            }
+            Err(error) => pod_action_result(normalized, PodActionStatus::Blocked, error, String::new(), String::new(), false),
+        },
         "restart" => guarded_pod_write(normalized, target, confirmed, is_local).await,
         "delete" | "kill" => guarded_pod_write("delete".to_string(), target, confirmed, is_local).await,
         _ => pod_action_result(
@@ -375,12 +399,18 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
     let pod = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid pod JSON: {error}"))?;
     let status = pod.get("status").unwrap_or(&serde_json::Value::Null);
     let spec = pod.get("spec").unwrap_or(&serde_json::Value::Null);
-    let app_containers = container_status_details(status, "containerStatuses", "app");
+    let app_containers = container_status_details(status, spec, "containerStatuses", "containers", "app");
     let ready_containers = app_containers.iter().filter(|container| container.ready).count();
     let total_containers = app_containers.len();
-    let mut containers = container_status_details(status, "initContainerStatuses", "init");
+    let mut containers = container_status_details(status, spec, "initContainerStatuses", "initContainers", "init");
     containers.extend(app_containers);
-    containers.extend(container_status_details(status, "ephemeralContainerStatuses", "ephemeral"));
+    containers.extend(container_status_details(
+        status,
+        spec,
+        "ephemeralContainerStatuses",
+        "ephemeralContainers",
+        "ephemeral",
+    ));
     let conditions = status
         .get("conditions")
         .and_then(|value| value.as_array())
@@ -415,22 +445,31 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
 
 fn container_status_details(
     status: &serde_json::Value,
-    field: &str,
+    spec: &serde_json::Value,
+    status_field: &str,
+    spec_field: &str,
     role: &str,
 ) -> Vec<ContainerDetails> {
+    let specs = spec.get(spec_field).and_then(|value| value.as_array());
     status
-        .get(field)
+        .get(status_field)
         .and_then(|value| value.as_array())
         .map(|items| {
             items
                 .iter()
-                .map(|container| container_details(container, role))
+                .map(|container| {
+                    let name = text_field(container, "name", "container");
+                    let spec = specs
+                        .and_then(|items| items.iter().find(|item| text_field(item, "name", "") == name))
+                        .unwrap_or(&serde_json::Value::Null);
+                    container_details(container, spec, &name, role)
+                })
                 .collect()
         })
         .unwrap_or_default()
 }
 
-fn container_details(container: &serde_json::Value, role: &str) -> ContainerDetails {
+fn container_details(container: &serde_json::Value, spec: &serde_json::Value, name: &str, role: &str) -> ContainerDetails {
     let state = container.get("state").unwrap_or(&serde_json::Value::Null);
     let state_name = state
         .as_object()
@@ -444,9 +483,10 @@ fn container_details(container: &serde_json::Value, role: &str) -> ContainerDeta
         .unwrap_or(&serde_json::Value::Null);
 
     ContainerDetails {
-        name: text_field(container, "name", "container"),
+        name: name.to_string(),
         role: role.to_string(),
         image: text_field(container, "image", ""),
+        ports: container_ports(spec),
         ready: container
             .get("ready")
             .and_then(|value| value.as_bool())
@@ -462,6 +502,21 @@ fn container_details(container: &serde_json::Value, role: &str) -> ContainerDeta
         last_reason: text_field(last_terminated, "reason", ""),
         last_exit_code: numeric_field(last_terminated, "exitCode"),
     }
+}
+
+fn container_ports(container: &serde_json::Value) -> Vec<u16> {
+    container
+        .get("ports")
+        .and_then(|value| value.as_array())
+        .map(|ports| {
+            ports
+                .iter()
+                .filter_map(|port| port.get("containerPort").and_then(|value| value.as_u64()))
+                .filter(|port| (1..=u16::MAX as u64).contains(port))
+                .map(|port| port as u16)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn classify_action(action: &str) -> ActionRisk {
@@ -557,6 +612,29 @@ async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
     }
 
     Err(format!("Restart is not available for pods owned by {kind}."))
+}
+
+async fn first_pod_port(target: &ActionTarget) -> Result<u16, String> {
+    let output = kubectl(kubectl_target_args(
+        target,
+        vec![
+            "get".to_string(),
+            "pod".to_string(),
+            target.name.clone(),
+            "-n".to_string(),
+            target.namespace.clone(),
+            "-o".to_string(),
+            "json".to_string(),
+        ],
+    ))
+    .await?;
+    let pod = serde_json::from_str::<serde_json::Value>(&output).map_err(|error| format!("Invalid pod JSON: {error}"))?;
+    ["containers", "initContainers", "ephemeralContainers"]
+        .into_iter()
+        .filter_map(|field| pod.pointer(&format!("/spec/{field}")).and_then(|value| value.as_array()))
+        .flat_map(|containers| containers.iter().flat_map(container_ports))
+        .next()
+        .ok_or_else(|| "Pod has no declared container ports.".to_string())
 }
 
 fn is_local_context(context: &str) -> bool {
@@ -786,6 +864,27 @@ fn pod_exec_command(target: &ActionTarget) -> String {
         "/bin/sh".to_string(),
     ]);
 
+    terminal_kubectl_command(args)
+}
+
+fn pod_port_forward_command(target: &ActionTarget, port: u16) -> String {
+    let mut args = Vec::new();
+    if !target.cluster.is_empty() {
+        args.push("--context".to_string());
+        args.push(target.cluster.clone());
+    }
+    args.extend([
+        "port-forward".to_string(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        format!("pod/{}", target.name),
+        format!(":{port}"),
+    ]);
+
+    terminal_kubectl_command(args)
+}
+
+fn terminal_kubectl_command(args: Vec<String>) -> String {
     format!(
         "{} {}",
         shell_quote(&command_path("kubectl").to_string_lossy()),
@@ -798,7 +897,7 @@ fn pod_exec_command(target: &ActionTarget) -> String {
 
 async fn open_terminal(command: &str) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
-        return Err("Interactive exec is only wired to open Terminal on macOS for now. Run this command manually.".to_string());
+        return Err("Terminal handoff is only wired to open Terminal on macOS for now. Run this command manually.".to_string());
     }
 
     let script = format!(
@@ -2128,6 +2227,33 @@ mod tests {
 
         assert!(candidates.contains(&PathBuf::from("/opt/homebrew/bin/kubectl")));
         assert!(candidates.contains(&PathBuf::from("/usr/local/bin/kubectl")));
+    }
+
+    #[test]
+    fn container_ports_reads_declared_pod_ports() {
+        let container = serde_json::json!({
+            "ports": [
+                { "containerPort": 8080 },
+                { "containerPort": 8443 },
+                { "containerPort": 0 }
+            ]
+        });
+
+        assert_eq!(container_ports(&container), vec![8080, 8443]);
+    }
+
+    #[test]
+    fn pod_port_forward_command_uses_random_local_port() {
+        let target = ActionTarget {
+            kind: "Pod".to_string(),
+            name: "api".to_string(),
+            namespace: "default".to_string(),
+            cluster: "kind-kite".to_string(),
+        };
+
+        let command = pod_port_forward_command(&target, 8080);
+
+        assert!(command.contains("kubectl --context kind-kite port-forward -n default pod/api :8080"));
     }
 
     #[test]

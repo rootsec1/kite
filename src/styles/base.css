@@ -1184,6 +1184,19 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.container-ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.container-ports small {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  color: var(--green-deep);
+  background: var(--surface-soft);
+}
+
 .container-diagnostic {
   overflow: hidden;
   max-inline-size: 100%;

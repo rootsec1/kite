@@ -27,7 +27,7 @@ The product moat is the interface: a simple native control-plane lens, macOS gla
 - Live Kubernetes resource inventory with namespace, status, label, search, sorting, and pressure signals.
 - Persistent pinned resources for fast returns to active incidents.
 - Grouped drilldowns from namespaces, services, workloads, and pods.
-- Pod debugging workspace with status, containers, mounted dependencies, events, searchable source- and level-filtered logs, exec command handoff, guarded restart, and guarded delete.
+- Pod debugging workspace with status, containers, mounted dependencies, events, searchable source- and level-filtered logs, exec and port-forward handoff, guarded restart, and guarded delete.
 - Local-first architecture with no cluster-side agent.
 - Guarded write model for risky Kubernetes actions.
 

@@ -116,6 +116,7 @@ pub struct ContainerDetails {
     pub name: String,
     pub role: String,
     pub image: String,
+    pub ports: Vec<u16>,
     pub ready: bool,
     pub restart_count: u32,
     pub state: String,

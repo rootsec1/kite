@@ -19,13 +19,15 @@ type KubeItem = {
   };
   spec?: {
     providerID?: string;
-    containers?: Array<{ image?: string }>;
+    containers?: KubeContainerSpec[];
+    ephemeralContainers?: KubeContainerSpec[];
+    initContainers?: KubeContainerSpec[];
     nodeName?: string;
     selector?: Record<string, string> | { matchLabels?: Record<string, string> };
     type?: string;
     volumes?: KubeVolume[];
     claimRef?: { namespace?: string; name?: string };
-    template?: { spec?: { containers?: Array<{ image?: string }> } };
+    template?: { spec?: { containers?: KubeContainerSpec[] } };
   };
   status?: {
     phase?: string;
@@ -52,6 +54,12 @@ type KubeContainerStatus = {
   restartCount?: number;
   state?: Record<string, ContainerStateDetails>;
   lastState?: Record<string, ContainerStateDetails>;
+};
+
+type KubeContainerSpec = {
+  image?: string;
+  name?: string;
+  ports?: Array<{ containerPort?: number }>;
 };
 
 type ContainerStateDetails = {
@@ -235,6 +243,19 @@ export async function runPodAction(input: {
       .catch((error) => podActionResult(action, "ready", `${errorMessage(error)} Run this command manually.`, "", command));
   }
 
+  if (action === "port-forward") {
+    const port = await firstPodPort(target).catch(() => 0);
+    if (!port) {
+      return podActionResult(action, "blocked", "Pod has no declared container ports.");
+    }
+
+    const args = ["port-forward", "-n", target.namespace, `pod/${target.name}`, `:${port}`];
+    const command = displayKubectlCommand(args, target.cluster);
+    return openTerminal(command)
+      .then(() => podActionResult(action, "executed", `Opened Terminal forwarding to pod port ${port}.`, "", command))
+      .catch((error) => podActionResult(action, "ready", `${errorMessage(error)} Run this command manually.`, "", command));
+  }
+
   if (action === "restart" || action === "delete" || action === "kill") {
     if (!isLocalContext(target.cluster)) {
       return podActionResult(action, "blocked", `${target.cluster} is not recognized as a local context.`);
@@ -364,9 +385,9 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
   const pod = await kubectlJson<KubeItem>(["get", "pod", target.name, "-n", target.namespace, "-o", "json"], target.cluster);
   const appContainers = pod.status?.containerStatuses ?? [];
   const containers = [
-    ...containerDetails(pod.status?.initContainerStatuses, "init"),
-    ...containerDetails(appContainers, "app"),
-    ...containerDetails(pod.status?.ephemeralContainerStatuses, "ephemeral"),
+    ...containerDetails(pod.status?.initContainerStatuses, "init", pod.spec?.initContainers),
+    ...containerDetails(appContainers, "app", pod.spec?.containers),
+    ...containerDetails(pod.status?.ephemeralContainerStatuses, "ephemeral", pod.spec?.ephemeralContainers),
   ];
 
   return {
@@ -390,15 +411,21 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
   };
 }
 
-function containerDetails(containers: KubeContainerStatus[] | undefined, role: "app" | "init" | "ephemeral") {
+function containerDetails(
+  containers: KubeContainerStatus[] | undefined,
+  role: "app" | "init" | "ephemeral",
+  specs: KubeContainerSpec[] = [],
+) {
   return (containers ?? []).map((container) => {
     const stateName = Object.keys(container.state ?? {})[0] ?? "unknown";
     const state = container.state?.[stateName] ?? {};
     const lastTerminated = container.lastState?.terminated ?? {};
+    const spec = specs.find((item) => item.name === container.name);
     return {
       name: container.name ?? "container",
       role,
       image: container.image ?? "",
+      ports: containerPorts(spec),
       ready: Boolean(container.ready),
       restartCount: container.restartCount ?? 0,
       state: stateName,
@@ -409,6 +436,12 @@ function containerDetails(containers: KubeContainerStatus[] | undefined, role: "
       lastExitCode: lastTerminated.exitCode ?? null,
     };
   });
+}
+
+function containerPorts(container?: KubeContainerSpec) {
+  return (container?.ports ?? [])
+    .map((port) => port.containerPort)
+    .filter((port): port is number => Number.isInteger(port) && port > 0 && port <= 65_535);
 }
 
 async function readResourceList(query: { name: string; namespaced: boolean }, context: string) {
@@ -517,6 +550,16 @@ async function restartArgs(target: { name: string; namespace: string; cluster: s
   throw new Error(`Restart is not available for pods owned by ${kind}.`);
 }
 
+async function firstPodPort(target: { name: string; namespace: string; cluster: string }) {
+  const pod = await kubectlJson<KubeItem>(["get", "pod", target.name, "-n", target.namespace, "-o", "json"], target.cluster);
+  const ports = [
+    ...(pod.spec?.containers ?? []),
+    ...(pod.spec?.initContainers ?? []),
+    ...(pod.spec?.ephemeralContainers ?? []),
+  ].flatMap(containerPorts);
+  return ports[0] ?? 0;
+}
+
 function isLocalContext(context: string) {
   const normalized = context.toLowerCase();
   return (
@@ -568,7 +611,7 @@ function helmArgs(args: string[], context: string) {
 
 async function openTerminal(command: string) {
   if (process.platform !== "darwin") {
-    throw new Error("Interactive exec is only wired to open Terminal on macOS for now.");
+    throw new Error("Terminal handoff is only wired to open Terminal on macOS for now.");
   }
 
   await exec("osascript", [
