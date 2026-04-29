@@ -451,23 +451,41 @@ fn container_status_details(
     spec_field: &str,
     role: &str,
 ) -> Vec<ContainerDetails> {
-    let specs = spec.get(spec_field).and_then(|value| value.as_array());
-    status
+    let spec_items = spec
+        .get(spec_field)
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let status_items = status
         .get(status_field)
         .and_then(|value| value.as_array())
-        .map(|items| {
-            items
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut containers = spec_items
+        .iter()
+        .map(|spec_container| {
+            let name = text_field(spec_container, "name", "container");
+            let status_container = status_items
                 .iter()
-                .map(|container| {
-                    let name = text_field(container, "name", "container");
-                    let spec = specs
-                        .and_then(|items| items.iter().find(|item| text_field(item, "name", "") == name))
-                        .unwrap_or(&serde_json::Value::Null);
-                    container_details(container, spec, &name, role)
-                })
-                .collect()
+                .find(|container| text_field(container, "name", "") == name)
+                .unwrap_or(&serde_json::Value::Null);
+
+            container_details(status_container, spec_container, &name, role)
         })
-        .unwrap_or_default()
+        .collect::<Vec<_>>();
+
+    for status_container in status_items {
+        let name = text_field(status_container, "name", "container");
+        let has_spec = spec_items
+            .iter()
+            .any(|spec_container| text_field(spec_container, "name", "") == name);
+
+        if !has_spec {
+            containers.push(container_details(status_container, &serde_json::Value::Null, &name, role));
+        }
+    }
+
+    containers
 }
 
 fn container_details(container: &serde_json::Value, spec: &serde_json::Value, name: &str, role: &str) -> ContainerDetails {
@@ -476,8 +494,20 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
         .as_object()
         .and_then(|states| states.keys().next())
         .cloned()
-        .unwrap_or_else(|| "unknown".to_string());
+        .unwrap_or_else(|| {
+            if container.is_null() {
+                "pending"
+            } else {
+                "unknown"
+            }
+            .to_string()
+        });
     let state_body = state.get(&state_name).unwrap_or(&serde_json::Value::Null);
+    let reason_fallback = if state_name == "pending" {
+        "status pending"
+    } else {
+        ""
+    };
     let last_terminated = container
         .get("lastState")
         .and_then(|last_state| last_state.get("terminated"))
@@ -486,7 +516,7 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
     ContainerDetails {
         name: name.to_string(),
         role: role.to_string(),
-        image: text_field(container, "image", ""),
+        image: first_text_field(&[container, spec], "image"),
         ports: container_ports(spec),
         ready: container
             .get("ready")
@@ -497,7 +527,7 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
             .and_then(|value| value.as_u64())
             .unwrap_or(0) as u32,
         state: state_name,
-        reason: text_field(state_body, "reason", ""),
+        reason: text_field(state_body, "reason", reason_fallback),
         message: text_field(state_body, "message", ""),
         exit_code: numeric_field(state_body, "exitCode"),
         last_reason: text_field(last_terminated, "reason", ""),
@@ -947,6 +977,19 @@ fn text_field(value: &serde_json::Value, field: &str, fallback: &str) -> String 
         .get(field)
         .and_then(|field| field.as_str())
         .unwrap_or(fallback)
+        .to_string()
+}
+
+fn first_text_field(values: &[&serde_json::Value], field: &str) -> String {
+    values
+        .iter()
+        .find_map(|value| {
+            value
+                .get(field)
+                .and_then(|field| field.as_str())
+                .filter(|field| !field.is_empty())
+        })
+        .unwrap_or_default()
         .to_string()
 }
 
@@ -2249,6 +2292,47 @@ mod tests {
         });
 
         assert_eq!(container_ports(&container), vec![8080, 8443]);
+    }
+
+    #[test]
+    fn pod_container_details_include_spec_only_containers() {
+        let status = serde_json::json!({
+            "containerStatuses": [{
+                "name": "api",
+                "image": "registry.example/api:ready",
+                "ready": true,
+                "restartCount": 1,
+                "state": { "running": {} }
+            }]
+        });
+        let spec = serde_json::json!({
+            "containers": [
+                {
+                    "name": "api",
+                    "image": "registry.example/api:declared",
+                    "ports": [{ "containerPort": 8080 }]
+                },
+                {
+                    "name": "worker",
+                    "image": "registry.example/worker:pending",
+                    "ports": [{ "containerPort": 9090 }]
+                }
+            ]
+        });
+
+        let containers =
+            container_status_details(&status, &spec, "containerStatuses", "containers", "app");
+
+        assert_eq!(containers.len(), 2);
+        assert_eq!(containers[0].name, "api");
+        assert_eq!(containers[0].image, "registry.example/api:ready");
+        assert_eq!(containers[0].ports, vec![8080]);
+        assert_eq!(containers[0].restart_count, 1);
+        assert_eq!(containers[1].name, "worker");
+        assert_eq!(containers[1].image, "registry.example/worker:pending");
+        assert_eq!(containers[1].ports, vec![9090]);
+        assert_eq!(containers[1].state, "pending");
+        assert_eq!(containers[1].reason, "status pending");
     }
 
     #[test]
