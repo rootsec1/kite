@@ -15,6 +15,7 @@ use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomRe
 use kube::{
     api::ListParams,
     config::{Config, KubeConfigOptions, Kubeconfig},
+    core::{ApiResource, DynamicObject, GroupVersionKind},
     Api, Client, ResourceExt,
 };
 use serde::Deserialize;
@@ -92,6 +93,7 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
     resources.extend(list_cronjobs(client.clone(), &context).await?);
     resources.extend(list_services(client.clone(), &context).await?);
     resources.extend(list_ingresses(client.clone(), &context).await?);
+    resources.extend(list_gateway_api_resources(client.clone(), &context).await);
     resources.extend(list_configmaps(client.clone(), &context).await?);
     resources.extend(list_secrets(client.clone(), &context).await?);
     resources.extend(list_persistent_volume_claims(client.clone(), &context).await?);
@@ -1148,6 +1150,182 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
         .collect())
 }
 
+async fn list_gateway_api_resources(client: Client, cluster: &str) -> Vec<ResourceSummary> {
+    let mut resources = Vec::new();
+    resources.extend(
+        list_gateway_api_kind(client.clone(), cluster, "Gateway", "gateways")
+            .await
+            .unwrap_or_default(),
+    );
+    resources.extend(
+        list_gateway_api_kind(client, cluster, "HTTPRoute", "httproutes")
+            .await
+            .unwrap_or_default(),
+    );
+    resources
+}
+
+async fn list_gateway_api_kind(
+    client: Client,
+    cluster: &str,
+    kind: &str,
+    plural: &str,
+) -> Result<Vec<ResourceSummary>, String> {
+    let gvk = GroupVersionKind::gvk("gateway.networking.k8s.io", "v1", kind);
+    let api_resource = ApiResource::from_gvk_with_plural(&gvk, plural);
+    let api = Api::<DynamicObject>::all_with(client, &api_resource);
+    let objects = api
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list {plural}: {error}"))?;
+
+    Ok(objects
+        .items
+        .into_iter()
+        .map(|object| gateway_api_resource_summary(kind, object, cluster))
+        .collect())
+}
+
+fn gateway_api_resource_summary(
+    kind: &str,
+    object: DynamicObject,
+    cluster: &str,
+) -> ResourceSummary {
+    let labels = object.metadata.labels.clone().unwrap_or_default();
+    let namespace = object.namespace().unwrap_or_else(|| "default".to_string());
+    let status = gateway_api_status(&object.data);
+    let owner = gateway_api_owner(kind, &object.data);
+    let summary = gateway_api_summary(kind, &object.data);
+
+    resource_summary(kind, object.name_any(), namespace, cluster, status, 0, summary)
+        .with_labels(labels)
+        .with_owner(owner)
+}
+
+fn gateway_api_owner(kind: &str, data: &serde_json::Value) -> String {
+    if kind == "Gateway" {
+        return data
+            .pointer("/spec/gatewayClassName")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+    }
+
+    data.pointer("/spec/parentRefs")
+        .and_then(|value| value.as_array())
+        .map(|parents| {
+            parents
+                .iter()
+                .filter_map(|parent| parent.get("name").and_then(|value| value.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
+}
+
+fn gateway_api_summary(kind: &str, data: &serde_json::Value) -> String {
+    if kind == "Gateway" {
+        let hostnames = data
+            .pointer("/spec/listeners")
+            .and_then(|value| value.as_array())
+            .map(|listeners| {
+                listeners
+                    .iter()
+                    .filter_map(|listener| listener.get("hostname").and_then(|value| value.as_str()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if hostnames.is_empty() {
+            return gateway_api_owner(kind, data);
+        }
+        return hostnames.join(", ");
+    }
+
+    data.pointer("/spec/hostnames")
+        .and_then(|value| value.as_array())
+        .map(|hostnames| {
+            hostnames
+                .iter()
+                .filter_map(|hostname| hostname.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|hostnames| !hostnames.is_empty())
+        .unwrap_or_else(|| gateway_api_owner(kind, data))
+}
+
+fn gateway_api_status(data: &serde_json::Value) -> HealthState {
+    let conditions = gateway_api_conditions(data);
+    if conditions.is_empty() {
+        return HealthState::Syncing;
+    }
+
+    if conditions.iter().any(|condition| gateway_api_condition_is_unhealthy(condition)) {
+        return HealthState::Warning;
+    }
+
+    if conditions.iter().any(|condition| gateway_api_condition_is_syncing(condition)) {
+        return HealthState::Syncing;
+    }
+
+    HealthState::Healthy
+}
+
+fn gateway_api_condition_is_unhealthy(condition: &serde_json::Value) -> bool {
+    let type_ = condition_type(condition);
+    let status = condition_status(condition);
+
+    match type_ {
+        "Accepted" | "Programmed" | "Ready" | "ResolvedRefs" => status == "False",
+        "Conflicted" | "Detached" | "PartiallyInvalid" => status == "True",
+        _ => false,
+    }
+}
+
+fn gateway_api_condition_is_syncing(condition: &serde_json::Value) -> bool {
+    let type_ = condition_type(condition);
+    let status = condition_status(condition);
+
+    matches!(type_, "Accepted" | "Programmed" | "Ready" | "ResolvedRefs") && status == "Unknown"
+}
+
+fn gateway_api_conditions(data: &serde_json::Value) -> Vec<&serde_json::Value> {
+    let mut conditions = data
+        .pointer("/status/conditions")
+        .and_then(|value| value.as_array())
+        .map(|conditions| conditions.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    if let Some(parents) = data.pointer("/status/parents").and_then(|value| value.as_array()) {
+        for parent in parents {
+            conditions.extend(
+                parent
+                    .get("conditions")
+                    .and_then(|value| value.as_array())
+                    .map(|conditions| conditions.iter().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+            );
+        }
+    }
+
+    conditions
+}
+
+fn condition_status(condition: &serde_json::Value) -> &str {
+    condition
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or("Unknown")
+}
+
+fn condition_type(condition: &serde_json::Value) -> &str {
+    condition
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+}
+
 async fn list_configmaps(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let configmaps = Api::<ConfigMap>::all(client)
         .list(&ListParams::default())
@@ -1842,6 +2020,57 @@ mod tests {
             events.iter().map(|event| event.reason.as_str()).collect::<Vec<_>>(),
             ["BackOff", "Pulled", "Scheduled"]
         );
+    }
+
+    #[test]
+    fn gateway_api_status_uses_nested_route_conditions() {
+        let route = serde_json::json!({
+            "spec": {
+                "hostnames": ["api.kite.local"],
+                "parentRefs": [{ "name": "edge" }]
+            },
+            "status": {
+                "parents": [{
+                    "conditions": [
+                        { "type": "Accepted", "status": "True" },
+                        { "type": "ResolvedRefs", "status": "False" }
+                    ]
+                }]
+            }
+        });
+
+        assert_eq!(gateway_api_status(&route), HealthState::Warning);
+        assert_eq!(gateway_api_owner("HTTPRoute", &route), "edge");
+        assert_eq!(gateway_api_summary("HTTPRoute", &route), "api.kite.local");
+    }
+
+    #[test]
+    fn gateway_api_status_syncs_until_conditions_arrive() {
+        let gateway = serde_json::json!({
+            "spec": {
+                "gatewayClassName": "nginx",
+                "listeners": [{ "hostname": "kite.local" }]
+            }
+        });
+
+        assert_eq!(gateway_api_status(&gateway), HealthState::Syncing);
+        assert_eq!(gateway_api_owner("Gateway", &gateway), "nginx");
+        assert_eq!(gateway_api_summary("Gateway", &gateway), "kite.local");
+    }
+
+    #[test]
+    fn gateway_api_status_respects_condition_polarity() {
+        let gateway = serde_json::json!({
+            "status": {
+                "conditions": [
+                    { "type": "Accepted", "status": "True" },
+                    { "type": "Programmed", "status": "True" },
+                    { "type": "Conflicted", "status": "False" }
+                ]
+            }
+        });
+
+        assert_eq!(gateway_api_status(&gateway), HealthState::Healthy);
     }
 
     #[test]
