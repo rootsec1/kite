@@ -294,7 +294,8 @@ function RuntimeTile({
 }
 
 function ContainerCard({ container }: { container: ContainerDetails }) {
-  const diagnostic = containerDiagnostic(container);
+  const currentState = containerCurrentState(container);
+  const lastState = containerLastState(container);
 
   return (
     <article className={container.ready ? "container-card ready" : "container-card warn"}>
@@ -303,8 +304,11 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
         <strong>{container.name}</strong>
         <small className="container-role">{container.role}</small>
       </div>
-      <span>{container.state}{container.reason ? ` / ${container.reason}` : ""}</span>
-      {diagnostic ? <small className="container-diagnostic" title={diagnostic}>{diagnostic}</small> : null}
+      <div className="container-state-grid">
+        <ContainerStateFact label="Now" value={currentState} tone={container.ready ? "healthy" : "warning"} />
+        {lastState ? <ContainerStateFact label="Last" value={lastState} tone="warning" /> : null}
+      </div>
+      {container.message ? <small className="container-diagnostic" title={container.message}>{container.message}</small> : null}
       {container.image ? (
         <span className="container-image">
           <ImageIcon size={13} />
@@ -323,12 +327,37 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
   );
 }
 
-function containerDiagnostic(container: ContainerDetails) {
+function ContainerStateFact({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: "healthy" | "warning";
+  value: string;
+}) {
+  return (
+    <span className={`container-state ${tone}`}>
+      <small>{label}</small>
+      <strong title={value}>{value}</strong>
+    </span>
+  );
+}
+
+function containerCurrentState(container: ContainerDetails) {
   const parts = [
+    container.state,
+    container.reason,
     container.exitCode == null ? "" : `exit ${container.exitCode}`,
-    container.message,
-    container.lastReason ? `last ${container.lastReason}` : "",
-    container.lastExitCode == null ? "" : `last exit ${container.lastExitCode}`,
+  ].filter(Boolean);
+
+  return parts.join(" / ");
+}
+
+function containerLastState(container: ContainerDetails) {
+  const parts = [
+    container.lastReason,
+    container.lastExitCode == null ? "" : `exit ${container.lastExitCode}`,
   ].filter(Boolean);
 
   return parts.join(" / ");

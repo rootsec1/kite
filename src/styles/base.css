@@ -1294,6 +1294,50 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.container-state-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 6px;
+  min-inline-size: 0;
+}
+
+.container-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-inline-size: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.container-state.warning {
+  border-color: color-mix(in srgb, var(--orange) 34%, var(--line));
+  background: color-mix(in srgb, var(--yellow) 10%, var(--surface));
+}
+
+.container-state small,
+.container-state strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.container-state small {
+  color: var(--muted);
+}
+
+.container-state strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .container-image {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
