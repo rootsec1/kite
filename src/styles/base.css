@@ -1112,6 +1112,90 @@ summary:focus-visible {
   color: #245d73;
 }
 
+.pod-issue-strip {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.pod-issue-strip header {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-block-size: 76px;
+  padding-inline: 14px;
+  background: var(--surface);
+}
+
+.pod-issue-strip header span,
+.pod-issue-strip header strong,
+.pod-issue-strip article span,
+.pod-issue-strip article small {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pod-issue-strip header strong {
+  color: var(--text);
+}
+
+.pod-issue-strip > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 1px;
+  min-inline-size: 0;
+}
+
+.pod-issue-strip article {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 5px 9px;
+  align-content: center;
+  min-inline-size: 0;
+  min-block-size: 76px;
+  padding: 11px 12px;
+  background: var(--surface);
+}
+
+.pod-issue-strip article svg {
+  color: var(--green-deep);
+}
+
+.pod-issue-strip article.warning svg,
+.pod-issue-strip article.critical svg {
+  color: var(--orange);
+}
+
+.pod-issue-strip article strong,
+.pod-issue-strip article small {
+  grid-column: 2;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-issue-strip article strong {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.pod-issue-strip article small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pod-issue-strip article.warning,
+.pod-issue-strip article.critical {
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--orange) 62%, transparent);
+}
+
 .container-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

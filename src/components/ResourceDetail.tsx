@@ -3,6 +3,7 @@ import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, 
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
+import { PodIssueStrip } from "./PodIssueStrip";
 import { PodLinkStrip } from "./PodLinkStrip";
 import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
@@ -93,6 +94,7 @@ export function ResourceDetail({
 
       {isPod ? (
         <>
+          <PodIssueStrip details={details} resource={resource} />
           <PodStatusPanel details={details} resource={resource} />
           <PodLinkStrip
             allResources={allResources}
