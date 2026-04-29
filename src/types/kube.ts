@@ -59,6 +59,7 @@ export type ResourceEvent = {
   reason: string;
   message: string;
   age: string;
+  count: number;
 };
 
 export type ResourceDetails = {

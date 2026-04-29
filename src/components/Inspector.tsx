@@ -72,7 +72,7 @@ function EventList({
         <Detail label="Events" value="Loading..." />
       ) : details.events.length ? (
         details.events.map((event, index) => (
-          <Detail key={`${event.reason}-${index}`} label={`${event.type} / ${event.reason}`} value={event.message || event.age} />
+          <Detail key={`${event.reason}-${index}`} label={eventLabel(event)} value={event.message || event.age} />
         ))
       ) : (
         <Detail label="Events" value={detailsError || "No events found"} />
@@ -96,6 +96,11 @@ function LiveObject({
       <pre>{detailsLoading ? "Loading YAML..." : details.yaml || detailsError || "No YAML returned."}</pre>
     </details>
   );
+}
+
+function eventLabel(event: ResourceDetails["events"][number]) {
+  const count = Number.isFinite(event.count) && event.count > 1 ? ` x${event.count}` : "";
+  return `${event.type} / ${event.reason}${count}`;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {

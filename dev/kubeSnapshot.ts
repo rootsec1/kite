@@ -105,6 +105,7 @@ type KubeEvent = {
   type?: string;
   reason?: string;
   message?: string;
+  count?: number;
   lastTimestamp?: string;
   eventTime?: string;
   metadata?: { creationTimestamp?: string };
@@ -322,7 +323,7 @@ async function readHelmDetails(target: { name: string; namespace: string; cluste
 
   return {
     yaml: [manifest, values ? `\n---\n# values\n${values}` : ""].join(""),
-    events: status ? [{ type: "Normal", reason: "HelmStatus", message: status, age: "live" }] : [],
+    events: status ? [{ type: "Normal", reason: "HelmStatus", message: status, age: "live", count: 1 }] : [],
     logs: "",
     previousLogs: "",
   };
@@ -357,7 +358,12 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
     reason: event.reason ?? "Event",
     message: event.message ?? "",
     age: age(event.lastTimestamp ?? event.eventTime ?? event.metadata?.creationTimestamp),
+    count: positiveCount(event.count),
   }));
+}
+
+function positiveCount(count: number | undefined) {
+  return typeof count === "number" && Number.isFinite(count) && count > 0 ? Math.floor(count) : 1;
 }
 
 function eventFieldSelector(target: { kind: string; name: string }) {

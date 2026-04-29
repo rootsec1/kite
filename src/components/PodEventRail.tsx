@@ -47,13 +47,17 @@ export function PodEventRail({
 
 function PodEventItem({ event }: { event: ResourceEvent }) {
   const warning = isWarningEvent(event);
+  const count = eventCount(event);
 
   return (
     <article className={warning ? "pod-event-item warning" : "pod-event-item"}>
       <i aria-hidden="true" />
       <div>
         <span>{event.type || "Normal"}</span>
-        <strong>{event.reason || "Event"}</strong>
+        <strong>
+          {event.reason || "Event"}
+          {count > 1 ? <em>x{count}</em> : null}
+        </strong>
       </div>
       <p>{event.message || event.age || "Event recorded."}</p>
       <time>{event.age || "live"}</time>
@@ -73,10 +77,12 @@ function PodEventEmpty({ label, message }: { label: string; message: string }) {
 export function eventRailView(events: ResourceEvent[]) {
   const warnings: ResourceEvent[] = [];
   const normal: ResourceEvent[] = [];
+  let warningCount = 0;
 
   for (const event of events) {
     if (isWarningEvent(event)) {
       warnings.push(event);
+      warningCount += eventCount(event);
     } else {
       normal.push(event);
     }
@@ -84,10 +90,14 @@ export function eventRailView(events: ResourceEvent[]) {
 
   return {
     events: [...warnings, ...normal].slice(0, 5),
-    warningCount: warnings.length,
+    warningCount,
   };
 }
 
 function isWarningEvent(event: ResourceEvent) {
   return event.type.toLowerCase() === "warning";
+}
+
+function eventCount(event: ResourceEvent) {
+  return Number.isFinite(event.count) && event.count > 0 ? event.count : 1;
 }

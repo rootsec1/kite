@@ -356,6 +356,7 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
                 reason: "HelmStatus".to_string(),
                 message: status,
                 age: "live".to_string(),
+                count: 1,
             }]
         },
         logs: String::new(),
@@ -711,6 +712,7 @@ fn resource_event(event: &serde_json::Value) -> ResourceEvent {
         reason: text_field(event, "reason", "Event"),
         message: text_field(event, "message", ""),
         age: event_age(event),
+        count: numeric_field(event, "count").unwrap_or(1).max(1),
     }
 }
 
@@ -2305,6 +2307,23 @@ mod tests {
             events.iter().map(|event| event.reason.as_str()).collect::<Vec<_>>(),
             ["BackOff", "Pulled", "Scheduled"]
         );
+    }
+
+    #[test]
+    fn resource_event_preserves_repeat_count() {
+        let repeated = serde_json::json!({
+            "type": "Warning",
+            "reason": "BackOff",
+            "message": "Back-off restarting failed container",
+            "count": 7,
+        });
+        let missing_count = serde_json::json!({
+            "type": "Normal",
+            "reason": "Scheduled",
+        });
+
+        assert_eq!(resource_event(&repeated).count, 7);
+        assert_eq!(resource_event(&missing_count).count, 1);
     }
 
     #[test]

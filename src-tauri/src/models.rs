@@ -136,6 +136,7 @@ pub struct ResourceEvent {
     pub reason: String,
     pub message: String,
     pub age: String,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

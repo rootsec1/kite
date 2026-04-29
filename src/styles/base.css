@@ -1221,7 +1221,27 @@ summary:focus-visible {
 }
 
 .pod-event-item strong {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
   white-space: nowrap;
+}
+
+.pod-event-item strong em {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  background: var(--surface-soft);
+}
+
+.pod-event-item.warning strong em {
+  border-color: color-mix(in srgb, var(--orange) 42%, var(--line));
+  color: var(--orange);
 }
 
 .pod-event-item p {
