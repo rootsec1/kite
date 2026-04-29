@@ -141,11 +141,10 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
           <strong>{pod?.phase ?? resource.status}</strong>
           <span>{ready} containers ready</span>
         </div>
-        <small>
-          {pod?.podIp ? `pod ${pod.podIp}` : "pod ip pending"}
-          {pod?.qosClass ? ` / ${pod.qosClass}` : ""}
-        </small>
+        <small>{resource.owner || "standalone pod"}</small>
       </div>
+
+      <PodRuntimeFacts details={details} resource={resource} />
 
       <div className="pod-vitals">
         <RuntimeTile icon={Activity} label="Phase" value={pod?.phase ?? resource.status} tone={resource.status} />
@@ -174,6 +173,47 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
       </div>
     </section>
   );
+}
+
+function PodRuntimeFacts({ details, resource }: { details: ResourceDetails; resource: ResourceRow }) {
+  const pod = details.pod;
+  const facts = [
+    { label: "Node", value: pod?.nodeName || "pending" },
+    { label: "Pod IP", value: pod?.podIp || "pending" },
+    { label: "Host IP", value: pod?.hostIp || "pending" },
+    { label: "QoS", value: pod?.qosClass || "unknown" },
+    { label: "Started", value: formatStartTime(pod?.startTime) },
+    { label: "Image", value: resource.image || "unknown" },
+  ];
+
+  return (
+    <div className="pod-runtime-facts" aria-label="Pod runtime facts">
+      {facts.map((fact) => (
+        <div key={fact.label}>
+          <span>{fact.label}</span>
+          <strong title={fact.value}>{fact.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatStartTime(startTime?: string) {
+  if (!startTime) {
+    return "pending";
+  }
+
+  const timestamp = Date.parse(startTime);
+  if (Number.isNaN(timestamp)) {
+    return startTime;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
 }
 
 function ConditionCell({ condition }: { condition: PodCondition }) {

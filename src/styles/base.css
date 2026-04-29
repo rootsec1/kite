@@ -791,6 +791,8 @@ summary:focus-visible {
 
 .pod-status-line span,
 .pod-status-line small,
+.pod-runtime-facts span,
+.pod-runtime-facts strong,
 .pod-condition span,
 .pod-condition strong,
 .pod-condition small {
@@ -799,6 +801,42 @@ summary:focus-visible {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.pod-runtime-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+
+.pod-runtime-facts div {
+  display: grid;
+  gap: 5px;
+  min-block-size: 62px;
+  min-inline-size: 0;
+  padding: 11px 14px;
+  background: var(--surface);
+}
+
+.pod-runtime-facts span,
+.pod-runtime-facts strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-runtime-facts span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pod-runtime-facts strong {
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .pod-vitals {
