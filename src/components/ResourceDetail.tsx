@@ -344,38 +344,72 @@ function ActionResult({
   result: PodActionResult;
 }) {
   const risk = actionRisk(result.action);
+  const StatusIcon = result.status === "executed" ? CheckCircle2 : ShieldAlert;
 
   return (
-    <div className={`pod-action-result ${result.status} ${risk}`}>
-      <ShieldAlert size={17} />
-      <div className="pod-action-body">
+    <section className={`pod-action-result ${result.status} ${risk}`} aria-label="Pod action clearance">
+      <div className="pod-action-status">
+        <StatusIcon size={17} />
         <div>
-          <span>{result.status}</span>
-          <strong>{result.message}</strong>
+          <span>{actionTitle(result.action)}</span>
+          <strong>{statusTitle(result.status)}</strong>
         </div>
-        <div className="pod-action-target" aria-label="Pod action target">
-          <small>action {result.action}</small>
-          <small>context {resource.cluster || "current"}</small>
-          <small>ns {resource.namespace}</small>
-          <small>pod {resource.name}</small>
-          <small>risk {risk}</small>
-        </div>
-        {result.command ? <code>{result.command}</code> : null}
+        <small>{risk} risk</small>
       </div>
-      {result.requiresConfirmation ? (
-        <button type="button" onClick={onConfirm}>
-          Confirm {result.action}
-        </button>
-      ) : null}
-    </div>
+      <div className="pod-action-body">
+        <p>{actionMessage(result)}</p>
+        <div className="pod-action-target" aria-label="Pod action target">
+          <ActionFact label="Context" value={resource.cluster || "current"} />
+          <ActionFact label="Namespace" value={resource.namespace} />
+          <ActionFact label="Pod" value={resource.name} />
+          <ActionFact label="Gate" value={result.requiresConfirmation ? "Confirm required" : statusTitle(result.status)} />
+        </div>
+        {result.command ? (
+          <div className="pod-action-command">
+            <span>Command</span>
+            <code>{result.command}</code>
+          </div>
+        ) : null}
+        {result.output ? <pre className="pod-action-output">{result.output}</pre> : null}
+        {result.requiresConfirmation ? (
+          <button type="button" onClick={onConfirm}>
+            Confirm {actionTitle(result.action)}
+          </button>
+        ) : null}
+      </div>
+    </section>
   );
+}
+
+function ActionFact({ label, value }: { label: string; value: string }) {
+  return (
+    <small>
+      <span>{label}</span>
+      <strong title={value}>{value}</strong>
+    </small>
+  );
+}
+
+function actionTitle(action: string) {
+  return action.replace(/-/g, " ");
+}
+
+function statusTitle(status: PodActionResult["status"]) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function actionMessage(result: PodActionResult) {
+  if (result.requiresConfirmation) {
+    return "Confirmation required before running this command.";
+  }
+  return result.message;
 }
 
 function actionRisk(action: string) {
   if (action === "delete" || action === "kill") {
     return "high";
   }
-  if (action === "restart") {
+  if (action === "restart" || action === "exec" || action === "port-forward") {
     return "medium";
   }
   return "low";
