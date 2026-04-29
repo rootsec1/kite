@@ -11,6 +11,7 @@ use k8s_openapi::api::{
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
     storage::v1::StorageClass,
 };
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     api::ListParams,
@@ -859,6 +860,14 @@ fn short_age(timestamp: &str) -> String {
     timestamp.split('T').next().unwrap_or(timestamp).to_string()
 }
 
+fn resource_age(metadata: &ObjectMeta) -> String {
+    metadata
+        .creation_timestamp
+        .as_ref()
+        .map(|timestamp| timestamp.0.to_string())
+        .unwrap_or_else(|| "live".to_string())
+}
+
 async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let pods = Api::<Pod>::all(client)
         .list(&ListParams::default())
@@ -870,6 +879,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
         .into_iter()
         .map(|pod| {
             let namespace = pod.namespace().unwrap_or_else(|| "default".to_string());
+            let age = resource_age(&pod.metadata);
             let restarts = pod.status.as_ref().map(pod_restart_count).unwrap_or(0);
             let image = pod
                 .status
@@ -890,6 +900,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
             let references = pod_volume_references(&pod, &namespace);
 
             resource_summary("Pod", pod.name_any(), namespace, cluster, status, restarts, image)
+                .with_age(age)
                 .with_labels(labels)
                 .with_owner(owner)
                 .with_references(references)
@@ -907,6 +918,7 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
         .items
         .into_iter()
         .map(|deployment| {
+            let age = resource_age(&deployment.metadata);
             let unavailable = deployment
                 .status
                 .as_ref()
@@ -936,6 +948,7 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
                 0,
                 image,
             )
+            .with_age(age)
             .with_labels(labels)
             .with_selector(selector)
         })
@@ -952,6 +965,7 @@ async fn list_statefulsets(client: Client, cluster: &str) -> Result<Vec<Resource
         .items
         .into_iter()
         .map(|statefulset| {
+            let age = resource_age(&statefulset.metadata);
             let desired = statefulset.spec.as_ref().and_then(|spec| spec.replicas).unwrap_or(1);
             let ready = statefulset.status.as_ref().and_then(|status| status.ready_replicas).unwrap_or(0);
             let image = statefulset
@@ -973,6 +987,7 @@ async fn list_statefulsets(client: Client, cluster: &str) -> Result<Vec<Resource
                 0,
                 image,
             )
+            .with_age(age)
             .with_labels(labels)
             .with_selector(selector)
         })
@@ -989,6 +1004,7 @@ async fn list_daemonsets(client: Client, cluster: &str) -> Result<Vec<ResourceSu
         .items
         .into_iter()
         .map(|daemonset| {
+            let age = resource_age(&daemonset.metadata);
             let desired = daemonset
                 .status
                 .as_ref()
@@ -1014,6 +1030,7 @@ async fn list_daemonsets(client: Client, cluster: &str) -> Result<Vec<ResourceSu
                 0,
                 image,
             )
+            .with_age(age)
             .with_labels(labels)
             .with_selector(selector)
         })
@@ -1030,6 +1047,7 @@ async fn list_jobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
         .items
         .into_iter()
         .map(|job| {
+            let age = resource_age(&job.metadata);
             let status = job_status(&job);
             let image = job
                 .spec
@@ -1049,6 +1067,7 @@ async fn list_jobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 0,
                 image,
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1064,6 +1083,7 @@ async fn list_cronjobs(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
         .items
         .into_iter()
         .map(|cronjob| {
+            let age = resource_age(&cronjob.metadata);
             let suspended = cronjob.spec.as_ref().and_then(|spec| spec.suspend).unwrap_or(false);
             let labels = cronjob.metadata.labels.clone().unwrap_or_default();
 
@@ -1076,6 +1096,7 @@ async fn list_cronjobs(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
                 0,
                 cronjob.spec.as_ref().map(|spec| spec.schedule.clone()).unwrap_or_default(),
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1091,6 +1112,7 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
         .items
         .into_iter()
         .map(|service| {
+            let age = resource_age(&service.metadata);
             let selector = service.spec.as_ref().and_then(|spec| spec.selector.clone()).unwrap_or_default();
             let type_ = service.spec.as_ref().and_then(|spec| spec.type_.clone()).unwrap_or_default();
             resource_summary(
@@ -1102,6 +1124,7 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
                 0,
                 type_,
             )
+            .with_age(age)
             .with_selector(selector)
         })
         .collect())
@@ -1117,6 +1140,7 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
         .items
         .into_iter()
         .map(|ingress| {
+            let age = resource_age(&ingress.metadata);
             let labels = ingress.metadata.labels.clone().unwrap_or_default();
             let spec = ingress.spec.as_ref();
             let class = spec
@@ -1147,6 +1171,7 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
                 0,
                 host_summary,
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1195,11 +1220,13 @@ fn gateway_api_resource_summary(
 ) -> ResourceSummary {
     let labels = object.metadata.labels.clone().unwrap_or_default();
     let namespace = object.namespace().unwrap_or_else(|| "default".to_string());
+    let age = resource_age(&object.metadata);
     let status = gateway_api_status(&object.data);
     let owner = gateway_api_owner(kind, &object.data);
     let summary = gateway_api_summary(kind, &object.data);
 
     resource_summary(kind, object.name_any(), namespace, cluster, status, 0, summary)
+        .with_age(age)
         .with_labels(labels)
         .with_owner(owner)
 }
@@ -1338,6 +1365,7 @@ async fn list_configmaps(client: Client, cluster: &str) -> Result<Vec<ResourceSu
         .items
         .into_iter()
         .map(|configmap| {
+            let age = resource_age(&configmap.metadata);
             let key_count = configmap.data.as_ref().map(|data| data.len()).unwrap_or(0);
             let labels = configmap.metadata.labels.clone().unwrap_or_default();
 
@@ -1350,6 +1378,7 @@ async fn list_configmaps(client: Client, cluster: &str) -> Result<Vec<ResourceSu
                 0,
                 format!("{key_count} keys"),
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1365,6 +1394,7 @@ async fn list_secrets(client: Client, cluster: &str) -> Result<Vec<ResourceSumma
         .items
         .into_iter()
         .map(|secret| {
+            let age = resource_age(&secret.metadata);
             let labels = secret.metadata.labels.clone().unwrap_or_default();
 
             resource_summary(
@@ -1376,6 +1406,7 @@ async fn list_secrets(client: Client, cluster: &str) -> Result<Vec<ResourceSumma
                 0,
                 secret.type_.unwrap_or_default(),
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1391,6 +1422,7 @@ async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<
         .items
         .into_iter()
         .map(|claim| {
+            let age = resource_age(&claim.metadata);
             let phase = claim
                 .status
                 .as_ref()
@@ -1412,6 +1444,7 @@ async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<
                 0,
                 storage_class,
             )
+            .with_age(age)
             .with_labels(labels)
             .with_owner(volume_name)
         })
@@ -1428,6 +1461,7 @@ async fn list_persistent_volumes(client: Client, cluster: &str) -> Result<Vec<Re
         .items
         .into_iter()
         .map(|volume| {
+            let age = resource_age(&volume.metadata);
             let phase = volume
                 .status
                 .as_ref()
@@ -1456,6 +1490,7 @@ async fn list_persistent_volumes(client: Client, cluster: &str) -> Result<Vec<Re
                 0,
                 storage_class,
             )
+            .with_age(age)
             .with_labels(labels)
             .with_owner(claim_ref)
         })
@@ -1472,6 +1507,7 @@ async fn list_storage_classes(client: Client, cluster: &str) -> Result<Vec<Resou
         .items
         .into_iter()
         .map(|class| {
+            let age = resource_age(&class.metadata);
             let labels = class.metadata.labels.clone().unwrap_or_default();
             let reclaim_policy = class.reclaim_policy.clone().unwrap_or_default();
 
@@ -1484,6 +1520,7 @@ async fn list_storage_classes(client: Client, cluster: &str) -> Result<Vec<Resou
                 0,
                 class.provisioner,
             )
+            .with_age(age)
             .with_labels(labels)
             .with_owner(reclaim_policy)
         })
@@ -1500,6 +1537,7 @@ async fn list_roles(client: Client, cluster: &str) -> Result<Vec<ResourceSummary
         .items
         .into_iter()
         .map(|role| {
+            let age = resource_age(&role.metadata);
             let rule_count = role.rules.as_ref().map(|rules| rules.len()).unwrap_or(0);
             let labels = role.metadata.labels.clone().unwrap_or_default();
 
@@ -1512,6 +1550,7 @@ async fn list_roles(client: Client, cluster: &str) -> Result<Vec<ResourceSummary
                 0,
                 format!("{rule_count} rules"),
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1527,6 +1566,7 @@ async fn list_role_bindings(client: Client, cluster: &str) -> Result<Vec<Resourc
         .items
         .into_iter()
         .map(|binding| {
+            let age = resource_age(&binding.metadata);
             let role_ref = format!("{}/{}", binding.role_ref.kind, binding.role_ref.name);
             let labels = binding.metadata.labels.clone().unwrap_or_default();
 
@@ -1539,6 +1579,7 @@ async fn list_role_bindings(client: Client, cluster: &str) -> Result<Vec<Resourc
                 0,
                 role_ref.clone(),
             )
+            .with_age(age)
             .with_labels(labels)
             .with_owner(role_ref)
         })
@@ -1555,6 +1596,7 @@ async fn list_cluster_roles(client: Client, cluster: &str) -> Result<Vec<Resourc
         .items
         .into_iter()
         .map(|role| {
+            let age = resource_age(&role.metadata);
             let rule_count = role.rules.as_ref().map(|rules| rules.len()).unwrap_or(0);
             let labels = role.metadata.labels.clone().unwrap_or_default();
 
@@ -1567,6 +1609,7 @@ async fn list_cluster_roles(client: Client, cluster: &str) -> Result<Vec<Resourc
                 0,
                 format!("{rule_count} rules"),
             )
+            .with_age(age)
             .with_labels(labels)
         })
         .collect())
@@ -1585,6 +1628,7 @@ async fn list_cluster_role_bindings(
         .items
         .into_iter()
         .map(|binding| {
+            let age = resource_age(&binding.metadata);
             let role_ref = format!("{}/{}", binding.role_ref.kind, binding.role_ref.name);
             let labels = binding.metadata.labels.clone().unwrap_or_default();
 
@@ -1597,6 +1641,7 @@ async fn list_cluster_role_bindings(
                 0,
                 role_ref.clone(),
             )
+            .with_age(age)
             .with_labels(labels)
             .with_owner(role_ref)
         })
@@ -1613,6 +1658,7 @@ async fn list_events(client: Client, cluster: &str) -> Result<Vec<ResourceSummar
         .items
         .into_iter()
         .map(|event| {
+            let age = resource_age(&event.metadata);
             let event_type = event.type_.clone().unwrap_or_else(|| "Normal".to_string());
             let reason = event.reason.clone().unwrap_or_default();
             resource_summary(
@@ -1624,6 +1670,7 @@ async fn list_events(client: Client, cluster: &str) -> Result<Vec<ResourceSummar
                 0,
                 event_type,
             )
+            .with_age(age)
             .with_owner(reason)
         })
         .collect())
@@ -1639,6 +1686,7 @@ async fn list_nodes(client: Client, cluster: &str) -> Result<Vec<ResourceSummary
         .items
         .into_iter()
         .map(|node| {
+            let age = resource_age(&node.metadata);
             let ready = node
                 .status
                 .as_ref()
@@ -1655,6 +1703,7 @@ async fn list_nodes(client: Client, cluster: &str) -> Result<Vec<ResourceSummary
                 0,
                 String::new(),
             )
+            .with_age(age)
         })
         .collect())
 }
@@ -1669,6 +1718,7 @@ async fn list_namespaces(client: Client, cluster: &str) -> Result<Vec<ResourceSu
         .items
         .into_iter()
         .map(|namespace| {
+            let age = resource_age(&namespace.metadata);
             resource_summary(
                 "Namespace",
                 namespace.name_any(),
@@ -1678,6 +1728,7 @@ async fn list_namespaces(client: Client, cluster: &str) -> Result<Vec<ResourceSu
                 0,
                 String::new(),
             )
+            .with_age(age)
         })
         .collect())
 }
@@ -1719,6 +1770,7 @@ async fn list_crds(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
         .items
         .into_iter()
         .map(|crd| {
+            let age = resource_age(&crd.metadata);
             let group = crd.spec.group.clone();
             resource_summary(
                 "CustomResourceDefinition",
@@ -1729,6 +1781,7 @@ async fn list_crds(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 0,
                 group.clone(),
             )
+            .with_age(age)
             .with_owner(group)
         })
         .collect())

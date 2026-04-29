@@ -224,7 +224,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
       </span>
       {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>
-      <span>{resource.age}</span>
+      <span title={resource.age}>{formatResourceAge(resource.age)}</span>
       <SignalCell resource={resource} />
       <LabelPills resource={resource} />
     </button>
@@ -277,6 +277,28 @@ function SignalBar({ label, value }: { label: string; value: number }) {
       <span style={{ "--value": `${Math.max(0, Math.min(value, 100))}%` } as CSSProperties} />
     </i>
   );
+}
+
+function formatResourceAge(age: string) {
+  const timestamp = Date.parse(age);
+  if (Number.isNaN(timestamp)) {
+    return age;
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  if (elapsedSeconds < 60) {
+    return "now";
+  }
+
+  const units = [
+    { suffix: "y", seconds: 31_536_000 },
+    { suffix: "mo", seconds: 2_592_000 },
+    { suffix: "d", seconds: 86_400 },
+    { suffix: "h", seconds: 3_600 },
+    { suffix: "m", seconds: 60 },
+  ];
+  const unit = units.find((item) => elapsedSeconds >= item.seconds) ?? units[units.length - 1];
+  return `${Math.floor(elapsedSeconds / unit.seconds)}${unit.suffix}`;
 }
 
 function LabelPills({ resource }: { resource: ResourceRow }) {
