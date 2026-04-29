@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { labelFilterOptions, matchesLabelFilter } from "../lib/labels";
+import { labelFilterOptions, labelSearchText, matchesLabelFilter } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
 import type { KubeContextSummary, LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 
@@ -78,6 +78,8 @@ export function useKiteData() {
         resource.cluster,
         resource.owner,
         resource.status,
+        resource.image,
+        labelSearchText(resource),
       ]
         .join(" ")
         .toLowerCase();

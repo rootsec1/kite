@@ -1,4 +1,4 @@
-import { memo, useCallback, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useRef, type CSSProperties } from "react";
 import { ArrowDownUp, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
@@ -10,14 +10,32 @@ import { StatusDot } from "./status";
 import type { NavItem } from "../theme/resourceTheme";
 
 export function Toolbar({ count, data, scope }: { count: number; data: KiteData; scope: string }) {
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) {
+        return;
+      }
+
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
   return (
     <header className="toolbar">
       <label className="search-box">
         <Search size={16} />
         <input
+          ref={searchInputRef}
           value={data.query}
           onChange={(event) => data.onSetQuery(event.target.value)}
-          placeholder="Search resources..."
+          placeholder="Search name, namespace, label..."
         />
         <kbd>⌘ K</kbd>
       </label>

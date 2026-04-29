@@ -58,6 +58,13 @@ export function primaryLabels(resource: ResourceRow, limit = 2) {
     .map(([key, value]) => `${compactLabelKey(key)}=${value}`);
 }
 
+export function labelSearchText(resource: ResourceRow) {
+  return Object.entries(resource.labels)
+    .filter(([key, value]) => isUsefulLabel(key, value))
+    .flatMap(([key, value]) => [key, compactLabelKey(key), value, formatLabel(key, value), `${compactLabelKey(key)}=${value}`])
+    .join(" ");
+}
+
 function isUsefulLabel(key: string, value: string) {
   return Boolean(key && value && !noisyLabelKeys.has(key) && !generatedValuePattern.test(value));
 }
