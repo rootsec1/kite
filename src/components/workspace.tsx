@@ -239,6 +239,11 @@ const ResourceRowButton = memo(function ResourceRowButton({
         <StatusDot state={resource.status} />
         {pinned ? <Star className="pinned-marker" size={13} fill="currentColor" /> : null}
         <strong>{resource.name}</strong>
+        {resource.diagnostic ? (
+          <small className={`resource-diagnostic ${resource.status}`} title={resource.diagnostic}>
+            {resource.diagnostic}
+          </small>
+        ) : null}
       </span>
       {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>

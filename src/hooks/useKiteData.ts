@@ -79,6 +79,7 @@ export function useKiteData() {
         resource.owner,
         resource.status,
         resource.image,
+        resource.diagnostic,
         labelSearchText(resource),
       ]
         .join(" ")

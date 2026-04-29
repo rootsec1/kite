@@ -563,6 +563,7 @@ summary:focus-visible {
   align-items: center;
   gap: 9px;
   min-inline-size: 0;
+  overflow: hidden;
 }
 
 .name-cell strong,
@@ -573,8 +574,36 @@ summary:focus-visible {
 }
 
 .name-cell strong {
+  min-inline-size: 0;
   white-space: nowrap;
   font-weight: 500;
+}
+
+.resource-diagnostic {
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-inline-size: 150px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--surface-soft);
+}
+
+.resource-diagnostic.warning,
+.resource-diagnostic.critical {
+  border-color: color-mix(in srgb, var(--orange) 38%, var(--line));
+  color: #7d5317;
+  background: color-mix(in srgb, var(--yellow) 10%, var(--surface));
+}
+
+.resource-diagnostic.syncing {
+  color: #245d73;
 }
 
 .pinned-marker {

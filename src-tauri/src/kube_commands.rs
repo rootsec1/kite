@@ -903,6 +903,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .with_age(age)
                 .with_labels(labels)
                 .with_owner(owner)
+                .with_diagnostic(pod_diagnostic(&pod))
                 .with_references(references)
         })
         .collect())
@@ -1818,6 +1819,7 @@ fn resource_summary(
         restarts,
         owner: namespace,
         image,
+        diagnostic: String::new(),
         labels: BTreeMap::new(),
         references: Vec::new(),
         selector: BTreeMap::new(),
@@ -1937,6 +1939,53 @@ fn pod_status(pod: &Pod, restarts: u32) -> HealthState {
     HealthState::Warning
 }
 
+fn pod_diagnostic(pod: &Pod) -> String {
+    let Some(status) = pod.status.as_ref() else {
+        return "status syncing".to_string();
+    };
+
+    let phase = status.phase.as_deref().unwrap_or("");
+    if let Some(diagnostic) = container_status_diagnostic(status.init_container_statuses.as_deref()) {
+        return diagnostic;
+    }
+    if let Some(diagnostic) = container_status_diagnostic(status.container_statuses.as_deref()) {
+        return diagnostic;
+    }
+    if let Some(diagnostic) = container_status_diagnostic(status.ephemeral_container_statuses.as_deref()) {
+        return diagnostic;
+    }
+
+    if let Some(reason) = status
+        .reason
+        .as_deref()
+        .filter(|reason| !reason.is_empty() && *reason != phase)
+    {
+        return reason.to_string();
+    }
+    if let Some(message) = status.message.as_deref().filter(|message| !message.is_empty()) {
+        return message.to_string();
+    }
+    if phase != "Running" && phase != "Succeeded" {
+        return phase.to_string();
+    }
+
+    let restarts = pod_restart_count(status);
+    if restarts > 0 {
+        return format!("{restarts} restarts");
+    }
+    if status
+        .container_statuses
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .any(|container| !container.ready)
+    {
+        return "containers not ready".to_string();
+    }
+
+    String::new()
+}
+
 fn pod_restart_count(status: &k8s_openapi::api::core::v1::PodStatus) -> u32 {
     status
         .init_container_statuses
@@ -1947,6 +1996,33 @@ fn pod_restart_count(status: &k8s_openapi::api::core::v1::PodStatus) -> u32 {
         .chain(status.ephemeral_container_statuses.as_deref().unwrap_or_default())
         .map(|status| status.restart_count as u32)
         .sum()
+}
+
+fn container_status_diagnostic(statuses: Option<&[ContainerStatus]>) -> Option<String> {
+    statuses.unwrap_or_default().iter().find_map(|container| {
+        let name = if container.name.is_empty() {
+            "container"
+        } else {
+            container.name.as_str()
+        };
+        let state = container.state.as_ref()?;
+
+        if let Some(waiting) = state.waiting.as_ref() {
+            return state_diagnostic(name, waiting.reason.as_deref(), waiting.message.as_deref());
+        }
+        if let Some(terminated) = state.terminated.as_ref() {
+            return state_diagnostic(name, terminated.reason.as_deref(), terminated.message.as_deref());
+        }
+
+        None
+    })
+}
+
+fn state_diagnostic(name: &str, reason: Option<&str>, message: Option<&str>) -> Option<String> {
+    reason
+        .filter(|reason| !reason.is_empty())
+        .or_else(|| message.filter(|message| !message.is_empty()))
+        .map(|detail| format!("{name} {detail}"))
 }
 
 fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> bool {
@@ -1996,6 +2072,16 @@ mod tests {
     }
 
     #[test]
+    fn pod_diagnostic_reports_current_container_reason() {
+        let pod = pod_with_status(
+            "Running",
+            vec![container_status(false, 5, Some("CrashLoopBackOff"))],
+        );
+
+        assert_eq!(pod_diagnostic(&pod), "container CrashLoopBackOff");
+    }
+
+    #[test]
     fn running_init_crashlooping_pod_is_critical() {
         let mut pod = pod_with_status("Running", vec![container_status(false, 0, None)]);
         if let Some(status) = pod.status.as_mut() {
@@ -2004,6 +2090,17 @@ mod tests {
         }
 
         assert_eq!(pod_status(&pod, 3), HealthState::Critical);
+    }
+
+    #[test]
+    fn pod_diagnostic_prefers_init_container_reason() {
+        let mut pod = pod_with_status("Running", vec![container_status(false, 0, None)]);
+        if let Some(status) = pod.status.as_mut() {
+            status.init_container_statuses =
+                Some(vec![container_status(false, 3, Some("ImagePullBackOff"))]);
+        }
+
+        assert_eq!(pod_diagnostic(&pod), "container ImagePullBackOff");
     }
 
     #[test]
@@ -2199,6 +2296,7 @@ mod tests {
 trait ResourceSummaryPatch {
     fn with_owner(self, owner: String) -> Self;
     fn with_age(self, age: String) -> Self;
+    fn with_diagnostic(self, diagnostic: String) -> Self;
     fn with_labels(self, labels: BTreeMap<String, String>) -> Self;
     fn with_references(self, references: Vec<ResourceReference>) -> Self;
     fn with_selector(self, selector: BTreeMap<String, String>) -> Self;
@@ -2212,6 +2310,11 @@ impl ResourceSummaryPatch for ResourceSummary {
 
     fn with_age(mut self, age: String) -> Self {
         self.age = age;
+        self
+    }
+
+    fn with_diagnostic(mut self, diagnostic: String) -> Self {
+        self.diagnostic = diagnostic;
         self
     }
 

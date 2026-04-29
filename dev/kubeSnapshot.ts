@@ -279,7 +279,9 @@ async function readHelmReleases(cluster: string) {
     restarts: 0,
     owner: release.chart ?? "",
     image: release.app_version ?? release.revision ?? "",
+    diagnostic: "",
     labels: {},
+    references: [],
     selector: {},
   }));
 }
@@ -453,6 +455,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
       item.spec?.containers?.[0]?.image ??
       item.spec?.template?.spec?.containers?.[0]?.image ??
       "",
+    diagnostic: resourceDiagnostic(item),
     labels: item.metadata?.labels ?? {},
     references: volumeReferences(item, namespace),
     selector: selectorLabels(item.spec?.selector),
@@ -620,6 +623,11 @@ function resourceStatus(item: KubeItem) {
   return "healthy";
 }
 
+function resourceDiagnostic(item: KubeItem) {
+  if (item.kind !== "Pod") return "";
+  return podDiagnostic(item);
+}
+
 function podStatus(item: KubeItem) {
   const phase = item.status?.phase ?? "";
   const containers = item.status?.containerStatuses ?? [];
@@ -638,6 +646,48 @@ function podStatus(item: KubeItem) {
   }
 
   return "warning";
+}
+
+function podDiagnostic(item: KubeItem) {
+  const phase = item.status?.phase ?? "";
+  const diagnostic =
+    containerStatusDiagnostic(item.status?.initContainerStatuses) ??
+    containerStatusDiagnostic(item.status?.containerStatuses) ??
+    containerStatusDiagnostic(item.status?.ephemeralContainerStatuses);
+
+  if (diagnostic) return diagnostic;
+  if (item.status?.reason && item.status.reason !== phase) return item.status.reason;
+  if (item.status?.message) return item.status.message;
+  if (phase && phase !== "Running" && phase !== "Succeeded") return phase;
+
+  const restarts = [
+    ...(item.status?.initContainerStatuses ?? []),
+    ...(item.status?.containerStatuses ?? []),
+    ...(item.status?.ephemeralContainerStatuses ?? []),
+  ].reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
+
+  if (restarts > 0) return `${restarts} restarts`;
+  if ((item.status?.containerStatuses ?? []).some((container) => !container.ready)) {
+    return "containers not ready";
+  }
+  return "";
+}
+
+function containerStatusDiagnostic(statuses?: KubeContainerStatus[]) {
+  return (statuses ?? []).map((container) => {
+    const name = container.name || "container";
+    const waiting = container.state?.waiting;
+    if (waiting?.reason || waiting?.message) {
+      return `${name} ${waiting.reason || waiting.message}`;
+    }
+
+    const terminated = container.state?.terminated;
+    if (terminated?.reason || terminated?.message) {
+      return `${name} ${terminated.reason || terminated.message}`;
+    }
+
+    return "";
+  }).find(Boolean);
 }
 
 function hasCriticalContainerState(container: KubeContainerStatus) {
