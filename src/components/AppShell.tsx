@@ -6,7 +6,7 @@ import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
 import { ResourceDetail } from "./ResourceDetail";
-import { NamespacePressure, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
+import { NamespacePressure, PodTriageRail, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
 
 type AppShellProps = {
   data: KiteData;
@@ -40,6 +40,10 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   }, [activeId, activeItem?.kind, data.pinnedResources, data.visibleResources, resourceSort]);
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
+    [data.visibleResources],
+  );
+  const podTriageResources = useMemo(
+    () => sortResources(data.visibleResources.filter((resource) => resource.kind === "Pod" && resource.status !== "healthy"), defaultResourceSort),
     [data.visibleResources],
   );
 
@@ -92,6 +96,9 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
               ) : (
                 <>
                   <SummaryStrip counts={counts} warningCount={warningCount} />
+                  {(!activeItem?.kind || activeItem.kind === "Pod") ? (
+                    <PodTriageRail pods={podTriageResources} onSelect={openResource} />
+                  ) : null}
                   <ScopeTabs activeId={activeId} counts={counts} items={scopeTabs} onSelect={selectNavigation} />
                   <ResourceTable
                     resources={scopedResources}

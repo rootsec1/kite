@@ -445,6 +445,117 @@ summary:focus-visible {
   font-size: 11px;
 }
 
+.pod-triage-rail {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  margin-block-end: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pod-triage-rail header {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-block-size: 78px;
+  padding-inline: 14px;
+  border-inline-end: 1px solid var(--line);
+}
+
+.pod-triage-rail header span,
+.pod-triage-rail header strong,
+.pod-triage-item small,
+.pod-triage-item em {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pod-triage-rail header span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pod-triage-rail header svg {
+  color: var(--green-deep);
+}
+
+.pod-triage-rail header strong {
+  color: var(--text);
+}
+
+.pod-triage-rail > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  min-inline-size: 0;
+}
+
+.pod-triage-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) minmax(72px, 0.55fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-block-size: 78px;
+  min-inline-size: 0;
+  padding-inline: 12px;
+  border: 0;
+  border-inline-start: 1px solid var(--line);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pod-triage-item:first-child {
+  border-inline-start: 0;
+}
+
+.pod-triage-item:hover {
+  background: var(--surface-soft);
+}
+
+.pod-triage-item.warning,
+.pod-triage-item.critical {
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--orange) 72%, transparent);
+}
+
+.pod-triage-item > span {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.pod-triage-item strong,
+.pod-triage-item small,
+.pod-triage-item em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-triage-item strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.pod-triage-item em {
+  justify-self: start;
+  max-inline-size: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  font-style: normal;
+  background: var(--surface-soft);
+}
+
+.pod-triage-item.warning em,
+.pod-triage-item.critical em {
+  border-color: color-mix(in srgb, var(--orange) 42%, var(--line));
+  color: #7d5317;
+  background: color-mix(in srgb, var(--yellow) 10%, var(--surface));
+}
+
 .resource-panel,
 .pressure-panel,
 .inspector,
@@ -2057,6 +2168,25 @@ summary:focus-visible {
 
   .summary-strip {
     grid-template-columns: repeat(5, minmax(120px, 1fr));
+  }
+
+  .pod-triage-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .pod-triage-rail header {
+    min-block-size: 48px;
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--line);
+  }
+
+  .pod-triage-rail > div {
+    grid-template-columns: 1fr;
+  }
+
+  .pod-triage-item {
+    border-inline-start: 0;
+    border-block-end: 1px solid var(--line);
   }
 
   .toolbar {

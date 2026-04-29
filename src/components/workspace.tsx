@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, type CSSProperties } from "react";
-import { ArrowDownUp, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
+import { ArrowDownUp, Container, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
@@ -148,6 +148,53 @@ export function ScopeTabs({
     </div>
   );
 }
+
+export function PodTriageRail({ pods, onSelect }: { pods: ResourceRow[]; onSelect: (id: string) => void }) {
+  if (!pods.length) {
+    return null;
+  }
+
+  const visiblePods = pods.slice(0, 4);
+
+  return (
+    <section className="pod-triage-rail" aria-label="Pod triage" data-testid="pod-triage-rail">
+      <header>
+        <span>
+          <Container size={15} />
+          Pod triage
+        </span>
+        <strong>{visiblePods.length === pods.length ? pods.length : `${visiblePods.length}/${pods.length}`} active</strong>
+      </header>
+      <div>
+        {visiblePods.map((pod) => (
+          <PodTriageButton key={pod.id} pod={pod} onSelect={onSelect} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const PodTriageButton = memo(function PodTriageButton({
+  onSelect,
+  pod,
+}: {
+  onSelect: (id: string) => void;
+  pod: ResourceRow;
+}) {
+  const handleSelect = useCallback(() => onSelect(pod.id), [onSelect, pod.id]);
+
+  return (
+    <button className={`pod-triage-item ${pod.status}`} type="button" onClick={handleSelect}>
+      <StatusDot state={pod.status} />
+      <span>
+        <strong title={pod.name}>{pod.name}</strong>
+        <small title={pod.namespace}>{pod.namespace}</small>
+      </span>
+      <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
+      <small>{pod.restarts}r</small>
+    </button>
+  );
+});
 
 export function ResourceTable({
   onSort,
