@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type Ref } from "react";
 import { History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
 import type { ResourceDetails } from "../types/kube";
 
@@ -24,10 +24,12 @@ export function PodTerminal({
   details,
   detailsError,
   detailsLoading,
+  panelRef,
 }: {
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
+  panelRef?: Ref<HTMLElement>;
 }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>("all");
   const [logMode, setLogMode] = useState<LogMode>("current");
@@ -85,7 +87,7 @@ export function PodTerminal({
   }, [activeLogMode, details.logs, details.previousLogs, detailsError, detailsLoading, levelFilter, queryTerms, sourceFilter]);
 
   return (
-    <section className="terminal-panel">
+    <section className="terminal-panel" ref={panelRef}>
       <header>
         <div>
           <span>Live tail</span>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
@@ -39,6 +39,7 @@ export function ResourceDetail({
   const isPod = resource.kind === "Pod";
   const hierarchyGroups = useMemo(() => hierarchyFor(resource, allResources), [allResources, resource]);
   const hasContainerPorts = Boolean(details.pod?.containers.some((container) => container.ports.length));
+  const terminalRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!isPod) {
@@ -49,6 +50,16 @@ export function ResourceDetail({
     const interval = window.setInterval(onRefreshDetails, 4_000);
     return () => window.clearInterval(interval);
   }, [isPod, onRefreshDetails, resource.id]);
+
+  function openLogs() {
+    onRefreshDetails();
+    window.requestAnimationFrame(() => {
+      terminalRef.current?.scrollIntoView({
+        block: "start",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    });
+  }
 
   return (
     <section className="detail-workspace">
@@ -90,7 +101,7 @@ export function ResourceDetail({
             onOpenResource={onOpenResource}
           />
           <div className="pod-actions" aria-label="Pod actions">
-            <button type="button" onClick={onRefreshDetails}>
+            <button type="button" onClick={openLogs}>
               <FileText size={15} />
               Logs
             </button>
@@ -121,7 +132,7 @@ export function ResourceDetail({
       {isPod ? (
         <>
           <PodEventRail details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
-          <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+          <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} panelRef={terminalRef} />
         </>
       ) : (
         <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
