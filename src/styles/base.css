@@ -689,8 +689,11 @@ summary:focus-visible {
 
 .detail-hero {
   display: grid;
-  gap: 16px;
-  padding: 20px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-block-size: 82px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   background: var(--surface);
 }
@@ -713,14 +716,8 @@ summary:focus-visible {
   justify-self: start;
 }
 
-.detail-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .pin-button {
+  justify-self: end;
   color: var(--text-soft);
 }
 
@@ -734,18 +731,48 @@ summary:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-inline-size: 0;
   color: var(--text-soft);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
 }
 
+.detail-title-block {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+
 .detail-hero h2 {
-  margin: 8px 0 0;
-  max-inline-size: 900px;
-  font-size: clamp(30px, 4vw, 52px);
-  line-height: 0.96;
-  overflow-wrap: anywhere;
+  margin: 0;
+  overflow: hidden;
+  font-size: 24px;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-meta-row {
+  display: flex;
+  gap: 6px;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.detail-meta-row span {
+  overflow: hidden;
+  max-inline-size: 220px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--surface-soft);
 }
 
 .pod-actions {

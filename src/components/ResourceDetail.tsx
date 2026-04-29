@@ -52,28 +52,31 @@ export function ResourceDetail({
   return (
     <section className="detail-workspace">
       <header className="detail-hero">
-        <div className="detail-actions">
-          <button className="back-button" type="button" onClick={onBack}>
-            <ArrowLeft size={15} />
-            Resources
-          </button>
-          <button
-            aria-pressed={isPinned}
-            className={isPinned ? "pin-button active" : "pin-button"}
-            type="button"
-            onClick={onTogglePinned}
-          >
-            <Star size={15} fill={isPinned ? "currentColor" : "none"} />
-            {isPinned ? "Pinned" : "Pin"}
-          </button>
-        </div>
-        <div>
+        <button className="back-button" type="button" onClick={onBack}>
+          <ArrowLeft size={15} />
+          Resources
+        </button>
+        <div className="detail-title-block">
           <span className="detail-kind">
             <StatusDot state={resource.status} />
             {resource.kind} / {resource.namespace}
           </span>
-          <h2>{resource.name}</h2>
+          <h2 title={resource.name}>{resource.name}</h2>
+          <div className="detail-meta-row" aria-label="Resource metadata">
+            <span>{resource.cluster || "current"}</span>
+            <span>{resource.age}</span>
+            {resource.owner ? <span>{resource.owner}</span> : null}
+          </div>
         </div>
+        <button
+          aria-pressed={isPinned}
+          className={isPinned ? "pin-button active" : "pin-button"}
+          type="button"
+          onClick={onTogglePinned}
+        >
+          <Star size={15} fill={isPinned ? "currentColor" : "none"} />
+          {isPinned ? "Pinned" : "Pin"}
+        </button>
       </header>
 
       {isPod ? (
