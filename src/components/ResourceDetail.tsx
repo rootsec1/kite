@@ -132,6 +132,7 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
   const restartTotal = containers.length
     ? containers.reduce((sum, container) => sum + container.restartCount, 0)
     : resource.restarts;
+  const diagnostic = podDiagnostic(pod);
 
   return (
     <section className="pod-debug-panel" aria-label="Pod runtime status">
@@ -143,6 +144,8 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
         </div>
         <small>{resource.owner || "standalone pod"}</small>
       </div>
+
+      {diagnostic ? <p className="pod-status-diagnostic" title={diagnostic}>{diagnostic}</p> : null}
 
       <PodRuntimeFacts details={details} resource={resource} />
 
@@ -173,6 +176,16 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
       </div>
     </section>
   );
+}
+
+function podDiagnostic(pod: ResourceDetails["pod"]) {
+  if (!pod) {
+    return "";
+  }
+
+  return [pod.reason, pod.message]
+    .filter((part, index, parts) => part && part !== pod.phase && parts.indexOf(part) === index)
+    .join(" / ");
 }
 
 function PodRuntimeFacts({ details, resource }: { details: ResourceDetails; resource: ResourceRow }) {

@@ -791,6 +791,7 @@ summary:focus-visible {
 
 .pod-status-line span,
 .pod-status-line small,
+.pod-status-diagnostic,
 .pod-runtime-facts span,
 .pod-runtime-facts strong,
 .pod-condition span,
@@ -801,6 +802,19 @@ summary:focus-visible {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.pod-status-diagnostic {
+  margin: 0;
+  min-block-size: 38px;
+  padding: 11px 14px;
+  overflow: hidden;
+  color: #7d5317;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--yellow) 12%, var(--surface));
 }
 
 .pod-runtime-facts {

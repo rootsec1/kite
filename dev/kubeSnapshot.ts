@@ -40,6 +40,8 @@ type KubeItem = {
     containerStatuses?: KubeContainerStatus[];
     ephemeralContainerStatuses?: KubeContainerStatus[];
     initContainerStatuses?: KubeContainerStatus[];
+    reason?: string;
+    message?: string;
   };
 };
 
@@ -367,6 +369,8 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
 
   return {
     phase: pod.status?.phase ?? "Unknown",
+    reason: pod.status?.reason ?? "",
+    message: pod.status?.message ?? "",
     nodeName: pod.spec?.nodeName ?? "",
     podIp: pod.status?.podIP ?? "",
     hostIp: pod.status?.hostIP ?? "",

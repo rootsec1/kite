@@ -398,6 +398,8 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
 
     Ok(PodDetails {
         phase: text_field(status, "phase", "Unknown"),
+        reason: text_field(status, "reason", ""),
+        message: text_field(status, "message", ""),
         node_name: text_field(spec, "nodeName", ""),
         pod_ip: text_field(status, "podIP", ""),
         host_ip: text_field(status, "hostIP", ""),

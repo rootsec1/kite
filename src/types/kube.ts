@@ -69,6 +69,8 @@ export type ResourceDetails = {
 
 export type PodDetails = {
   phase: string;
+  reason: string;
+  message: string;
   nodeName: string;
   podIp: string;
   hostIp: string;

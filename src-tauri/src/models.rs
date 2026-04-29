@@ -86,6 +86,8 @@ pub struct ResourceDetails {
 #[serde(rename_all = "camelCase")]
 pub struct PodDetails {
     pub phase: String,
+    pub reason: String,
+    pub message: String,
     pub node_name: String,
     pub pod_ip: String,
     pub host_ip: String,
