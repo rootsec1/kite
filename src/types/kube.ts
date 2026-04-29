@@ -41,6 +41,7 @@ export type ResourceRow = {
   restarts: number;
   owner: string;
   image: string;
+  nodeName: string;
   diagnostic: string;
   labels: Record<string, string>;
   references: ResourceReference[];

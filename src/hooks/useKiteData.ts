@@ -77,6 +77,7 @@ export function useKiteData() {
         resource.namespace,
         resource.cluster,
         resource.owner,
+        resource.nodeName,
         resource.status,
         resource.image,
         resource.diagnostic,

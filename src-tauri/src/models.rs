@@ -59,6 +59,7 @@ pub struct ResourceSummary {
     pub restarts: u32,
     pub owner: String,
     pub image: String,
+    pub node_name: String,
     pub diagnostic: String,
     pub labels: BTreeMap<String, String>,
     pub references: Vec<ResourceReference>,

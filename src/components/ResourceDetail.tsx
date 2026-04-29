@@ -85,7 +85,7 @@ export function ResourceDetail({
           <PodStatusPanel details={details} resource={resource} />
           <PodLinkStrip
             allResources={allResources}
-            nodeName={details.pod?.nodeName}
+            nodeName={details.pod?.nodeName || resource.nodeName}
             pod={resource}
             onOpenResource={onOpenResource}
           />
@@ -513,6 +513,13 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
       { title: "Config and access", resources: scoped.filter((item) => configKinds.has(item.kind)) },
       { title: "Storage", resources: scoped.filter((item) => storageKinds.has(item.kind)) },
       { title: "Packages", resources: scoped.filter((item) => item.kind === "HelmRelease") },
+    ];
+  }
+
+  if (resource.kind === "Node") {
+    const pods = resources.filter((item) => item.kind === "Pod" && item.nodeName === resource.name);
+    return [
+      { title: "Scheduled pods", resources: pods },
     ];
   }
 

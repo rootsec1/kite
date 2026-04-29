@@ -488,6 +488,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
       item.spec?.containers?.[0]?.image ??
       item.spec?.template?.spec?.containers?.[0]?.image ??
       "",
+    nodeName: item.kind === "Pod" ? item.spec?.nodeName ?? "" : "",
     diagnostic: resourceDiagnostic(item),
     labels: item.metadata?.labels ?? {},
     references: volumeReferences(item, namespace),

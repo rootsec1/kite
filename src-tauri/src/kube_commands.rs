@@ -997,11 +997,17 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .unwrap_or_default();
             let labels = pod.metadata.labels.clone().unwrap_or_default();
             let references = pod_volume_references(&pod, &namespace);
+            let node_name = pod
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.node_name.clone())
+                .unwrap_or_default();
 
             resource_summary("Pod", pod.name_any(), namespace, cluster, status, restarts, image)
                 .with_age(age)
                 .with_labels(labels)
                 .with_owner(owner)
+                .with_node_name(node_name)
                 .with_diagnostic(pod_diagnostic(&pod))
                 .with_references(references)
         })
@@ -1918,6 +1924,7 @@ fn resource_summary(
         restarts,
         owner: namespace,
         image,
+        node_name: String::new(),
         diagnostic: String::new(),
         labels: BTreeMap::new(),
         references: Vec::new(),
@@ -2424,6 +2431,7 @@ trait ResourceSummaryPatch {
     fn with_age(self, age: String) -> Self;
     fn with_diagnostic(self, diagnostic: String) -> Self;
     fn with_labels(self, labels: BTreeMap<String, String>) -> Self;
+    fn with_node_name(self, node_name: String) -> Self;
     fn with_references(self, references: Vec<ResourceReference>) -> Self;
     fn with_selector(self, selector: BTreeMap<String, String>) -> Self;
 }
@@ -2446,6 +2454,11 @@ impl ResourceSummaryPatch for ResourceSummary {
 
     fn with_labels(mut self, labels: BTreeMap<String, String>) -> Self {
         self.labels = labels;
+        self
+    }
+
+    fn with_node_name(mut self, node_name: String) -> Self {
+        self.node_name = node_name;
         self
     }
 
