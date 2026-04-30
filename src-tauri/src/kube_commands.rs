@@ -4,8 +4,8 @@ use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
     batch::v1::{CronJob, Job},
     core::v1::{
-        ConfigMap, ContainerStatus, Event, Namespace, Node, PersistentVolume, PersistentVolumeClaim,
-        Pod, Secret, Service,
+        ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
+        PersistentVolumeClaim, Pod, Secret, Service,
     },
     networking::v1::Ingress,
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
@@ -1204,7 +1204,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .map(|owner| format!("{}/{}", owner.kind, owner.name))
                 .unwrap_or_default();
             let labels = pod.metadata.labels.clone().unwrap_or_default();
-            let references = pod_volume_references(&pod, &namespace);
+            let references = pod_dependency_references(&pod, &namespace);
             let node_name = pod
                 .spec
                 .as_ref()
@@ -2148,6 +2148,14 @@ fn resource_summary(
     }
 }
 
+fn pod_dependency_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
+    let mut references = pod_volume_references(pod, namespace);
+    for reference in pod_env_references(pod, namespace) {
+        push_unique_reference(&mut references, reference);
+    }
+    references
+}
+
 fn pod_volume_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
     pod.spec
         .as_ref()
@@ -2172,6 +2180,61 @@ fn pod_volume_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
             references
         })
         .collect()
+}
+
+fn pod_env_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
+    let Some(spec) = pod.spec.as_ref() else {
+        return Vec::new();
+    };
+
+    let mut references = Vec::new();
+    for container in &spec.containers {
+        collect_env_references(container.env.as_ref(), container.env_from.as_ref(), namespace, &mut references);
+    }
+    for container in spec.init_containers.as_deref().unwrap_or_default() {
+        collect_env_references(container.env.as_ref(), container.env_from.as_ref(), namespace, &mut references);
+    }
+    for container in spec.ephemeral_containers.as_deref().unwrap_or_default() {
+        collect_env_references(container.env.as_ref(), container.env_from.as_ref(), namespace, &mut references);
+    }
+    references
+}
+
+fn collect_env_references(
+    env: Option<&Vec<EnvVar>>,
+    env_from: Option<&Vec<EnvFromSource>>,
+    namespace: &str,
+    references: &mut Vec<ResourceReference>,
+) {
+    for source in env_from.map(Vec::as_slice).unwrap_or_default() {
+        if let Some(config_map) = source.config_map_ref.as_ref() {
+            push_unique_reference(references, resource_reference("ConfigMap", namespace, &config_map.name));
+        }
+        if let Some(secret) = source.secret_ref.as_ref() {
+            push_unique_reference(references, resource_reference("Secret", namespace, &secret.name));
+        }
+    }
+
+    for variable in env.map(Vec::as_slice).unwrap_or_default() {
+        let Some(value_from) = variable.value_from.as_ref() else {
+            continue;
+        };
+        if let Some(config_map) = value_from.config_map_key_ref.as_ref() {
+            push_unique_reference(references, resource_reference("ConfigMap", namespace, &config_map.name));
+        }
+        if let Some(secret) = value_from.secret_key_ref.as_ref() {
+            push_unique_reference(references, resource_reference("Secret", namespace, &secret.name));
+        }
+    }
+}
+
+fn push_unique_reference(references: &mut Vec<ResourceReference>, reference: ResourceReference) {
+    if reference.name.is_empty() || references.iter().any(|item| {
+        item.kind == reference.kind && item.namespace == reference.namespace && item.name == reference.name
+    }) {
+        return;
+    }
+    references.push(reference);
 }
 
 fn resource_reference(kind: &str, namespace: &str, name: &str) -> ResourceReference {
@@ -2390,8 +2453,9 @@ fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> boo
 mod tests {
     use super::*;
     use k8s_openapi::api::core::v1::{
-        ConfigMapVolumeSource, ContainerState, ContainerStateWaiting, ObjectReference,
-        PersistentVolumeClaimVolumeSource, PodSpec, PodStatus, SecretVolumeSource, Volume,
+        ConfigMapEnvSource, ConfigMapKeySelector, ConfigMapVolumeSource, Container, ContainerState,
+        ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, ObjectReference, PersistentVolumeClaimVolumeSource,
+        PodSpec, PodStatus, SecretEnvSource, SecretKeySelector, SecretVolumeSource, Volume,
     };
 
     #[test]
@@ -2738,9 +2802,55 @@ mod tests {
     }
 
     #[test]
-    fn pod_volume_references_track_mounted_resources() {
+    fn pod_dependency_references_track_mounted_and_env_resources() {
         let mut pod = Pod::default();
         pod.spec = Some(PodSpec {
+            containers: vec![Container {
+                name: "api".to_string(),
+                env_from: Some(vec![
+                    EnvFromSource {
+                        config_map_ref: Some(ConfigMapEnvSource {
+                            name: "app-config".to_string(),
+                            ..ConfigMapEnvSource::default()
+                        }),
+                        ..EnvFromSource::default()
+                    },
+                    EnvFromSource {
+                        secret_ref: Some(SecretEnvSource {
+                            name: "env-secret".to_string(),
+                            ..SecretEnvSource::default()
+                        }),
+                        ..EnvFromSource::default()
+                    },
+                ]),
+                env: Some(vec![
+                    EnvVar {
+                        name: "FEATURE_FLAG".to_string(),
+                        value_from: Some(EnvVarSource {
+                            config_map_key_ref: Some(ConfigMapKeySelector {
+                                key: "flag".to_string(),
+                                name: "feature-config".to_string(),
+                                ..ConfigMapKeySelector::default()
+                            }),
+                            ..EnvVarSource::default()
+                        }),
+                        ..EnvVar::default()
+                    },
+                    EnvVar {
+                        name: "TOKEN".to_string(),
+                        value_from: Some(EnvVarSource {
+                            secret_key_ref: Some(SecretKeySelector {
+                                key: "token".to_string(),
+                                name: "app-secret".to_string(),
+                                ..SecretKeySelector::default()
+                            }),
+                            ..EnvVarSource::default()
+                        }),
+                        ..EnvVar::default()
+                    },
+                ]),
+                ..Container::default()
+            }],
             volumes: Some(vec![
                 Volume {
                     config_map: Some(ConfigMapVolumeSource {
@@ -2767,15 +2877,19 @@ mod tests {
             ..PodSpec::default()
         });
 
-        let references = pod_volume_references(&pod, "default");
+        let references = pod_dependency_references(&pod, "default");
 
-        assert_eq!(references.len(), 3);
+        assert_eq!(references.len(), 5);
         assert_eq!(references[0].kind, "ConfigMap");
         assert_eq!(references[0].name, "app-config");
         assert_eq!(references[1].kind, "Secret");
         assert_eq!(references[1].name, "app-secret");
         assert_eq!(references[2].kind, "PersistentVolumeClaim");
         assert_eq!(references[2].name, "app-data");
+        assert_eq!(references[3].kind, "Secret");
+        assert_eq!(references[3].name, "env-secret");
+        assert_eq!(references[4].kind, "ConfigMap");
+        assert_eq!(references[4].name, "feature-config");
     }
 
     #[test]

@@ -57,7 +57,7 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""):
     ...namespaceResources.filter((item) => workloadKinds.has(item.kind) && ownsPod(item, pod)),
   ]);
   const serviceResources = namespaceResources.filter((item) => item.kind === "Service" && matchesSelector(pod, item.selector));
-  const mountedResources = resources.filter((item) => pod.references.some((reference) => matchesReference(item, reference)));
+  const inputResources = resources.filter((item) => pod.references.some((reference) => matchesReference(item, reference)));
   const node = nodeName ? resources.filter((item) => item.kind === "Node" && item.name === nodeName) : [];
   const namespace = resources.filter((item) => item.kind === "Namespace" && item.name === pod.namespace);
 
@@ -65,7 +65,7 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""):
     { title: "Owner", icon: GitBranch, resources: ownerResources },
     { title: "Node", icon: Server, resources: node },
     { title: "Services", icon: Network, resources: serviceResources },
-    { title: "Mounts", icon: HardDrive, resources: mountedResources },
+    { title: "Inputs", icon: HardDrive, resources: inputResources },
     { title: "Namespace", icon: Layers3, resources: namespace },
   ];
 }
