@@ -659,6 +659,7 @@ function HierarchyGroups({
 }
 
 const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
+const inputDependencyKinds = new Set(["ConfigMap", "Secret", "PersistentVolumeClaim"]);
 const configKinds = new Set(["ConfigMap", "Secret", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
@@ -717,6 +718,10 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     ];
   }
 
+  if (inputDependencyKinds.has(resource.kind)) {
+    return inputDependencyHierarchyFor(resource, resources);
+  }
+
   if (accessKinds.has(resource.kind)) {
     return accessHierarchyFor(resource, resources);
   }
@@ -758,6 +763,16 @@ function accessHierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hi
   }
 
   return [];
+}
+
+function inputDependencyHierarchyFor(resource: ResourceRow, resources: ResourceRow[]): HierarchyGroup[] {
+  const consumingPods = resources.filter((item) => item.kind === "Pod" && referencesResource(item, resource));
+  const workloads = workloadsForPods(consumingPods, resources);
+
+  return [
+    { title: "Consuming pods", resources: consumingPods },
+    ...(workloads.length ? [{ title: "Owning workloads", resources: workloads }] : []),
+  ];
 }
 
 function accessBindingsFor(kind: string, name: string, namespace: string, resources: ResourceRow[]) {
@@ -817,5 +832,13 @@ function referencedResources(references: ResourceRow["references"], resources: R
       resource.name === reference.name &&
       (reference.namespace === "cluster" || resource.namespace === reference.namespace),
     ),
+  );
+}
+
+function referencesResource(source: ResourceRow, target: ResourceRow) {
+  return source.references.some((reference) =>
+    target.kind === reference.kind &&
+    target.name === reference.name &&
+    (reference.namespace === "cluster" || target.namespace === reference.namespace),
   );
 }
