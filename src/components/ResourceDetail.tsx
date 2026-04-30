@@ -546,6 +546,13 @@ const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleB
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
 
 function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): HierarchyGroup[] {
+  if (resource.kind === "Event") {
+    return [
+      { title: "Involved object", resources: referencedResources(resource.references, resources) },
+      { title: "Namespace", resources: resources.filter((item) => item.kind === "Namespace" && item.name === resource.namespace) },
+    ];
+  }
+
   if (resource.kind === "Namespace") {
     const scoped = resources.filter((item) => item.namespace === resource.name && item.id !== resource.id);
     return [
@@ -683,4 +690,14 @@ function roleReference(owner: string) {
 
 function workloadsForPods(pods: ResourceRow[], resources: ResourceRow[]) {
   return resources.filter((item) => workloadKinds.has(item.kind) && pods.some((pod) => ownsPod(item, pod)));
+}
+
+function referencedResources(references: ResourceRow["references"], resources: ResourceRow[]) {
+  return resources.filter((resource) =>
+    references.some((reference) =>
+      resource.kind === reference.kind &&
+      resource.name === reference.name &&
+      (reference.namespace === "cluster" || resource.namespace === reference.namespace),
+    ),
+  );
 }

@@ -5,7 +5,14 @@ const exec = promisify(execFile);
 
 type KubeItem = {
   kind?: string;
+  message?: string;
+  reason?: string;
   type?: string;
+  involvedObject?: {
+    kind?: string;
+    name?: string;
+    namespace?: string;
+  };
   metadata?: {
     name?: string;
     namespace?: string;
@@ -497,9 +504,29 @@ function toResource(item: KubeItem, cluster: string, index: number) {
     nodeName: item.kind === "Pod" ? item.spec?.nodeName ?? "" : "",
     diagnostic: resourceDiagnostic(item),
     labels: item.metadata?.labels ?? {},
-    references: volumeReferences(item, namespace),
+    references: resourceReferences(item, namespace),
     selector: selectorLabels(item.spec?.selector),
   };
+}
+
+function resourceReferences(item: KubeItem, namespace: string) {
+  if (item.kind === "Event") {
+    return eventReferences(item, namespace);
+  }
+  return volumeReferences(item, namespace);
+}
+
+function eventReferences(item: KubeItem, fallbackNamespace: string) {
+  const involved = item.involvedObject;
+  if (!involved?.kind || !involved.name) {
+    return [];
+  }
+
+  return [{
+    kind: involved.kind,
+    namespace: involved.namespace || fallbackNamespace,
+    name: involved.name,
+  }];
 }
 
 function volumeReferences(item: KubeItem, namespace: string) {
@@ -519,6 +546,11 @@ function volumeReferences(item: KubeItem, namespace: string) {
 }
 
 function ownerForResource(item: KubeItem, fallback: string) {
+  if (item.kind === "Event") {
+    const involved = eventReferences(item, fallback)[0];
+    return involved ? `${involved.kind}/${involved.name}` : fallback;
+  }
+
   if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
     return `${item.roleRef.kind}/${item.roleRef.name}`;
   }
@@ -674,6 +706,10 @@ function resourceStatus(item: KubeItem) {
 }
 
 function resourceDiagnostic(item: KubeItem) {
+  if (item.kind === "Event") {
+    return item.reason || item.message || "";
+  }
+
   if (item.kind !== "Pod") return "";
   return podDiagnostic(item);
 }

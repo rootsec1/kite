@@ -1855,19 +1855,27 @@ async fn list_events(client: Client, cluster: &str) -> Result<Vec<ResourceSummar
         .into_iter()
         .map(|event| {
             let age = resource_age(&event.metadata);
+            let namespace = event.namespace().unwrap_or_else(|| "default".to_string());
             let event_type = event.type_.clone().unwrap_or_else(|| "Normal".to_string());
             let reason = event.reason.clone().unwrap_or_default();
+            let references = event_involved_references(&event, &namespace);
+            let owner = references
+                .first()
+                .map(|reference| format!("{}/{}", reference.kind, reference.name))
+                .unwrap_or_else(|| reason.clone());
             resource_summary(
                 "Event",
                 event.name_any(),
-                event.namespace().unwrap_or_else(|| "default".to_string()),
+                namespace,
                 cluster,
                 if event_type == "Warning" { HealthState::Warning } else { HealthState::Healthy },
                 0,
                 event_type,
             )
             .with_age(age)
-            .with_owner(reason)
+            .with_owner(owner)
+            .with_diagnostic(reason)
+            .with_references(references)
         })
         .collect())
 }
@@ -2053,6 +2061,24 @@ fn resource_reference(kind: &str, namespace: &str, name: &str) -> ResourceRefere
         kind: kind.to_string(),
         namespace: namespace.to_string(),
         name: name.to_string(),
+    }
+}
+
+fn event_involved_references(event: &Event, fallback_namespace: &str) -> Vec<ResourceReference> {
+    let involved = &event.involved_object;
+    match (involved.kind.as_deref(), involved.name.as_deref()) {
+        (Some(kind), Some(name)) if !kind.is_empty() && !name.is_empty() => {
+            vec![resource_reference(
+                kind,
+                involved
+                    .namespace
+                    .as_deref()
+                    .filter(|namespace| !namespace.is_empty())
+                    .unwrap_or(fallback_namespace),
+                name,
+            )]
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -2246,8 +2272,8 @@ fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> boo
 mod tests {
     use super::*;
     use k8s_openapi::api::core::v1::{
-        ConfigMapVolumeSource, ContainerState, ContainerStateWaiting, PersistentVolumeClaimVolumeSource, PodSpec, PodStatus,
-        SecretVolumeSource, Volume,
+        ConfigMapVolumeSource, ContainerState, ContainerStateWaiting, ObjectReference,
+        PersistentVolumeClaimVolumeSource, PodSpec, PodStatus, SecretVolumeSource, Volume,
     };
 
     #[test]
@@ -2578,6 +2604,26 @@ mod tests {
         assert_eq!(references[1].name, "app-secret");
         assert_eq!(references[2].kind, "PersistentVolumeClaim");
         assert_eq!(references[2].name, "app-data");
+    }
+
+    #[test]
+    fn event_involved_references_track_affected_resource() {
+        let event = Event {
+            involved_object: ObjectReference {
+                kind: Some("Pod".to_string()),
+                name: Some("api-7d9f".to_string()),
+                namespace: Some("payments".to_string()),
+                ..ObjectReference::default()
+            },
+            ..Event::default()
+        };
+
+        let references = event_involved_references(&event, "default");
+
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].kind, "Pod");
+        assert_eq!(references[0].namespace, "payments");
+        assert_eq!(references[0].name, "api-7d9f");
     }
 
     fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {
