@@ -1599,6 +1599,7 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
         .map(|ingress| {
             let age = resource_age(&ingress.metadata);
             let labels = ingress.metadata.labels.clone().unwrap_or_default();
+            let namespace = ingress.namespace().unwrap_or_else(|| "default".to_string());
             let spec = ingress.spec.as_ref();
             let class = spec
                 .and_then(|spec| spec.ingress_class_name.clone())
@@ -1622,7 +1623,7 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
             resource_summary(
                 "Ingress",
                 ingress.name_any(),
-                ingress.namespace().unwrap_or_else(|| "default".to_string()),
+                namespace.clone(),
                 cluster,
                 ingress_status(hosts.len(), has_default_backend),
                 0,
@@ -1630,6 +1631,7 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
             )
             .with_age(age)
             .with_labels(labels)
+            .with_references(ingress_backend_references(&ingress, &namespace))
         })
         .collect())
 }
@@ -1681,11 +1683,83 @@ fn gateway_api_resource_summary(
     let status = gateway_api_status(&object.data);
     let owner = gateway_api_owner(kind, &object.data);
     let summary = gateway_api_summary(kind, &object.data);
+    let references = gateway_api_backend_references(kind, &object.data, &namespace);
 
     resource_summary(kind, object.name_any(), namespace, cluster, status, 0, summary)
         .with_age(age)
         .with_labels(labels)
         .with_owner(owner)
+        .with_references(references)
+}
+
+fn gateway_api_backend_references(kind: &str, data: &serde_json::Value, namespace: &str) -> Vec<ResourceReference> {
+    if kind != "HTTPRoute" {
+        return Vec::new();
+    }
+
+    let mut references = Vec::new();
+    let rules = data
+        .pointer("/spec/rules")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+
+    for backend in rules
+        .iter()
+        .flat_map(|rule| rule.get("backendRefs").and_then(|value| value.as_array()).map(Vec::as_slice).unwrap_or_default())
+    {
+        let group = text_field(backend, "group", "");
+        let backend_kind = text_field(backend, "kind", "Service");
+        if !group.is_empty() || backend_kind != "Service" {
+            continue;
+        }
+
+        let reference_namespace = backend
+            .get("namespace")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(namespace);
+        push_unique_reference(
+            &mut references,
+            resource_reference("Service", reference_namespace, &text_field(backend, "name", "")),
+        );
+    }
+
+    references
+}
+
+fn ingress_backend_references(ingress: &Ingress, namespace: &str) -> Vec<ResourceReference> {
+    let mut references = Vec::new();
+    let Some(spec) = ingress.spec.as_ref() else {
+        return references;
+    };
+
+    if let Some(backend) = spec.default_backend.as_ref() {
+        push_ingress_backend_reference(&mut references, namespace, backend);
+    }
+
+    for path in spec
+        .rules
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|rule| rule.http.as_ref())
+        .flat_map(|http| http.paths.iter())
+    {
+        push_ingress_backend_reference(&mut references, namespace, &path.backend);
+    }
+
+    references
+}
+
+fn push_ingress_backend_reference(
+    references: &mut Vec<ResourceReference>,
+    namespace: &str,
+    backend: &k8s_openapi::api::networking::v1::IngressBackend,
+) {
+    if let Some(service) = backend.service.as_ref() {
+        push_unique_reference(references, resource_reference("Service", namespace, &service.name));
+    }
 }
 
 fn gateway_api_owner(kind: &str, data: &serde_json::Value) -> String {
@@ -2613,6 +2687,10 @@ mod tests {
         ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, ObjectReference, PersistentVolumeClaimVolumeSource,
         PodSpec, PodStatus, SecretEnvSource, SecretKeySelector, SecretVolumeSource, Volume,
     };
+    use k8s_openapi::api::networking::v1::{
+        HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
+        IngressSpec, ServiceBackendPort,
+    };
 
     #[test]
     fn running_ready_pod_without_restarts_is_healthy() {
@@ -3103,6 +3181,66 @@ mod tests {
     }
 
     #[test]
+    fn http_route_references_backend_services() {
+        let route = serde_json::json!({
+            "spec": {
+                "rules": [{
+                    "backendRefs": [
+                        { "name": "api" },
+                        { "kind": "Service", "namespace": "shared", "name": "payments" },
+                        { "group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": "delegate" },
+                        { "name": "api" }
+                    ]
+                }]
+            }
+        });
+
+        let references = gateway_api_backend_references("HTTPRoute", &route, "default");
+
+        assert_eq!(references.len(), 2);
+        assert_eq!(references[0].kind, "Service");
+        assert_eq!(references[0].namespace, "default");
+        assert_eq!(references[0].name, "api");
+        assert_eq!(references[1].namespace, "shared");
+        assert_eq!(references[1].name, "payments");
+    }
+
+    #[test]
+    fn ingress_references_backend_services() {
+        let ingress = Ingress {
+            spec: Some(IngressSpec {
+                default_backend: Some(ingress_backend("edge")),
+                rules: Some(vec![IngressRule {
+                    http: Some(HTTPIngressRuleValue {
+                        paths: vec![
+                            HTTPIngressPath {
+                                backend: ingress_backend("api"),
+                                path: Some("/api".to_string()),
+                                path_type: "Prefix".to_string(),
+                            },
+                            HTTPIngressPath {
+                                backend: ingress_backend("edge"),
+                                path: Some("/".to_string()),
+                                path_type: "Prefix".to_string(),
+                            },
+                        ],
+                    }),
+                    ..IngressRule::default()
+                }]),
+                ..IngressSpec::default()
+            }),
+            ..Ingress::default()
+        };
+
+        let references = ingress_backend_references(&ingress, "default");
+
+        assert_eq!(references.len(), 2);
+        assert_eq!(references[0].name, "edge");
+        assert_eq!(references[1].name, "api");
+        assert!(references.iter().all(|reference| reference.kind == "Service"));
+    }
+
+    #[test]
     fn pod_dependency_references_track_mounted_and_env_resources() {
         let mut pod = Pod::default();
         pod.spec = Some(PodSpec {
@@ -3236,6 +3374,19 @@ mod tests {
                 ..ContainerState::default()
             }),
             ..ContainerStatus::default()
+        }
+    }
+
+    fn ingress_backend(service: &str) -> IngressBackend {
+        IngressBackend {
+            service: Some(IngressServiceBackend {
+                name: service.to_string(),
+                port: Some(ServiceBackendPort {
+                    number: Some(80),
+                    ..ServiceBackendPort::default()
+                }),
+            }),
+            ..IngressBackend::default()
         }
     }
 }

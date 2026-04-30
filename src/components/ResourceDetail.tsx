@@ -661,6 +661,7 @@ function HierarchyGroups({
 }
 
 const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
+const routeKinds = new Set(["Ingress", "HTTPRoute"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "PersistentVolumeClaim"]);
 const configKinds = new Set(["ConfigMap", "Secret", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
@@ -698,10 +699,11 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     const selectedPods = namespacePods.filter((item) => matchesSelector(item, resource.selector));
     const hasSelector = Object.keys(resource.selector).length > 0;
     const pods = hasSelector ? selectedPods : namespacePods;
+    const routes = resources.filter((item) => routeKinds.has(item.kind) && referencesResource(item, resource));
     return [
       { title: hasSelector ? "Selected pods" : "Pods in namespace", resources: pods },
       { title: "Workloads in namespace", resources: workloadsForPods(pods, resources) },
-      { title: "Routes in namespace", resources: resources.filter((item) => item.namespace === resource.namespace && ["Ingress", "Gateway", "HTTPRoute"].includes(item.kind)) },
+      { title: "Routes", resources: routes },
       { title: "Config nearby", resources: resources.filter((item) => item.namespace === resource.namespace && ["ConfigMap", "Secret", "HelmRelease"].includes(item.kind)) },
     ];
   }
@@ -729,10 +731,19 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     return accessHierarchyFor(resource, resources);
   }
 
-  if (trafficKinds.has(resource.kind)) {
+  if (routeKinds.has(resource.kind)) {
+    const services = referencedResources(resource.references, resources).filter((item) => item.kind === "Service");
+    const pods = backendPodsForServices(services, resources);
+
     return [
-      { title: "Services", resources: resources.filter((item) => item.kind === "Service" && item.namespace === resource.namespace) },
-      { title: "Pods in namespace", resources: resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace) },
+      { title: "Backend services", resources: services },
+      ...(pods.length ? [{ title: "Backend pods", resources: pods }] : []),
+    ];
+  }
+
+  if (resource.kind === "Gateway") {
+    return [
+      { title: "Routes", resources: resources.filter((item) => item.kind === "HTTPRoute" && routeParents(item).includes(resource.name)) },
     ];
   }
 
@@ -826,6 +837,17 @@ function roleReference(owner: string) {
 
 function workloadsForPods(pods: ResourceRow[], resources: ResourceRow[]) {
   return resources.filter((item) => workloadKinds.has(item.kind) && pods.some((pod) => ownsPod(item, pod)));
+}
+
+function backendPodsForServices(services: ResourceRow[], resources: ResourceRow[]) {
+  return resources.filter((item) =>
+    item.kind === "Pod" &&
+    services.some((service) => item.namespace === service.namespace && matchesSelector(item, service.selector)),
+  );
+}
+
+function routeParents(route: ResourceRow) {
+  return route.owner.split(",").map((parent) => parent.trim()).filter(Boolean);
 }
 
 function referencedResources(references: ResourceRow["references"], resources: ResourceRow[]) {

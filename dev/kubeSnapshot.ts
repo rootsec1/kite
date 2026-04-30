@@ -42,7 +42,13 @@ type KubeItem = {
     type?: string;
     volumes?: KubeVolume[];
     claimRef?: { namespace?: string; name?: string };
+    defaultBackend?: KubeIngressBackend;
     template?: { spec?: { containers?: KubeContainerSpec[] } };
+    rules?: Array<{
+      backendRefs?: KubeGatewayBackendRef[];
+      host?: string;
+      http?: { paths?: Array<{ backend?: KubeIngressBackend }> };
+    }>;
   };
   status?: {
     phase?: string;
@@ -124,6 +130,17 @@ type KubeVolume = {
   configMap?: { name?: string };
   persistentVolumeClaim?: { claimName?: string };
   secret?: { secretName?: string };
+};
+
+type KubeGatewayBackendRef = {
+  group?: string;
+  kind?: string;
+  name?: string;
+  namespace?: string;
+};
+
+type KubeIngressBackend = {
+  service?: { name?: string };
 };
 
 type KubeList = {
@@ -664,6 +681,12 @@ function resourceReferences(item: KubeItem, namespace: string) {
   if (item.kind === "Event") {
     return eventReferences(item, namespace);
   }
+  if (item.kind === "HTTPRoute") {
+    return httpRouteBackendReferences(item, namespace);
+  }
+  if (item.kind === "Ingress") {
+    return ingressBackendReferences(item, namespace);
+  }
   if (item.kind === "Pod") {
     return uniqueReferences([
       ...volumeReferences(item, namespace),
@@ -671,6 +694,30 @@ function resourceReferences(item: KubeItem, namespace: string) {
     ]);
   }
   return volumeReferences(item, namespace);
+}
+
+function httpRouteBackendReferences(item: KubeItem, namespace: string) {
+  return uniqueReferences((item.spec?.rules ?? []).flatMap((rule) =>
+    (rule.backendRefs ?? [])
+      .filter((reference) => (reference.kind ?? "Service") === "Service" && !reference.group)
+      .map((reference) => ({
+        kind: "Service",
+        namespace: reference.namespace || namespace,
+        name: reference.name ?? "",
+      }))
+  ));
+}
+
+function ingressBackendReferences(item: KubeItem, namespace: string) {
+  const backends = [
+    item.spec?.defaultBackend,
+    ...(item.spec?.rules ?? []).flatMap((rule) => rule.http?.paths?.map((path) => path.backend) ?? []),
+  ];
+
+  return uniqueReferences(backends.flatMap((backend) => {
+    const name = backend?.service?.name;
+    return name ? [{ kind: "Service", namespace, name }] : [];
+  }));
 }
 
 function eventReferences(item: KubeItem, fallbackNamespace: string) {
