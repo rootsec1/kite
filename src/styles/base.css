@@ -1859,7 +1859,7 @@ summary:focus-visible {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 10px 14px;
@@ -1881,7 +1881,8 @@ summary:focus-visible {
 .log-search svg,
 .log-mode-tabs svg,
 .log-level-tabs > svg,
-.log-wrap svg {
+.log-wrap svg,
+.log-follow svg {
   color: var(--green-deep);
 }
 
@@ -1921,6 +1922,7 @@ summary:focus-visible {
 .log-mode-tabs button,
 .log-level-tabs button,
 .log-wrap,
+.log-follow,
 .log-source-tabs button {
   display: inline-flex;
   align-items: center;
@@ -1945,6 +1947,7 @@ summary:focus-visible {
 .log-mode-tabs button.active,
 .log-level-tabs button.active,
 .log-wrap.active,
+.log-follow.active,
 .log-source-tabs button.active {
   color: var(--text);
   background: var(--surface-soft);
@@ -1961,6 +1964,7 @@ summary:focus-visible {
 .log-level-tabs span,
 .log-level-tabs strong,
 .log-wrap span,
+.log-follow span,
 .log-source-tabs span,
 .log-source-tabs strong {
   font-family: var(--font-mono);
@@ -1974,7 +1978,8 @@ summary:focus-visible {
   color: var(--muted);
 }
 
-.log-wrap {
+.log-wrap,
+.log-follow {
   padding-inline: 10px;
   border: 1px solid var(--line);
   background: var(--surface);

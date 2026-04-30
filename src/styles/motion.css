@@ -34,6 +34,7 @@
   .log-level-tabs button,
   .log-source-tabs button,
   .log-wrap,
+  .log-follow,
   .readout-actions button {
     transition:
       background 150ms ease,
@@ -55,6 +56,7 @@
   .log-level-tabs button:hover,
   .log-source-tabs button:hover,
   .log-wrap:hover,
+  .log-follow:hover,
   .readout-actions button:hover {
     background: var(--surface);
     border-color: var(--line-bright);
@@ -74,6 +76,7 @@
   .log-level-tabs button:active,
   .log-source-tabs button:active,
   .log-wrap:active,
+  .log-follow:active,
   .readout-actions button:active {
     transform: translateY(1px);
   }

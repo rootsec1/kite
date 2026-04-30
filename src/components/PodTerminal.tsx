@@ -1,5 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useState, type Ref } from "react";
-import { History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { ArrowDownToLine, History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
 import type { ResourceDetails } from "../types/kube";
 
 const ansiPattern = /\u001b\[[0-9;]*m/g;
@@ -36,6 +36,9 @@ export function PodTerminal({
   const [sourceFilter, setSourceFilter] = useState(allSourceFilter);
   const [logQuery, setLogQuery] = useState("");
   const [wrapLines, setWrapLines] = useState(true);
+  const [followingLatest, setFollowingLatest] = useState(true);
+  const followingLatestRef = useRef(true);
+  const outputRef = useRef<HTMLDivElement>(null);
   const deferredLogQuery = useDeferredValue(logQuery.trim().toLowerCase());
   const queryTerms = useMemo(() => (deferredLogQuery ? deferredLogQuery.split(/\s+/) : []), [deferredLogQuery]);
   const hasPreviousLogs = Boolean(details.previousLogs.trim());
@@ -85,6 +88,46 @@ export function PodTerminal({
       visibleLines,
     };
   }, [activeLogMode, details.logs, details.previousLogs, detailsError, detailsLoading, levelFilter, queryTerms, sourceFilter]);
+  const latestLineKey = logView.visibleLines.at(-1)?.raw ?? "";
+
+  const setFollowingState = useCallback((nextFollowing: boolean) => {
+    followingLatestRef.current = nextFollowing;
+    setFollowingLatest((current) => current === nextFollowing ? current : nextFollowing);
+  }, []);
+
+  const scrollToLatest = useCallback(() => {
+    const output = outputRef.current;
+    if (!output) {
+      return;
+    }
+    output.scrollTop = output.scrollHeight;
+  }, []);
+
+  const followLatest = useCallback(() => {
+    setFollowingState(true);
+    window.requestAnimationFrame(scrollToLatest);
+  }, [scrollToLatest, setFollowingState]);
+
+  useEffect(() => {
+    const output = outputRef.current;
+    if (!output) {
+      return;
+    }
+    const logOutput = output;
+
+    function handleOutputScroll() {
+      setFollowingState(isScrolledToBottom(logOutput));
+    }
+
+    logOutput.addEventListener("scroll", handleOutputScroll, { passive: true });
+    return () => logOutput.removeEventListener("scroll", handleOutputScroll);
+  }, [setFollowingState]);
+
+  useLayoutEffect(() => {
+    if (followingLatestRef.current) {
+      scrollToLatest();
+    }
+  }, [activeLogMode, deferredLogQuery, levelFilter, latestLineKey, logView.activeSource, logView.visibleLines.length, scrollToLatest, wrapLines]);
 
   return (
     <section className="terminal-panel" ref={panelRef}>
@@ -149,6 +192,16 @@ export function PodTerminal({
           <Rows3 size={14} />
           <span>Wrap</span>
         </button>
+        <button
+          aria-pressed={followingLatest}
+          className={followingLatest ? "log-follow active" : "log-follow"}
+          title="Follow latest log line"
+          type="button"
+          onClick={followLatest}
+        >
+          <ArrowDownToLine size={14} />
+          <span>Latest</span>
+        </button>
       </div>
 
       {logView.sourceOptions.some((option) => option.source !== "pod") ? (
@@ -189,7 +242,12 @@ export function PodTerminal({
           <i />
           <span>{activeLogMode === "previous" ? "kubectl logs --previous --all-containers --prefix --tail=240" : "kubectl logs --all-containers --prefix --tail=240"}</span>
         </div>
-        <div className={wrapLines ? "terminal-output" : "terminal-output no-wrap"} role="log" aria-live="polite">
+        <div
+          className={wrapLines ? "terminal-output" : "terminal-output no-wrap"}
+          ref={outputRef}
+          role="log"
+          aria-live="polite"
+        >
           {logView.visibleLines.length ? (
             logView.visibleLines.map((line, index) => (
               <div className={`log-line ${line.level}`} key={`${line.raw}-${index}`}>
@@ -210,6 +268,10 @@ export function PodTerminal({
       </div>
     </section>
   );
+}
+
+function isScrolledToBottom(element: HTMLElement) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 36;
 }
 
 function terminalOutput(output: string, mode: LogMode, detailsLoading: boolean, detailsError: string) {
