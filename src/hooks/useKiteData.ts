@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { labelFilterOptions, labelSearchText, matchesLabelFilter } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
@@ -8,6 +8,12 @@ const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(windo
 const canUseTauri = "__TAURI_INTERNALS__" in window && !isViteDevBrowser;
 const pinnedStorageKey = "kite:pinned-resources:v1";
 const selectedContextStorageKey = "kite:selected-context:v1";
+const emptyResourceDetails = (): ResourceDetails => ({
+  yaml: "",
+  events: [],
+  logs: "",
+  previousLogs: "",
+});
 
 export function useKiteData() {
   const [snapshot, setSnapshot] = useState<LiveSnapshot>({
@@ -24,17 +30,12 @@ export function useKiteData() {
   const [selectedId, setSelectedId] = useState("");
   const [pinnedResourceKeys, setPinnedResourceKeys] = useState<Set<string>>(readPinnedResourceKeys);
   const [podActionResult, setPodActionResult] = useState<PodActionResult | null>(null);
-  const [resourceDetails, setResourceDetails] = useState<ResourceDetails>({
-    yaml: "",
-    events: [],
-    logs: "",
-    previousLogs: "",
-    pod: undefined,
-  });
+  const [resourceDetails, setResourceDetails] = useState<ResourceDetails>(emptyResourceDetails);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const detailsRequestId = useRef(0);
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const queryTerms = useMemo(() => (deferredQuery ? deferredQuery.split(/\s+/) : []), [deferredQuery]);
@@ -107,23 +108,17 @@ export function useKiteData() {
 
   useEffect(() => {
     if (!selectedResource) {
-      setResourceDetails({ yaml: "", events: [], logs: "", previousLogs: "" });
+      detailsRequestId.current += 1;
+      setDetailsLoading(false);
+      setDetailsError("");
+      setResourceDetails(emptyResourceDetails());
       setPodActionResult(null);
       return;
     }
 
-    let cancelled = false;
     setPodActionResult(null);
-    setResourceDetails({ yaml: "", events: [], logs: "", previousLogs: "" });
-    void refreshResourceDetails(selectedResource).then((details) => {
-      if (!cancelled && details) {
-        setResourceDetails(details);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    setResourceDetails(emptyResourceDetails());
+    void refreshResourceDetails(selectedResource, true);
   }, [selectedResource]);
 
   async function refreshKubeContextsAndSnapshot() {
@@ -207,7 +202,10 @@ export function useKiteData() {
     setLabelFilter("all");
     setSelectedId("");
     setPodActionResult(null);
-    setResourceDetails({ yaml: "", events: [], logs: "", previousLogs: "" });
+    detailsRequestId.current += 1;
+    setDetailsLoading(false);
+    setDetailsError("");
+    setResourceDetails(emptyResourceDetails());
     void refreshLiveSnapshot(context);
   }
 
@@ -240,11 +238,7 @@ export function useKiteData() {
       setPodActionResult(result);
       if (result.status === "executed") {
         void refreshLiveSnapshot();
-        void refreshResourceDetails(selectedResource).then((details) => {
-          if (details) {
-            setResourceDetails(details);
-          }
-        });
+        void refreshResourceDetails(selectedResource, true);
       }
     } catch (caught) {
       setPodActionResult({
@@ -263,10 +257,7 @@ export function useKiteData() {
       return;
     }
 
-    const details = await refreshResourceDetails(selectedResource);
-    if (details) {
-      setResourceDetails(details);
-    }
+    await refreshResourceDetails(selectedResource, true);
   }, [selectedResource]);
 
   const isPinnedResource = useCallback((resource: ResourceRow) => {
@@ -287,7 +278,8 @@ export function useKiteData() {
     });
   }, []);
 
-  async function refreshResourceDetails(resource: ResourceRow) {
+  async function refreshResourceDetails(resource: ResourceRow, commit = false) {
+    const requestId = ++detailsRequestId.current;
     setDetailsLoading(true);
     setDetailsError("");
 
@@ -299,26 +291,46 @@ export function useKiteData() {
     };
 
     try {
+      let details: ResourceDetails | null = null;
       if (canUseTauri) {
-        return await invoke<ResourceDetails>("resource_details", { target });
+        try {
+          details = await invoke<ResourceDetails>("resource_details", { target });
+        } catch {
+          // Tauri dev sometimes runs the same UI in a plain browser; the Vite API keeps local QA working.
+        }
       }
 
-      const params = new URLSearchParams({
-        kind: target.kind,
-        name: target.name,
-        namespace: target.namespace,
-        cluster: target.cluster,
-      });
-      const response = await fetch(`/api/kube/details?${params}`);
-      if (!response.ok) {
-        throw new Error(`Resource details failed: ${response.status}`);
+      if (!details) {
+        const params = new URLSearchParams({
+          kind: target.kind,
+          name: target.name,
+          namespace: target.namespace,
+          cluster: target.cluster,
+        });
+        const response = await fetch(`/api/kube/details?${params}`);
+        if (!response.ok) {
+          throw new Error(`Resource details failed: ${response.status}`);
+        }
+        details = await response.json() as ResourceDetails;
       }
-      return await response.json() as ResourceDetails;
+
+      if (commit && detailsRequestId.current === requestId) {
+        setResourceDetails(details);
+      }
+      return details;
     } catch (caught) {
-      setDetailsError(caught instanceof Error ? caught.message : "Unable to read resource details");
-      return { yaml: "", events: [], logs: "", previousLogs: "" };
+      const fallback = emptyResourceDetails();
+      if (detailsRequestId.current === requestId) {
+        setDetailsError(caught instanceof Error ? caught.message : "Unable to read resource details");
+        if (commit) {
+          setResourceDetails(fallback);
+        }
+      }
+      return fallback;
     } finally {
-      setDetailsLoading(false);
+      if (detailsRequestId.current === requestId) {
+        setDetailsLoading(false);
+      }
     }
   }
 
