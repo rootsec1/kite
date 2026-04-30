@@ -1873,7 +1873,7 @@ summary:focus-visible {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 10px 14px;
@@ -1896,6 +1896,7 @@ summary:focus-visible {
 .log-mode-tabs svg,
 .log-level-tabs > svg,
 .log-wrap svg,
+.log-copy svg,
 .log-follow svg {
   color: var(--green-deep);
 }
@@ -1936,6 +1937,7 @@ summary:focus-visible {
 .log-mode-tabs button,
 .log-level-tabs button,
 .log-wrap,
+.log-copy,
 .log-follow,
 .log-source-tabs button {
   display: inline-flex;
@@ -1961,6 +1963,7 @@ summary:focus-visible {
 .log-mode-tabs button.active,
 .log-level-tabs button.active,
 .log-wrap.active,
+.log-copy.copied,
 .log-follow.active,
 .log-source-tabs button.active {
   color: var(--text);
@@ -1978,6 +1981,7 @@ summary:focus-visible {
 .log-level-tabs span,
 .log-level-tabs strong,
 .log-wrap span,
+.log-copy span,
 .log-follow span,
 .log-source-tabs span,
 .log-source-tabs strong {
@@ -1993,10 +1997,22 @@ summary:focus-visible {
 }
 
 .log-wrap,
+.log-copy,
 .log-follow {
   padding-inline: 10px;
   border: 1px solid var(--line);
   background: var(--surface);
+}
+
+.log-copy:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.log-copy.failed {
+  color: var(--orange);
+  background: var(--surface-soft);
 }
 
 .log-source-tabs {

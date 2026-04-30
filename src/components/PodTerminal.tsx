@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
-import { ArrowDownToLine, History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
+import { ArrowDownToLine, Check, Copy, History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
 import type { ResourceDetails } from "../types/kube";
 
 const ansiPattern = /\u001b\[[0-9;]*m/g;
@@ -11,6 +11,7 @@ const allSourceFilter = "all";
 
 type LogLevel = (typeof logLevels)[number];
 type LogMode = "current" | "previous";
+type CopyStatus = "idle" | "copied" | "failed";
 
 type ParsedLogLine = {
   raw: string;
@@ -37,6 +38,7 @@ export function PodTerminal({
   const [logQuery, setLogQuery] = useState("");
   const [wrapLines, setWrapLines] = useState(true);
   const [followingLatest, setFollowingLatest] = useState(true);
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const followingLatestRef = useRef(true);
   const outputRef = useRef<HTMLDivElement>(null);
   const deferredLogQuery = useDeferredValue(logQuery.trim().toLowerCase());
@@ -89,6 +91,9 @@ export function PodTerminal({
     };
   }, [activeLogMode, details.logs, details.previousLogs, detailsError, detailsLoading, levelFilter, queryTerms, sourceFilter]);
   const latestLineKey = logView.visibleLines.at(-1)?.raw ?? "";
+  const visibleLogText = useMemo(() => logView.visibleLines.map((line) => line.raw).join("\n"), [logView.visibleLines]);
+  const CopyIcon = copyStatus === "copied" ? Check : Copy;
+  const copyLabel = copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Blocked" : "Copy";
 
   const setFollowingState = useCallback((nextFollowing: boolean) => {
     followingLatestRef.current = nextFollowing;
@@ -107,6 +112,28 @@ export function PodTerminal({
     setFollowingState(true);
     window.requestAnimationFrame(scrollToLatest);
   }, [scrollToLatest, setFollowingState]);
+
+  const copyVisibleLogs = useCallback(async () => {
+    if (!visibleLogText) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(visibleLogText);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }, [visibleLogText]);
+
+  useEffect(() => {
+    if (copyStatus === "idle") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setCopyStatus("idle"), 1_600);
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
 
   useEffect(() => {
     const output = outputRef.current;
@@ -193,6 +220,16 @@ export function PodTerminal({
           <span>Wrap</span>
         </button>
         <button
+          className={copyStatus === "idle" ? "log-copy" : `log-copy ${copyStatus}`}
+          disabled={!visibleLogText}
+          title="Copy visible log lines"
+          type="button"
+          onClick={copyVisibleLogs}
+        >
+          <CopyIcon size={14} />
+          <span>{copyLabel}</span>
+        </button>
+        <button
           aria-pressed={followingLatest}
           className={followingLatest ? "log-follow active" : "log-follow"}
           title="Follow latest log line"
@@ -272,6 +309,36 @@ export function PodTerminal({
 
 function isScrolledToBottom(element: HTMLElement) {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= 36;
+}
+
+async function copyTextToClipboard(text: string) {
+  if (copyTextViaSelection(text)) {
+    return;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  throw new Error("Clipboard copy was rejected");
+}
+
+function copyTextViaSelection(text: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
 }
 
 function terminalOutput(output: string, mode: LogMode, detailsLoading: boolean, detailsError: string) {
