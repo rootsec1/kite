@@ -487,7 +487,73 @@ summary:focus-visible {
   color: var(--text);
 }
 
-.pod-triage-rail > div {
+.pod-triage-content {
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  min-inline-size: 0;
+}
+
+.pod-triage-buckets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  min-inline-size: 0;
+  border-block-end: 1px solid var(--line);
+  background: var(--line);
+}
+
+.pod-triage-bucket {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-inline-size: 0;
+  min-block-size: 38px;
+  padding-inline: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.pod-triage-bucket::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: 2px;
+  inline-size: var(--value);
+  content: "";
+  background: color-mix(in srgb, var(--orange) 58%, transparent);
+}
+
+.pod-triage-bucket svg {
+  color: var(--green-deep);
+}
+
+.pod-triage-bucket.critical svg,
+.pod-triage-bucket.warning svg {
+  color: var(--orange);
+}
+
+.pod-triage-bucket span,
+.pod-triage-bucket strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pod-triage-bucket span {
+  color: var(--text-soft);
+}
+
+.pod-triage-bucket strong {
+  color: var(--text);
+}
+
+.pod-triage-items {
   display: grid;
   grid-template-columns: repeat(4, minmax(160px, 1fr));
   min-inline-size: 0;
@@ -2408,13 +2474,35 @@ summary:focus-visible {
     border-block-end: 1px solid var(--line);
   }
 
-  .pod-triage-rail > div {
+  .pod-triage-content {
+    grid-template-rows: auto auto;
+  }
+
+  .pod-triage-buckets,
+  .pod-triage-items {
     grid-template-columns: 1fr;
   }
 
+  .pod-triage-bucket {
+    grid-template-columns: 16px auto auto;
+    justify-content: start;
+  }
+
   .pod-triage-item {
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+    gap: 6px 9px;
     border-inline-start: 0;
     border-block-end: 1px solid var(--line);
+  }
+
+  .pod-triage-item em {
+    grid-column: 2;
+    max-inline-size: 100%;
+  }
+
+  .pod-triage-item > small {
+    grid-column: 3;
+    grid-row: 1 / span 2;
   }
 
   .toolbar {

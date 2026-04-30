@@ -5,8 +5,9 @@ import { pinnedResourcesNavId } from "../theme/resourceTheme";
 import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
+import { PodTriageRail } from "./PodTriageRail";
 import { ResourceDetail } from "./ResourceDetail";
-import { NamespacePressure, PodTriageRail, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
+import { NamespacePressure, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
 
 type AppShellProps = {
   data: KiteData;
