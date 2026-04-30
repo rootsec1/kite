@@ -617,32 +617,77 @@ async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
     ]))
     .await?;
 
-    let Some((kind, name)) = owner.split_once('/') else {
+    let Some(owner) = owner_ref(&owner) else {
         return Err("Pod has no owning workload to restart.".to_string());
     };
 
-    if kind == "ReplicaSet" {
-        let deployment = name.rsplit_once('-').map(|(prefix, _)| prefix).unwrap_or(name);
-        return Ok(vec![
-            "rollout".to_string(),
-            "restart".to_string(),
-            format!("deployment/{deployment}"),
-            "-n".to_string(),
-            target.namespace.clone(),
-        ]);
+    if owner.kind == "ReplicaSet" {
+        let deployment = replica_set_deployment_owner(target, &owner.name).await?;
+        return Ok(rollout_restart_args("Deployment", &deployment, &target.namespace));
     }
 
-    if matches!(kind, "Deployment" | "StatefulSet" | "DaemonSet") {
-        return Ok(vec![
-            "rollout".to_string(),
-            "restart".to_string(),
-            format!("{}/{}", kind.to_lowercase(), name),
-            "-n".to_string(),
-            target.namespace.clone(),
-        ]);
+    rollout_restart_args_for_owner(&owner, &target.namespace)
+}
+
+async fn replica_set_deployment_owner(target: &ActionTarget, replica_set: &str) -> Result<String, String> {
+    let owner = kubectl(kubectl_target_args(target, vec![
+        "get".to_string(),
+        "replicaset.apps".to_string(),
+        replica_set.to_string(),
+        "-n".to_string(),
+        target.namespace.clone(),
+        "-o".to_string(),
+        "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}".to_string(),
+    ]))
+    .await?;
+    let Some(owner) = owner_ref(&owner) else {
+        return Err(format!("ReplicaSet/{replica_set} has no owning Deployment to restart."));
+    };
+
+    if owner.kind != "Deployment" {
+        return Err(format!(
+            "Restart is not available for pods owned by ReplicaSet/{replica_set} via {}/{}.",
+            owner.kind, owner.name
+        ));
     }
 
-    Err(format!("Restart is not available for pods owned by {kind}."))
+    Ok(owner.name)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct OwnerRef {
+    kind: String,
+    name: String,
+}
+
+fn owner_ref(value: &str) -> Option<OwnerRef> {
+    let (kind, name) = value.trim().split_once('/')?;
+    if kind.is_empty() || name.is_empty() {
+        return None;
+    }
+
+    Some(OwnerRef {
+        kind: kind.to_string(),
+        name: name.to_string(),
+    })
+}
+
+fn rollout_restart_args_for_owner(owner: &OwnerRef, namespace: &str) -> Result<Vec<String>, String> {
+    if matches!(owner.kind.as_str(), "Deployment" | "StatefulSet" | "DaemonSet") {
+        return Ok(rollout_restart_args(&owner.kind, &owner.name, namespace));
+    }
+
+    Err(format!("Restart is not available for pods owned by {}.", owner.kind))
+}
+
+fn rollout_restart_args(kind: &str, name: &str, namespace: &str) -> Vec<String> {
+    vec![
+        "rollout".to_string(),
+        "restart".to_string(),
+        format!("{}/{}", kind.to_lowercase(), name),
+        "-n".to_string(),
+        namespace.to_string(),
+    ]
 }
 
 async fn first_pod_port(target: &ActionTarget) -> Result<u16, String> {
@@ -2347,6 +2392,39 @@ mod tests {
         let command = pod_port_forward_command(&target, 8080);
 
         assert!(command.contains("kubectl --context kind-kite port-forward -n default pod/api :8080"));
+    }
+
+    #[test]
+    fn owner_ref_rejects_missing_owner_parts() {
+        assert_eq!(owner_ref(""), None);
+        assert_eq!(owner_ref("ReplicaSet/"), None);
+        assert_eq!(owner_ref("/api-7f57c9"), None);
+    }
+
+    #[test]
+    fn rollout_restart_args_use_verified_workload_owner() {
+        let owner = owner_ref("Deployment/api").expect("deployment owner");
+
+        assert_eq!(
+            rollout_restart_args_for_owner(&owner, "default"),
+            Ok(vec![
+                "rollout".to_string(),
+                "restart".to_string(),
+                "deployment/api".to_string(),
+                "-n".to_string(),
+                "default".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn rollout_restart_args_block_plain_replicaset_owner() {
+        let owner = owner_ref("ReplicaSet/api-7f57c9").expect("replicaset owner");
+
+        assert_eq!(
+            rollout_restart_args_for_owner(&owner, "default"),
+            Err("Restart is not available for pods owned by ReplicaSet.".to_string())
+        );
     }
 
     #[test]
