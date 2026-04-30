@@ -64,6 +64,8 @@ type KubeContainerStatus = {
 };
 
 type KubeContainerSpec = {
+  env?: KubeEnvVar[];
+  envFrom?: KubeEnvFromSource[];
   image?: string;
   name?: string;
   ports?: Array<{ containerPort?: number }>;
@@ -73,6 +75,18 @@ type KubeContainerSpec = {
   resources?: {
     requests?: Record<string, string | number>;
     limits?: Record<string, string | number>;
+  };
+};
+
+type KubeEnvFromSource = {
+  configMapRef?: { name?: string };
+  secretRef?: { name?: string };
+};
+
+type KubeEnvVar = {
+  valueFrom?: {
+    configMapKeyRef?: { name?: string };
+    secretKeyRef?: { name?: string };
   };
 };
 
@@ -594,6 +608,12 @@ function resourceReferences(item: KubeItem, namespace: string) {
   if (item.kind === "Event") {
     return eventReferences(item, namespace);
   }
+  if (item.kind === "Pod") {
+    return uniqueReferences([
+      ...volumeReferences(item, namespace),
+      ...envReferences(item, namespace),
+    ]);
+  }
   return volumeReferences(item, namespace);
 }
 
@@ -623,6 +643,49 @@ function volumeReferences(item: KubeItem, namespace: string) {
       references.push({ kind: "PersistentVolumeClaim", namespace, name: volume.persistentVolumeClaim.claimName });
     }
     return references;
+  });
+}
+
+function envReferences(item: KubeItem, namespace: string) {
+  const references: Array<{ kind: string; namespace: string; name: string }> = [];
+  const containers = [
+    ...(item.spec?.initContainers ?? []),
+    ...(item.spec?.containers ?? []),
+    ...(item.spec?.ephemeralContainers ?? []),
+  ];
+
+  for (const container of containers) {
+    for (const source of container.envFrom ?? []) {
+      if (source.configMapRef?.name) {
+        references.push({ kind: "ConfigMap", namespace, name: source.configMapRef.name });
+      }
+      if (source.secretRef?.name) {
+        references.push({ kind: "Secret", namespace, name: source.secretRef.name });
+      }
+    }
+
+    for (const variable of container.env ?? []) {
+      if (variable.valueFrom?.configMapKeyRef?.name) {
+        references.push({ kind: "ConfigMap", namespace, name: variable.valueFrom.configMapKeyRef.name });
+      }
+      if (variable.valueFrom?.secretKeyRef?.name) {
+        references.push({ kind: "Secret", namespace, name: variable.valueFrom.secretKeyRef.name });
+      }
+    }
+  }
+
+  return references;
+}
+
+function uniqueReferences(references: Array<{ kind: string; namespace: string; name: string }>) {
+  const seen = new Set<string>();
+  return references.filter((reference) => {
+    const key = `${reference.kind}:${reference.namespace}:${reference.name}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
   });
 }
 

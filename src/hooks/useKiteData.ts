@@ -2,6 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { invoke } from "@tauri-apps/api/core";
 import { labelFilterOptions, labelSearchText, matchesLabelFilter } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
+import { resourceReferenceSearchText } from "../lib/resourceRelationships";
 import type { KubeContextSummary, LiveSnapshot, PodActionResult, ResourceDetails, ResourceRow } from "../types/kube";
 
 const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(window.location.origin);
@@ -82,6 +83,7 @@ export function useKiteData() {
         resource.status,
         resource.image,
         resource.diagnostic,
+        resourceReferenceSearchText(resource),
         labelSearchText(resource),
       ]
         .join(" ")

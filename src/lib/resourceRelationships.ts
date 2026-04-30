@@ -16,3 +16,15 @@ export function matchesSelector(resource: ResourceRow, selector: Record<string, 
   const entries = Object.entries(selector);
   return entries.length > 0 && entries.every(([key, value]) => resource.labels[key] === value);
 }
+
+export function resourceReferenceSearchText(resource: ResourceRow) {
+  return resource.references
+    .flatMap((reference) => [
+      reference.kind,
+      reference.name,
+      reference.namespace,
+      `${reference.kind}/${reference.name}`,
+      `${reference.namespace}/${reference.name}`,
+    ])
+    .join(" ");
+}
