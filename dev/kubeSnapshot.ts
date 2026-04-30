@@ -25,12 +25,20 @@ type KubeItem = {
     name?: string;
   };
   spec?: {
+    affinity?: Record<string, unknown>;
+    nodeSelector?: Record<string, string | number | boolean>;
     providerID?: string;
     containers?: KubeContainerSpec[];
     ephemeralContainers?: KubeContainerSpec[];
     initContainers?: KubeContainerSpec[];
     nodeName?: string;
+    priorityClassName?: string;
+    runtimeClassName?: string;
+    schedulerName?: string;
+    schedulingGates?: Array<{ name?: string }>;
     selector?: Record<string, string> | { matchLabels?: Record<string, string> };
+    serviceAccountName?: string;
+    tolerations?: KubeToleration[];
     type?: string;
     volumes?: KubeVolume[];
     claimRef?: { namespace?: string; name?: string };
@@ -95,6 +103,13 @@ type KubeProbe = {
   grpc?: { port?: string | number };
   httpGet?: { path?: string; port?: string | number };
   tcpSocket?: { port?: string | number };
+};
+
+type KubeToleration = {
+  effect?: string;
+  key?: string;
+  operator?: string;
+  value?: string;
 };
 
 type ContainerStateDetails = {
@@ -451,7 +466,45 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
       message: condition.message ?? "",
     })),
     containers,
+    scheduling: podScheduling(pod.spec),
   };
+}
+
+function podScheduling(spec: KubeItem["spec"]) {
+  return {
+    nodeSelector: Object.fromEntries(
+      Object.entries(spec?.nodeSelector ?? {})
+        .map(([key, value]) => [key, String(value)])
+        .filter(([, value]) => value),
+    ),
+    priorityClassName: spec?.priorityClassName ?? "",
+    schedulerName: spec?.schedulerName ?? "default-scheduler",
+    serviceAccountName: spec?.serviceAccountName ?? "default",
+    tolerations: (spec?.tolerations ?? []).map(tolerationSummary).filter(Boolean).slice(0, 6),
+    affinity: affinitySummaries(spec?.affinity),
+    schedulingGates: (spec?.schedulingGates ?? []).map((gate) => gate.name ?? "").filter(Boolean).slice(0, 6),
+    runtimeClassName: spec?.runtimeClassName ?? "",
+  };
+}
+
+function tolerationSummary(toleration: KubeToleration) {
+  const comparison = toleration.value ? `=${toleration.value}` : toleration.operator ?? "";
+  const selector = toleration.key ? `${toleration.key}${comparison}` : "all";
+  return toleration.effect ? `${selector}:${toleration.effect}` : selector;
+}
+
+function affinitySummaries(affinity: Record<string, unknown> | undefined) {
+  if (!affinity) {
+    return [];
+  }
+
+  return [
+    ["node", "nodeAffinity"],
+    ["pod", "podAffinity"],
+    ["anti-pod", "podAntiAffinity"],
+  ]
+    .filter(([, field]) => Boolean(affinity[field]))
+    .map(([label]) => label);
 }
 
 function containerDetails(

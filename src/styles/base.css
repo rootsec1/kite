@@ -1276,6 +1276,84 @@ summary:focus-visible {
   box-shadow: inset 0 2px 0 color-mix(in srgb, var(--orange) 62%, transparent);
 }
 
+.pod-placement-strip {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.pod-placement-strip header {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-block-size: 74px;
+  padding-inline: 14px;
+  background: var(--surface);
+}
+
+.pod-placement-strip header span,
+.pod-placement-strip header strong,
+.pod-placement-strip article span,
+.pod-placement-strip article small {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pod-placement-strip header strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-placement-strip > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+  gap: 1px;
+  min-inline-size: 0;
+}
+
+.pod-placement-strip article {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 5px 9px;
+  align-content: center;
+  min-inline-size: 0;
+  min-block-size: 74px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.pod-placement-strip article svg {
+  color: var(--green-deep);
+}
+
+.pod-placement-strip article strong,
+.pod-placement-strip article small {
+  grid-column: 2;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-placement-strip article strong {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.pod-placement-strip article small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .container-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

@@ -83,6 +83,7 @@ export type PodDetails = {
   totalContainers: number;
   conditions: PodCondition[];
   containers: ContainerDetails[];
+  scheduling: PodSchedulingDetails;
 };
 
 export type PodCondition = {
@@ -90,6 +91,17 @@ export type PodCondition = {
   status: string;
   reason: string;
   message: string;
+};
+
+export type PodSchedulingDetails = {
+  nodeSelector: Record<string, string>;
+  priorityClassName: string;
+  schedulerName: string;
+  serviceAccountName: string;
+  tolerations: string[];
+  affinity: string[];
+  schedulingGates: string[];
+  runtimeClassName: string;
 };
 
 export type ContainerDetails = {

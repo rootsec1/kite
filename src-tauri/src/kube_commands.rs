@@ -23,7 +23,8 @@ use serde::Deserialize;
 
 use crate::models::{
     ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, ContainerProbe, HealthState, KubeContextSummary, LiveSnapshot,
-    NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, ResourceDetails, ResourceEvent, ResourceReference, ResourceSummary,
+    NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, PodSchedulingDetails, ResourceDetails, ResourceEvent,
+    ResourceReference, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -487,7 +488,92 @@ async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
         total_containers,
         conditions,
         containers,
+        scheduling: pod_scheduling(spec),
     })
+}
+
+fn pod_scheduling(spec: &serde_json::Value) -> PodSchedulingDetails {
+    PodSchedulingDetails {
+        node_selector: string_map_field(spec, "nodeSelector"),
+        priority_class_name: text_field(spec, "priorityClassName", ""),
+        scheduler_name: text_field(spec, "schedulerName", "default-scheduler"),
+        service_account_name: text_field(spec, "serviceAccountName", "default"),
+        tolerations: toleration_summaries(spec.get("tolerations")),
+        affinity: affinity_summaries(spec.get("affinity")),
+        scheduling_gates: scheduling_gate_summaries(spec.get("schedulingGates")),
+        runtime_class_name: text_field(spec, "runtimeClassName", ""),
+    }
+}
+
+fn string_map_field(value: &serde_json::Value, field: &str) -> BTreeMap<String, String> {
+    value
+        .get(field)
+        .and_then(|item| item.as_object())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|(key, value)| json_scalar(value).map(|text| (key.clone(), text)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn json_scalar(value: &serde_json::Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| value.as_i64().map(|number| number.to_string()))
+        .or_else(|| value.as_u64().map(|number| number.to_string()))
+        .or_else(|| value.as_bool().map(|flag| flag.to_string()))
+        .filter(|text| !text.is_empty())
+}
+
+fn toleration_summaries(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(|items| items.as_array())
+        .map(|items| items.iter().filter_map(toleration_summary).take(6).collect())
+        .unwrap_or_default()
+}
+
+fn toleration_summary(value: &serde_json::Value) -> Option<String> {
+    let key = text_field(value, "key", "");
+    let operator = text_field(value, "operator", "");
+    let effect = text_field(value, "effect", "");
+    let comparison = match text_field(value, "value", "").as_str() {
+        "" => operator,
+        toleration_value => format!("={toleration_value}"),
+    };
+    let selector = if key.is_empty() { "all".to_string() } else { format!("{key}{comparison}") };
+
+    Some(if effect.is_empty() { selector } else { format!("{selector}:{effect}") })
+}
+
+fn affinity_summaries(value: Option<&serde_json::Value>) -> Vec<String> {
+    let Some(affinity) = value else {
+        return Vec::new();
+    };
+
+    [
+        ("node", "nodeAffinity"),
+        ("pod", "podAffinity"),
+        ("anti-pod", "podAntiAffinity"),
+    ]
+    .into_iter()
+    .filter_map(|(label, field)| affinity.get(field).filter(|item| !item.is_null()).map(|_| label.to_string()))
+    .collect()
+}
+
+fn scheduling_gate_summaries(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(|items| items.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|gate| Some(text_field(gate, "name", "")).filter(|name| !name.is_empty()))
+                .take(6)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn container_status_details(
@@ -2640,6 +2726,46 @@ mod tests {
         assert_eq!(containers[0].finished_at, "");
         assert_eq!(containers[0].last_started_at, "2026-04-30T11:58:00Z");
         assert_eq!(containers[0].last_finished_at, "2026-04-30T12:00:00Z");
+    }
+
+    #[test]
+    fn pod_scheduling_summarizes_placement_inputs() {
+        let spec = serde_json::json!({
+            "nodeSelector": {
+                "pool": "gpu",
+                "dedicated": true
+            },
+            "priorityClassName": "critical",
+            "schedulerName": "kite-scheduler",
+            "serviceAccountName": "api",
+            "runtimeClassName": "nvidia",
+            "tolerations": [
+                { "key": "dedicated", "operator": "Equal", "value": "gpu", "effect": "NoSchedule" },
+                { "operator": "Exists", "effect": "NoExecute" }
+            ],
+            "affinity": {
+                "nodeAffinity": {},
+                "podAntiAffinity": {}
+            },
+            "schedulingGates": [
+                { "name": "rollout.kite.dev/ready" }
+            ]
+        });
+
+        let scheduling = pod_scheduling(&spec);
+
+        assert_eq!(scheduling.node_selector.get("pool").map(String::as_str), Some("gpu"));
+        assert_eq!(scheduling.node_selector.get("dedicated").map(String::as_str), Some("true"));
+        assert_eq!(scheduling.priority_class_name, "critical");
+        assert_eq!(scheduling.scheduler_name, "kite-scheduler");
+        assert_eq!(scheduling.service_account_name, "api");
+        assert_eq!(scheduling.runtime_class_name, "nvidia");
+        assert_eq!(
+            scheduling.tolerations,
+            vec!["dedicated=gpu:NoSchedule".to_string(), "all:NoExecute".to_string()]
+        );
+        assert_eq!(scheduling.affinity, vec!["node".to_string(), "anti-pod".to_string()]);
+        assert_eq!(scheduling.scheduling_gates, vec!["rollout.kite.dev/ready".to_string()]);
     }
 
     #[test]

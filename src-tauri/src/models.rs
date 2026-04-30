@@ -99,6 +99,7 @@ pub struct PodDetails {
     pub total_containers: usize,
     pub conditions: Vec<PodCondition>,
     pub containers: Vec<ContainerDetails>,
+    pub scheduling: PodSchedulingDetails,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +110,19 @@ pub struct PodCondition {
     pub status: String,
     pub reason: String,
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodSchedulingDetails {
+    pub node_selector: BTreeMap<String, String>,
+    pub priority_class_name: String,
+    pub scheduler_name: String,
+    pub service_account_name: String,
+    pub tolerations: Vec<String>,
+    pub affinity: Vec<String>,
+    pub scheduling_gates: Vec<String>,
+    pub runtime_class_name: String,
 }
 
 #[derive(Debug, Serialize)]

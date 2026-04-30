@@ -5,6 +5,7 @@ import type { ContainerDetails, HealthState, PodActionResult, PodCondition, Reso
 import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
 import { PodLinkStrip } from "./PodLinkStrip";
+import { PodPlacementStrip } from "./PodPlacementStrip";
 import { PodTerminal } from "./PodTerminal";
 import { StatusDot } from "./status";
 
@@ -96,6 +97,7 @@ export function ResourceDetail({
         <>
           <PodIssueStrip details={details} resource={resource} />
           <PodStatusPanel details={details} resource={resource} />
+          <PodPlacementStrip pod={details.pod} />
           <PodLinkStrip
             allResources={allResources}
             nodeName={details.pod?.nodeName || resource.nodeName}
