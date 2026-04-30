@@ -43,6 +43,7 @@ export type ResourceRow = {
   image: string;
   nodeName: string;
   diagnostic: string;
+  backendReady: boolean;
   labels: Record<string, string>;
   references: ResourceReference[];
   selector: Record<string, string>;

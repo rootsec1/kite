@@ -61,6 +61,7 @@ pub struct ResourceSummary {
     pub image: String,
     pub node_name: String,
     pub diagnostic: String,
+    pub backend_ready: bool,
     pub labels: BTreeMap<String, String>,
     pub references: Vec<ResourceReference>,
     pub selector: BTreeMap<String, String>,

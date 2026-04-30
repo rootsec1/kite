@@ -220,6 +220,7 @@ export async function readKubeSnapshot(selectedContext?: string) {
     ...items.map((item, index) => toResource(item, context.trim(), index)),
     ...helmReleases,
   ];
+  annotateServiceBackends(resources);
   const namespaces = items
     .filter((item) => item.kind === "Namespace")
     .map((item) => item.metadata?.name)
@@ -354,6 +355,7 @@ async function readHelmReleases(cluster: string) {
     owner: release.chart ?? "",
     image: release.app_version ?? release.revision ?? "",
     diagnostic: "",
+    backendReady: false,
     labels: {},
     references: [],
     selector: {},
@@ -651,6 +653,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
       "",
     nodeName: item.kind === "Pod" ? item.spec?.nodeName ?? "" : "",
     diagnostic: resourceDiagnostic(item),
+    backendReady: item.kind === "Pod" && podBackendReady(item),
     labels: item.metadata?.labels ?? {},
     references: resourceReferences(item, namespace),
     selector: selectorLabels(item.spec?.selector),
@@ -760,6 +763,46 @@ function selectorLabels(selector: KubeItem["spec"]["selector"]) {
   if (!selector || typeof selector !== "object") return {};
   if ("matchLabels" in selector) return selector.matchLabels ?? {};
   return selector as Record<string, string>;
+}
+
+function annotateServiceBackends(resources: Array<ReturnType<typeof toResource>>) {
+  const pods = resources.filter((resource) => resource.kind === "Pod");
+
+  for (const service of resources.filter((resource) => resource.kind === "Service")) {
+    const selector = Object.entries(service.selector);
+    if (!selector.length) {
+      continue;
+    }
+
+    const selectedPods = pods.filter((pod) =>
+      pod.namespace === service.namespace && selector.every(([key, value]) => pod.labels[key] === value)
+    );
+
+    if (!selectedPods.length) {
+      markServiceBackendStatus(service, "critical", "no selected pods");
+      continue;
+    }
+
+    const ready = selectedPods.filter((pod) => pod.backendReady).length;
+    if (ready === selectedPods.length) {
+      continue;
+    }
+
+    markServiceBackendStatus(
+      service,
+      ready === 0 ? "critical" : "warning",
+      `${ready}/${selectedPods.length} backend pods ready`,
+    );
+  }
+}
+
+function markServiceBackendStatus(resource: ReturnType<typeof toResource>, status: "critical" | "warning", diagnostic: string) {
+  const pressure = status === "critical" ? 70 : 44;
+
+  resource.status = status;
+  resource.diagnostic = diagnostic;
+  resource.cpu = Math.max(resource.cpu, pressure);
+  resource.memory = Math.min(100, resource.cpu + 8);
 }
 
 async function restartArgs(target: { name: string; namespace: string; cluster: string }) {
@@ -929,6 +972,11 @@ function podStatus(item: KubeItem) {
   }
 
   return "warning";
+}
+
+function podBackendReady(item: KubeItem) {
+  const containers = item.status?.containerStatuses ?? [];
+  return item.status?.phase === "Running" && containers.length > 0 && containers.every((container) => container.ready);
 }
 
 function podDiagnostic(item: KubeItem) {

@@ -696,9 +696,10 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
   if (resource.kind === "Service") {
     const namespacePods = resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace);
     const selectedPods = namespacePods.filter((item) => matchesSelector(item, resource.selector));
-    const pods = selectedPods.length ? selectedPods : namespacePods;
+    const hasSelector = Object.keys(resource.selector).length > 0;
+    const pods = hasSelector ? selectedPods : namespacePods;
     return [
-      { title: selectedPods.length ? "Selected pods" : "Pods in namespace", resources: pods },
+      { title: hasSelector ? "Selected pods" : "Pods in namespace", resources: pods },
       { title: "Workloads in namespace", resources: workloadsForPods(pods, resources) },
       { title: "Routes in namespace", resources: resources.filter((item) => item.namespace === resource.namespace && ["Ingress", "Gateway", "HTTPRoute"].includes(item.kind)) },
       { title: "Config nearby", resources: resources.filter((item) => item.namespace === resource.namespace && ["ConfigMap", "Secret", "HelmRelease"].includes(item.kind)) },

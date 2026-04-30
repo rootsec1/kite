@@ -197,6 +197,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(nodes);
     resources.extend(namespaces);
     resources.extend(crds);
+    annotate_service_backends(&mut resources);
 
     Ok((resources, namespace_names))
 }
@@ -894,6 +895,61 @@ fn rollout_restart_args(kind: &str, name: &str, namespace: &str) -> Vec<String> 
     ]
 }
 
+fn annotate_service_backends(resources: &mut [ResourceSummary]) {
+    let pods = resources
+        .iter()
+        .filter(|resource| resource.kind == "Pod")
+        .map(|pod| (pod.namespace.clone(), pod.labels.clone(), pod.backend_ready))
+        .collect::<Vec<_>>();
+
+    for service in resources.iter_mut().filter(|resource| resource.kind == "Service") {
+        if service.selector.is_empty() {
+            continue;
+        }
+
+        let selected_pods = pods
+            .iter()
+            .filter(|(namespace, labels, _)| namespace == &service.namespace && selector_matches(labels, &service.selector))
+            .collect::<Vec<_>>();
+
+        if selected_pods.is_empty() {
+            mark_service_backend_status(service, HealthState::Critical, "no selected pods".to_string());
+            continue;
+        }
+
+        let ready = selected_pods.iter().filter(|(_, _, ready)| *ready).count();
+        if ready == selected_pods.len() {
+            continue;
+        }
+
+        let diagnostic = format!("{ready}/{} backend pods ready", selected_pods.len());
+        let status = if ready == 0 {
+            HealthState::Critical
+        } else {
+            HealthState::Warning
+        };
+        mark_service_backend_status(service, status, diagnostic);
+    }
+}
+
+fn selector_matches(labels: &BTreeMap<String, String>, selector: &BTreeMap<String, String>) -> bool {
+    selector.iter().all(|(key, value)| labels.get(key) == Some(value))
+}
+
+fn mark_service_backend_status(service: &mut ResourceSummary, status: HealthState, diagnostic: String) {
+    let pressure = match status {
+        HealthState::Critical => 70,
+        HealthState::Warning => 44,
+        HealthState::Syncing => 28,
+        HealthState::Healthy => 12,
+    };
+
+    service.status = status;
+    service.diagnostic = diagnostic;
+    service.cpu = service.cpu.max(pressure);
+    service.memory = service.cpu.saturating_add(8).min(100);
+}
+
 async fn first_pod_port(target: &ActionTarget) -> Result<u16, String> {
     let output = kubectl(kubectl_target_args(
         target,
@@ -1303,6 +1359,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .with_owner(owner)
                 .with_node_name(node_name)
                 .with_diagnostic(pod_diagnostic(&pod))
+                .with_backend_ready(pod_backend_ready(&pod))
                 .with_references(references)
         })
         .collect())
@@ -2228,6 +2285,7 @@ fn resource_summary(
         image,
         node_name: String::new(),
         diagnostic: String::new(),
+        backend_ready: false,
         labels: BTreeMap::new(),
         references: Vec::new(),
         selector: BTreeMap::new(),
@@ -2426,6 +2484,18 @@ fn pod_status(pod: &Pod, restarts: u32) -> HealthState {
     }
 
     HealthState::Warning
+}
+
+fn pod_backend_ready(pod: &Pod) -> bool {
+    let Some(status) = pod.status.as_ref() else {
+        return false;
+    };
+    if status.phase.as_deref() != Some("Running") {
+        return false;
+    }
+
+    let containers = status.container_statuses.as_deref().unwrap_or_default();
+    !containers.is_empty() && containers.iter().all(|container| container.ready)
 }
 
 fn pod_diagnostic(pod: &Pod) -> String {
@@ -2877,6 +2947,111 @@ mod tests {
     }
 
     #[test]
+    fn service_backend_annotation_marks_selector_without_pods_critical() {
+        let mut resources = vec![
+            resource_summary(
+                "Service",
+                "api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "ClusterIP".to_string(),
+            )
+            .with_selector(BTreeMap::from([("app".to_string(), "api".to_string())])),
+            resource_summary(
+                "Pod",
+                "worker".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "worker:latest".to_string(),
+            )
+            .with_labels(BTreeMap::from([("app".to_string(), "worker".to_string())])),
+        ];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Critical);
+        assert_eq!(resources[0].diagnostic, "no selected pods");
+    }
+
+    #[test]
+    fn service_backend_annotation_reports_partial_pod_readiness() {
+        let mut resources = vec![
+            resource_summary(
+                "Service",
+                "api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "ClusterIP".to_string(),
+            )
+            .with_selector(BTreeMap::from([("app".to_string(), "api".to_string())])),
+            resource_summary(
+                "Pod",
+                "api-ready".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "api:latest".to_string(),
+            )
+            .with_labels(BTreeMap::from([("app".to_string(), "api".to_string())]))
+            .with_backend_ready(true),
+            resource_summary(
+                "Pod",
+                "api-crash".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Critical,
+                4,
+                "api:latest".to_string(),
+            )
+            .with_labels(BTreeMap::from([("app".to_string(), "api".to_string())])),
+        ];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Warning);
+        assert_eq!(resources[0].diagnostic, "1/2 backend pods ready");
+    }
+
+    #[test]
+    fn service_backend_annotation_treats_restarted_ready_pods_as_ready() {
+        let mut resources = vec![
+            resource_summary(
+                "Service",
+                "api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "ClusterIP".to_string(),
+            )
+            .with_selector(BTreeMap::from([("app".to_string(), "api".to_string())])),
+            resource_summary(
+                "Pod",
+                "api-ready".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Warning,
+                3,
+                "api:latest".to_string(),
+            )
+            .with_labels(BTreeMap::from([("app".to_string(), "api".to_string())]))
+            .with_backend_ready(true),
+        ];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Healthy);
+        assert_eq!(resources[0].diagnostic, "");
+    }
+
+    #[test]
     fn gateway_api_status_uses_nested_route_conditions() {
         let route = serde_json::json!({
             "spec": {
@@ -3068,6 +3243,7 @@ mod tests {
 trait ResourceSummaryPatch {
     fn with_owner(self, owner: String) -> Self;
     fn with_age(self, age: String) -> Self;
+    fn with_backend_ready(self, backend_ready: bool) -> Self;
     fn with_diagnostic(self, diagnostic: String) -> Self;
     fn with_labels(self, labels: BTreeMap<String, String>) -> Self;
     fn with_node_name(self, node_name: String) -> Self;
@@ -3083,6 +3259,11 @@ impl ResourceSummaryPatch for ResourceSummary {
 
     fn with_age(mut self, age: String) -> Self {
         self.age = age;
+        self
+    }
+
+    fn with_backend_ready(mut self, backend_ready: bool) -> Self {
+        self.backend_ready = backend_ready;
         self
     }
 
