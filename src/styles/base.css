@@ -511,7 +511,11 @@ summary:focus-visible {
   min-block-size: 38px;
   padding-inline: 12px;
   overflow: hidden;
+  border: 0;
+  color: inherit;
   background: var(--surface);
+  text-align: start;
+  cursor: pointer;
 }
 
 .pod-triage-bucket::after {
@@ -531,6 +535,16 @@ summary:focus-visible {
 .pod-triage-bucket.critical svg,
 .pod-triage-bucket.warning svg {
   color: var(--orange);
+}
+
+.pod-triage-bucket.active {
+  background: var(--surface-soft);
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+
+.pod-triage-bucket:disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .pod-triage-bucket span,

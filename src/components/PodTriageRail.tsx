@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, type CSSProperties } from "react";
+import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
 import { AlertTriangle, Container, ImageOff, RotateCw, ServerCrash, Timer } from "lucide-react";
 import type { HealthState, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
@@ -11,13 +11,23 @@ type PodTriageBucket = {
 };
 
 export function PodTriageRail({ pods, onSelect }: { pods: ResourceRow[]; onSelect: (id: string) => void }) {
+  const [activeBucketId, setActiveBucketId] = useState<PodTriageBucket["id"] | null>(null);
   const buckets = useMemo(() => podTriageBuckets(pods), [pods]);
+  const activeBucket = buckets.find((bucket) => bucket.id === activeBucketId && bucket.count > 0) ?? null;
+  const activeBucketFilter = activeBucket?.id ?? null;
+  const filteredPods = useMemo(
+    () => activeBucketFilter ? pods.filter((pod) => podTriageBucket(pod) === activeBucketFilter) : pods,
+    [activeBucketFilter, pods],
+  );
 
   if (!pods.length) {
     return null;
   }
 
-  const visiblePods = pods.slice(0, 4);
+  const visiblePods = filteredPods.slice(0, 4);
+  const countLabel = `${visiblePods.length === filteredPods.length ? filteredPods.length : `${visiblePods.length}/${filteredPods.length}`} ${
+    activeBucket?.label.toLowerCase() ?? "active"
+  }`;
 
   return (
     <section className="pod-triage-rail" aria-label="Pod triage" data-testid="pod-triage-rail">
@@ -26,12 +36,17 @@ export function PodTriageRail({ pods, onSelect }: { pods: ResourceRow[]; onSelec
           <Container size={15} />
           Pod triage
         </span>
-        <strong>{visiblePods.length === pods.length ? pods.length : `${visiblePods.length}/${pods.length}`} active</strong>
+        <strong>{countLabel}</strong>
       </header>
       <div className="pod-triage-content">
         <div className="pod-triage-buckets" aria-label="Pod failure classes">
           {buckets.map((bucket) => (
-            <TriageBucket bucket={bucket} key={bucket.id} />
+            <TriageBucket
+              active={bucket.id === activeBucket?.id}
+              bucket={bucket}
+              key={bucket.id}
+              onSelect={() => setActiveBucketId((current) => current === bucket.id ? null : bucket.id)}
+            />
           ))}
         </div>
         <div className="pod-triage-items">
@@ -44,15 +59,30 @@ export function PodTriageRail({ pods, onSelect }: { pods: ResourceRow[]; onSelec
   );
 }
 
-function TriageBucket({ bucket }: { bucket: PodTriageBucket }) {
+function TriageBucket({
+  active,
+  bucket,
+  onSelect,
+}: {
+  active: boolean;
+  bucket: PodTriageBucket;
+  onSelect: () => void;
+}) {
   const Icon = bucketIcon(bucket.id);
 
   return (
-    <article className={`pod-triage-bucket ${bucket.tone}`} style={{ "--value": bucket.count ? "100%" : "0%" } as CSSProperties}>
+    <button
+      aria-pressed={active}
+      className={active ? `pod-triage-bucket ${bucket.tone} active` : `pod-triage-bucket ${bucket.tone}`}
+      disabled={bucket.count === 0}
+      style={{ "--value": bucket.count ? "100%" : "0%" } as CSSProperties}
+      type="button"
+      onClick={onSelect}
+    >
       <Icon size={14} />
       <span>{bucket.label}</span>
       <strong>{bucket.count}</strong>
-    </article>
+    </button>
   );
 }
 
