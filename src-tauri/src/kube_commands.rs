@@ -76,39 +76,14 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
         .map(|version| version.git_version)
         .unwrap_or_else(|_| "unknown".to_string());
 
-    let namespaces = Api::<Namespace>::all(client.clone())
-        .list(&ListParams::default())
-        .await
-        .map_err(|error| format!("Unable to list namespaces: {error}"))?
-        .items
-        .into_iter()
-        .filter_map(|namespace| namespace.metadata.name)
-        .collect::<Vec<_>>();
+    let (mut resources, namespaces) = required_snapshot_resources(client.clone(), &context).await?;
+    let (gateway_resources, helm_releases) = tokio::join!(
+        list_gateway_api_resources(client, &context),
+        list_helm_releases(&context),
+    );
 
-    let mut resources = Vec::new();
-    resources.extend(list_pods(client.clone(), &context).await?);
-    resources.extend(list_deployments(client.clone(), &context).await?);
-    resources.extend(list_statefulsets(client.clone(), &context).await?);
-    resources.extend(list_daemonsets(client.clone(), &context).await?);
-    resources.extend(list_jobs(client.clone(), &context).await?);
-    resources.extend(list_cronjobs(client.clone(), &context).await?);
-    resources.extend(list_services(client.clone(), &context).await?);
-    resources.extend(list_ingresses(client.clone(), &context).await?);
-    resources.extend(list_gateway_api_resources(client.clone(), &context).await);
-    resources.extend(list_configmaps(client.clone(), &context).await?);
-    resources.extend(list_secrets(client.clone(), &context).await?);
-    resources.extend(list_persistent_volume_claims(client.clone(), &context).await?);
-    resources.extend(list_persistent_volumes(client.clone(), &context).await?);
-    resources.extend(list_storage_classes(client.clone(), &context).await?);
-    resources.extend(list_roles(client.clone(), &context).await?);
-    resources.extend(list_role_bindings(client.clone(), &context).await?);
-    resources.extend(list_cluster_roles(client.clone(), &context).await?);
-    resources.extend(list_cluster_role_bindings(client.clone(), &context).await?);
-    resources.extend(list_events(client.clone(), &context).await?);
-    resources.extend(list_nodes(client.clone(), &context).await?);
-    resources.extend(list_namespaces(client.clone(), &context).await?);
-    resources.extend(list_crds(client.clone(), &context).await?);
-    resources.extend(list_helm_releases(&context).await.unwrap_or_default());
+    resources.extend(gateway_resources);
+    resources.extend(helm_releases.unwrap_or_default());
 
     resources.sort_by(|left, right| {
         left.namespace
@@ -146,12 +121,83 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
             warnings: warning_count,
         }],
         namespace_heat: namespaces
-            .into_iter()
+            .iter()
             .take(10)
-            .map(|namespace| namespace_heat(&namespace, &resources))
+            .map(|namespace| namespace_heat(namespace, &resources))
             .collect(),
         resources,
     })
+}
+
+async fn required_snapshot_resources(client: Client, context: &str) -> Result<(Vec<ResourceSummary>, Vec<String>), String> {
+    let (pods, deployments, statefulsets, daemonsets, jobs, cronjobs, services, ingresses) = tokio::try_join!(
+        list_pods(client.clone(), context),
+        list_deployments(client.clone(), context),
+        list_statefulsets(client.clone(), context),
+        list_daemonsets(client.clone(), context),
+        list_jobs(client.clone(), context),
+        list_cronjobs(client.clone(), context),
+        list_services(client.clone(), context),
+        list_ingresses(client.clone(), context),
+    )?;
+    let (
+        configmaps,
+        secrets,
+        persistent_volume_claims,
+        persistent_volumes,
+        storage_classes,
+        roles,
+        role_bindings,
+        cluster_roles,
+        cluster_role_bindings,
+        events,
+        nodes,
+        namespaces,
+        crds,
+    ) = tokio::try_join!(
+        list_configmaps(client.clone(), context),
+        list_secrets(client.clone(), context),
+        list_persistent_volume_claims(client.clone(), context),
+        list_persistent_volumes(client.clone(), context),
+        list_storage_classes(client.clone(), context),
+        list_roles(client.clone(), context),
+        list_role_bindings(client.clone(), context),
+        list_cluster_roles(client.clone(), context),
+        list_cluster_role_bindings(client.clone(), context),
+        list_events(client.clone(), context),
+        list_nodes(client.clone(), context),
+        list_namespaces(client.clone(), context),
+        list_crds(client, context),
+    )?;
+    let namespace_names = namespaces
+        .iter()
+        .map(|namespace| namespace.name.clone())
+        .collect::<Vec<_>>();
+    let mut resources = Vec::new();
+
+    resources.extend(pods);
+    resources.extend(deployments);
+    resources.extend(statefulsets);
+    resources.extend(daemonsets);
+    resources.extend(jobs);
+    resources.extend(cronjobs);
+    resources.extend(services);
+    resources.extend(ingresses);
+    resources.extend(configmaps);
+    resources.extend(secrets);
+    resources.extend(persistent_volume_claims);
+    resources.extend(persistent_volumes);
+    resources.extend(storage_classes);
+    resources.extend(roles);
+    resources.extend(role_bindings);
+    resources.extend(cluster_roles);
+    resources.extend(cluster_role_bindings);
+    resources.extend(events);
+    resources.extend(nodes);
+    resources.extend(namespaces);
+    resources.extend(crds);
+
+    Ok((resources, namespace_names))
 }
 
 #[tauri::command]
