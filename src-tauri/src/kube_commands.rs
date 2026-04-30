@@ -518,6 +518,8 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
         role: role.to_string(),
         image: first_text_field(&[container, spec], "image"),
         ports: container_ports(spec),
+        requests: container_resource_quantities(spec, "requests"),
+        limits: container_resource_quantities(spec, "limits"),
         ready: container
             .get("ready")
             .and_then(|value| value.as_bool())
@@ -530,8 +532,12 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
         reason: text_field(state_body, "reason", reason_fallback),
         message: text_field(state_body, "message", ""),
         exit_code: numeric_field(state_body, "exitCode"),
+        started_at: text_field(state_body, "startedAt", ""),
+        finished_at: text_field(state_body, "finishedAt", ""),
         last_reason: text_field(last_terminated, "reason", ""),
         last_exit_code: numeric_field(last_terminated, "exitCode"),
+        last_started_at: text_field(last_terminated, "startedAt", ""),
+        last_finished_at: text_field(last_terminated, "finishedAt", ""),
     }
 }
 
@@ -548,6 +554,27 @@ fn container_ports(container: &serde_json::Value) -> Vec<u16> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn container_resource_quantities(container: &serde_json::Value, field: &str) -> BTreeMap<String, String> {
+    container
+        .pointer(&format!("/resources/{field}"))
+        .and_then(|resources| resources.as_object())
+        .map(|resources| {
+            resources
+                .iter()
+                .filter_map(|(name, quantity)| resource_quantity(quantity).map(|value| (name.clone(), value)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn resource_quantity(value: &serde_json::Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| value.as_u64().map(|number| number.to_string()))
+        .filter(|value| !value.is_empty())
 }
 
 fn classify_action(action: &str) -> ActionRisk {
@@ -2381,7 +2408,11 @@ mod tests {
                 {
                     "name": "api",
                     "image": "registry.example/api:declared",
-                    "ports": [{ "containerPort": 8080 }]
+                    "ports": [{ "containerPort": 8080 }],
+                    "resources": {
+                        "requests": { "cpu": "250m", "memory": "256Mi" },
+                        "limits": { "cpu": "1", "memory": "512Mi", "nvidia.com/gpu": "1" }
+                    }
                 },
                 {
                     "name": "worker",
@@ -2398,12 +2429,51 @@ mod tests {
         assert_eq!(containers[0].name, "api");
         assert_eq!(containers[0].image, "registry.example/api:ready");
         assert_eq!(containers[0].ports, vec![8080]);
+        assert_eq!(containers[0].requests.get("cpu").map(String::as_str), Some("250m"));
+        assert_eq!(containers[0].requests.get("memory").map(String::as_str), Some("256Mi"));
+        assert_eq!(containers[0].limits.get("cpu").map(String::as_str), Some("1"));
+        assert_eq!(containers[0].limits.get("memory").map(String::as_str), Some("512Mi"));
+        assert_eq!(containers[0].limits.get("nvidia.com/gpu").map(String::as_str), Some("1"));
         assert_eq!(containers[0].restart_count, 1);
         assert_eq!(containers[1].name, "worker");
         assert_eq!(containers[1].image, "registry.example/worker:pending");
         assert_eq!(containers[1].ports, vec![9090]);
         assert_eq!(containers[1].state, "pending");
         assert_eq!(containers[1].reason, "status pending");
+    }
+
+    #[test]
+    fn pod_container_details_include_lifecycle_times() {
+        let status = serde_json::json!({
+            "containerStatuses": [{
+                "name": "api",
+                "image": "registry.example/api:ready",
+                "ready": true,
+                "restartCount": 1,
+                "state": {
+                    "running": { "startedAt": "2026-04-30T12:01:02Z" }
+                },
+                "lastState": {
+                    "terminated": {
+                        "reason": "Completed",
+                        "exitCode": 0,
+                        "startedAt": "2026-04-30T11:58:00Z",
+                        "finishedAt": "2026-04-30T12:00:00Z"
+                    }
+                }
+            }]
+        });
+        let spec = serde_json::json!({
+            "containers": [{ "name": "api" }]
+        });
+
+        let containers =
+            container_status_details(&status, &spec, "containerStatuses", "containers", "app");
+
+        assert_eq!(containers[0].started_at, "2026-04-30T12:01:02Z");
+        assert_eq!(containers[0].finished_at, "");
+        assert_eq!(containers[0].last_started_at, "2026-04-30T11:58:00Z");
+        assert_eq!(containers[0].last_finished_at, "2026-04-30T12:00:00Z");
     }
 
     #[test]

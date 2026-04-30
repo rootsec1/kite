@@ -1482,7 +1482,8 @@ summary:focus-visible {
 }
 
 .container-state small,
-.container-state strong {
+.container-state strong,
+.container-state time {
   min-inline-size: 0;
   overflow: hidden;
   font-family: var(--font-mono);
@@ -1500,6 +1501,11 @@ summary:focus-visible {
 .container-state strong {
   color: var(--text);
   font-weight: 600;
+}
+
+.container-state time {
+  grid-column: 2;
+  color: var(--muted);
 }
 
 .container-image {
@@ -1529,11 +1535,49 @@ summary:focus-visible {
   gap: 5px;
 }
 
+.container-resources {
+  display: grid;
+  gap: 5px;
+  min-inline-size: 0;
+}
+
+.container-resources span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  min-inline-size: 0;
+}
+
 .container-ports small {
   padding: 3px 6px;
   border: 1px solid var(--line);
   color: var(--green-deep);
   background: var(--surface-soft);
+}
+
+.container-resources small,
+.container-resources em {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  font-style: normal;
+  background: var(--surface-soft);
+}
+
+.container-resources small {
+  color: var(--muted);
+}
+
+.container-resources em {
+  overflow: hidden;
+  max-inline-size: 132px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .container-diagnostic {

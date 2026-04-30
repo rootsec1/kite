@@ -97,14 +97,20 @@ export type ContainerDetails = {
   role: "app" | "init" | "ephemeral";
   image: string;
   ports: number[];
+  requests: Record<string, string>;
+  limits: Record<string, string>;
   ready: boolean;
   restartCount: number;
   state: string;
   reason: string;
   message: string;
   exitCode: number | null;
+  startedAt: string;
+  finishedAt: string;
   lastReason: string;
   lastExitCode: number | null;
+  lastStartedAt: string;
+  lastFinishedAt: string;
 };
 
 export type LiveSnapshot = {

@@ -67,12 +67,18 @@ type KubeContainerSpec = {
   image?: string;
   name?: string;
   ports?: Array<{ containerPort?: number }>;
+  resources?: {
+    requests?: Record<string, string | number>;
+    limits?: Record<string, string | number>;
+  };
 };
 
 type ContainerStateDetails = {
   reason?: string;
   message?: string;
   exitCode?: number;
+  startedAt?: string;
+  finishedAt?: string;
 };
 
 type KubeVolume = {
@@ -439,14 +445,20 @@ function containerDetails(
       role,
       image: container.image ?? "",
       ports: containerPorts(spec),
+      requests: containerResources(spec, "requests"),
+      limits: containerResources(spec, "limits"),
       ready: Boolean(container.ready),
       restartCount: container.restartCount ?? 0,
       state: stateName,
       reason: state.reason ?? "",
       message: state.message ?? "",
       exitCode: state.exitCode ?? null,
+      startedAt: state.startedAt ?? "",
+      finishedAt: state.finishedAt ?? "",
       lastReason: lastTerminated.reason ?? "",
       lastExitCode: lastTerminated.exitCode ?? null,
+      lastStartedAt: lastTerminated.startedAt ?? "",
+      lastFinishedAt: lastTerminated.finishedAt ?? "",
     };
   });
 }
@@ -455,6 +467,14 @@ function containerPorts(container?: KubeContainerSpec) {
   return (container?.ports ?? [])
     .map((port) => port.containerPort)
     .filter((port): port is number => Number.isInteger(port) && port > 0 && port <= 65_535);
+}
+
+function containerResources(container: KubeContainerSpec | undefined, field: "requests" | "limits") {
+  return Object.fromEntries(
+    Object.entries(container?.resources?.[field] ?? {})
+      .map(([name, value]) => [name, String(value)])
+      .filter(([, value]) => value),
+  );
 }
 
 async function readResourceList(query: { name: string; namespaced: boolean }, context: string) {

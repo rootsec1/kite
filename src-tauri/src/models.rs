@@ -118,14 +118,20 @@ pub struct ContainerDetails {
     pub role: String,
     pub image: String,
     pub ports: Vec<u16>,
+    pub requests: BTreeMap<String, String>,
+    pub limits: BTreeMap<String, String>,
     pub ready: bool,
     pub restart_count: u32,
     pub state: String,
     pub reason: String,
     pub message: String,
     pub exit_code: Option<u32>,
+    pub started_at: String,
+    pub finished_at: String,
     pub last_reason: String,
     pub last_exit_code: Option<u32>,
+    pub last_started_at: String,
+    pub last_finished_at: String,
 }
 
 #[derive(Debug, Serialize)]

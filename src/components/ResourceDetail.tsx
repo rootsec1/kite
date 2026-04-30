@@ -318,8 +318,20 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
         <small className="container-role">{container.role}</small>
       </div>
       <div className="container-state-grid">
-        <ContainerStateFact label="Now" value={currentState} tone={container.ready ? "healthy" : "warning"} />
-        {lastState ? <ContainerStateFact label="Last" value={lastState} tone="warning" /> : null}
+        <ContainerStateFact
+          hint={currentStateTime(container)}
+          label="Now"
+          value={currentState}
+          tone={container.ready ? "healthy" : "warning"}
+        />
+        {lastState ? (
+          <ContainerStateFact
+            hint={lastStateTime(container)}
+            label="Last"
+            value={lastState}
+            tone="warning"
+          />
+        ) : null}
       </div>
       {container.message ? <small className="container-diagnostic" title={container.message}>{container.message}</small> : null}
       {container.image ? (
@@ -328,6 +340,7 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
           <code title={container.image}>{container.image}</code>
         </span>
       ) : null}
+      <ContainerResources container={container} />
       {container.ports.length ? (
         <span className="container-ports" aria-label={`Ports ${container.ports.join(", ")}`}>
           {container.ports.map((port) => (
@@ -340,11 +353,61 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
   );
 }
 
+function ContainerResources({ container }: { container: ContainerDetails }) {
+  const requests = resourceEntries(container.requests);
+  const limits = resourceEntries(container.limits);
+
+  if (!requests.length && !limits.length) {
+    return null;
+  }
+
+  return (
+    <div className="container-resources" aria-label="Container resources">
+      {requests.length ? <ResourceQuantityRow label="Req" entries={requests} /> : null}
+      {limits.length ? <ResourceQuantityRow label="Lim" entries={limits} /> : null}
+    </div>
+  );
+}
+
+function ResourceQuantityRow({ entries, label }: { entries: [string, string][]; label: string }) {
+  return (
+    <span>
+      <small>{label}</small>
+      {entries.map(([name, value]) => (
+        <em key={name} title={`${name}: ${value}`}>
+          {resourceName(name)} {value}
+        </em>
+      ))}
+    </span>
+  );
+}
+
+function resourceEntries(resources: Record<string, string>) {
+  const priority = new Map([
+    ["cpu", 0],
+    ["memory", 1],
+  ]);
+
+  return Object.entries(resources)
+    .filter(([, value]) => value)
+    .sort(([left], [right]) => (priority.get(left) ?? 10) - (priority.get(right) ?? 10) || left.localeCompare(right))
+    .slice(0, 4);
+}
+
+function resourceName(name: string) {
+  if (name === "memory") {
+    return "mem";
+  }
+  return name.includes("/") ? name.split("/").pop() ?? name : name;
+}
+
 function ContainerStateFact({
+  hint,
   label,
   tone,
   value,
 }: {
+  hint?: string;
   label: string;
   tone: "healthy" | "warning";
   value: string;
@@ -353,6 +416,7 @@ function ContainerStateFact({
     <span className={`container-state ${tone}`}>
       <small>{label}</small>
       <strong title={value}>{value}</strong>
+      {hint ? <time title={hint}>{hint}</time> : null}
     </span>
   );
 }
@@ -374,6 +438,40 @@ function containerLastState(container: ContainerDetails) {
   ].filter(Boolean);
 
   return parts.join(" / ");
+}
+
+function currentStateTime(container: ContainerDetails) {
+  if (container.startedAt) {
+    return `since ${formatLifecycleTime(container.startedAt)}`;
+  }
+  if (container.finishedAt) {
+    return `ended ${formatLifecycleTime(container.finishedAt)}`;
+  }
+  return "";
+}
+
+function lastStateTime(container: ContainerDetails) {
+  if (container.lastFinishedAt) {
+    return `ended ${formatLifecycleTime(container.lastFinishedAt)}`;
+  }
+  if (container.lastStartedAt) {
+    return `started ${formatLifecycleTime(container.lastStartedAt)}`;
+  }
+  return "";
+}
+
+function formatLifecycleTime(value: string) {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return value.replace("T", " ").replace("Z", "");
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
 }
 
 function ActionResult({
