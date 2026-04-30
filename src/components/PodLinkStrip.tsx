@@ -1,12 +1,13 @@
-import { GitBranch, HardDrive, Layers3, Network, Server, type LucideIcon } from "lucide-react";
+import { AlertTriangle, GitBranch, HardDrive, Layers3, Network, Server, type LucideIcon } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
-import type { ResourceRow } from "../types/kube";
+import type { ResourceReference, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
 
 type PodLinkGroup = {
   title: string;
   icon: LucideIcon;
   resources: ResourceRow[];
+  missing?: ResourceReference[];
 };
 
 export function PodLinkStrip({
@@ -20,7 +21,7 @@ export function PodLinkStrip({
   onOpenResource: (id: string) => void;
   pod: ResourceRow;
 }) {
-  const visibleLinks = podLinksFor(pod, allResources, nodeName).filter((link) => link.resources.length);
+  const visibleLinks = podLinksFor(pod, allResources, nodeName).filter((link) => link.resources.length || link.missing?.length);
 
   if (!visibleLinks.length) {
     return null;
@@ -28,12 +29,12 @@ export function PodLinkStrip({
 
   return (
     <section className="pod-link-strip" aria-label="Pod relationships">
-      {visibleLinks.map(({ icon: Icon, resources, title }) => (
-        <article key={title}>
+      {visibleLinks.map(({ icon: Icon, missing = [], resources, title }) => (
+        <article className={missing.length && !resources.length ? "warning" : ""} key={title}>
           <header>
             <Icon size={15} />
             <span>{title}</span>
-            <strong>{resources.length}</strong>
+            <strong>{resources.length + missing.length}</strong>
           </header>
           <div>
             {resources.slice(0, 3).map((item) => (
@@ -42,6 +43,13 @@ export function PodLinkStrip({
                 <span title={item.kind}>{compactKind(item.kind)}</span>
                 <strong>{item.name}</strong>
               </button>
+            ))}
+            {missing.slice(0, 3).map((reference) => (
+              <span className="pod-link-missing" key={`${reference.kind}-${reference.namespace}-${reference.name}`}>
+                <AlertTriangle size={13} />
+                <span title={reference.kind}>{compactKind(reference.kind)}</span>
+                <strong title={`${reference.namespace}/${reference.name}`}>{reference.name}</strong>
+              </span>
             ))}
           </div>
         </article>
@@ -58,6 +66,7 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""):
   ]);
   const serviceResources = namespaceResources.filter((item) => item.kind === "Service" && matchesSelector(pod, item.selector));
   const inputResources = resources.filter((item) => pod.references.some((reference) => matchesReference(item, reference)));
+  const missingInputs = missingReferences(pod.references, resources);
   const node = nodeName ? resources.filter((item) => item.kind === "Node" && item.name === nodeName) : [];
   const namespace = resources.filter((item) => item.kind === "Namespace" && item.name === pod.namespace);
 
@@ -66,6 +75,7 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""):
     { title: "Node", icon: Server, resources: node },
     { title: "Services", icon: Network, resources: serviceResources },
     { title: "Inputs", icon: HardDrive, resources: inputResources },
+    { title: "Missing inputs", icon: AlertTriangle, resources: [], missing: missingInputs },
     { title: "Namespace", icon: Layers3, resources: namespace },
   ];
 }
@@ -104,6 +114,10 @@ function uniqueResources(resources: ResourceRow[]) {
 
 function matchesReference(resource: ResourceRow, reference: ResourceRow["references"][number]) {
   return resource.kind === reference.kind && resource.namespace === reference.namespace && resource.name === reference.name;
+}
+
+function missingReferences(references: ResourceReference[], resources: ResourceRow[]) {
+  return references.filter((reference) => !resources.some((resource) => matchesReference(resource, reference)));
 }
 
 function compactKind(kind: string) {

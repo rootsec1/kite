@@ -1660,9 +1660,14 @@ summary:focus-visible {
   color: var(--green-deep);
 }
 
+.pod-link-strip article.warning header svg {
+  color: var(--orange);
+}
+
 .pod-link-strip header span,
 .pod-link-strip header strong,
-.pod-link-strip button span {
+.pod-link-strip button span,
+.pod-link-missing span {
   color: var(--text-soft);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1700,7 +1705,28 @@ summary:focus-visible {
   background: var(--surface-soft);
 }
 
-.pod-link-strip button strong {
+.pod-link-missing {
+  display: grid;
+  grid-template-columns: 13px 76px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  min-block-size: 40px;
+  padding-inline: 12px;
+  border-block-end: 1px solid var(--line);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--orange) 62%, transparent);
+  background: color-mix(in srgb, var(--yellow) 10%, var(--surface));
+}
+
+.pod-link-missing:last-child {
+  border-block-end: 0;
+}
+
+.pod-link-missing svg {
+  color: var(--orange);
+}
+
+.pod-link-strip button strong,
+.pod-link-missing strong {
   min-inline-size: 0;
   overflow: hidden;
   color: var(--text);
