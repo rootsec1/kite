@@ -1,4 +1,5 @@
 import type { ResourceRow } from "../types/kube";
+import { workloadKinds } from "./resourceRelationships";
 
 export type ResourceSortKey = "triage" | "name" | "kind" | "namespace" | "age" | "signals";
 export type ResourceSortDirection = "asc" | "desc";
@@ -15,6 +16,21 @@ export const defaultResourceSort: ResourceSort = {
 
 const signalSortKeys = new Set<ResourceSortKey>(["age", "signals"]);
 const systemNamespaces = new Set(["cluster", "default", "kube-system", "kube-public", "kube-node-lease"]);
+const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
+const foundationKinds = new Set(["Node", "Namespace"]);
+const supportKinds = new Set([
+  "ConfigMap",
+  "Secret",
+  "PersistentVolumeClaim",
+  "PersistentVolume",
+  "StorageClass",
+  "Role",
+  "RoleBinding",
+  "ClusterRole",
+  "ClusterRoleBinding",
+  "HelmRelease",
+  "CustomResourceDefinition",
+]);
 const statusRank = new Map([
   ["critical", 0],
   ["warning", 1],
@@ -73,6 +89,9 @@ function compareResourcesForDebugging(left: ResourceRow, right: ResourceRow) {
   const statusDelta = (statusRank.get(left.status) ?? 4) - (statusRank.get(right.status) ?? 4);
   if (statusDelta !== 0) return statusDelta;
 
+  const kindDelta = resourceDebugRank(left.kind) - resourceDebugRank(right.kind);
+  if (kindDelta !== 0) return kindDelta;
+
   const namespaceDelta = Number(systemNamespaces.has(left.namespace)) - Number(systemNamespaces.has(right.namespace));
   if (namespaceDelta !== 0) return namespaceDelta;
 
@@ -80,6 +99,16 @@ function compareResourcesForDebugging(left: ResourceRow, right: ResourceRow) {
   if (selectorDelta !== 0) return selectorDelta;
 
   return left.name.localeCompare(right.name);
+}
+
+function resourceDebugRank(kind: string) {
+  if (kind === "Pod") return 0;
+  if (workloadKinds.has(kind)) return 1;
+  if (trafficKinds.has(kind)) return 2;
+  if (foundationKinds.has(kind)) return 3;
+  if (supportKinds.has(kind)) return 4;
+  if (kind === "Event") return 8;
+  return 5;
 }
 
 function signalRank(resource: ResourceRow) {
