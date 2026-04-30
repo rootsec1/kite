@@ -1541,9 +1541,23 @@ summary:focus-visible {
   min-inline-size: 0;
 }
 
+.container-probes {
+  display: grid;
+  gap: 5px;
+  min-inline-size: 0;
+}
+
 .container-resources span {
   display: flex;
   flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  min-inline-size: 0;
+}
+
+.container-probes span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 5px;
   align-items: center;
   min-inline-size: 0;
@@ -1557,18 +1571,22 @@ summary:focus-visible {
 }
 
 .container-resources small,
-.container-resources em {
+.container-resources em,
+.container-probes small,
+.container-probes em {
   padding: 3px 6px;
   border: 1px solid var(--line);
   font-style: normal;
   background: var(--surface-soft);
 }
 
-.container-resources small {
+.container-resources small,
+.container-probes small {
   color: var(--muted);
 }
 
-.container-resources em {
+.container-resources em,
+.container-probes em {
   overflow: hidden;
   max-inline-size: 132px;
   color: var(--text);
@@ -1578,6 +1596,16 @@ summary:focus-visible {
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.container-probes small {
+  color: var(--green-deep);
+}
+
+.container-probes em {
+  max-inline-size: 100%;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .container-diagnostic {

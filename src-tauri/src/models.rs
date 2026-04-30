@@ -118,6 +118,7 @@ pub struct ContainerDetails {
     pub role: String,
     pub image: String,
     pub ports: Vec<u16>,
+    pub probes: Vec<ContainerProbe>,
     pub requests: BTreeMap<String, String>,
     pub limits: BTreeMap<String, String>,
     pub ready: bool,
@@ -132,6 +133,13 @@ pub struct ContainerDetails {
     pub last_exit_code: Option<u32>,
     pub last_started_at: String,
     pub last_finished_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerProbe {
+    pub kind: String,
+    pub check: String,
 }
 
 #[derive(Debug, Serialize)]

@@ -341,6 +341,7 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
         </span>
       ) : null}
       <ContainerResources container={container} />
+      <ContainerProbes container={container} />
       {container.ports.length ? (
         <span className="container-ports" aria-label={`Ports ${container.ports.join(", ")}`}>
           {container.ports.map((port) => (
@@ -350,6 +351,25 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
       ) : null}
       <small>{container.restartCount} restarts</small>
     </article>
+  );
+}
+
+function ContainerProbes({ container }: { container: ContainerDetails }) {
+  const probes = container.probes ?? [];
+
+  if (!probes.length) {
+    return null;
+  }
+
+  return (
+    <div className="container-probes" aria-label="Container probes">
+      {probes.map((probe) => (
+        <span key={probe.kind} title={`${probe.kind}: ${probe.check}`}>
+          <small>{probe.kind}</small>
+          <em>{probe.check}</em>
+        </span>
+      ))}
+    </div>
   );
 }
 

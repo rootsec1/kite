@@ -22,7 +22,7 @@ use kube::{
 use serde::Deserialize;
 
 use crate::models::{
-    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, HealthState, KubeContextSummary, LiveSnapshot,
+    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, ContainerProbe, HealthState, KubeContextSummary, LiveSnapshot,
     NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, ResourceDetails, ResourceEvent, ResourceReference, ResourceSummary,
 };
 
@@ -564,6 +564,7 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
         role: role.to_string(),
         image: first_text_field(&[container, spec], "image"),
         ports: container_ports(spec),
+        probes: container_probes(spec),
         requests: container_resource_quantities(spec, "requests"),
         limits: container_resource_quantities(spec, "limits"),
         ready: container
@@ -585,6 +586,50 @@ fn container_details(container: &serde_json::Value, spec: &serde_json::Value, na
         last_started_at: text_field(last_terminated, "startedAt", ""),
         last_finished_at: text_field(last_terminated, "finishedAt", ""),
     }
+}
+
+fn container_probes(container: &serde_json::Value) -> Vec<ContainerProbe> {
+    [
+        ("readiness", "readinessProbe"),
+        ("liveness", "livenessProbe"),
+        ("startup", "startupProbe"),
+    ]
+    .into_iter()
+    .filter_map(|(kind, field)| probe_check(container.get(field)).map(|check| ContainerProbe {
+        kind: kind.to_string(),
+        check,
+    }))
+    .collect()
+}
+
+fn probe_check(probe: Option<&serde_json::Value>) -> Option<String> {
+    let probe = probe?;
+    let check = if let Some(http_get) = probe.get("httpGet") {
+        format!("http {}:{}", text_field(http_get, "path", "/"), probe_port(http_get.get("port")))
+    } else if let Some(tcp_socket) = probe.get("tcpSocket") {
+        format!("tcp {}", probe_port(tcp_socket.get("port")))
+    } else if let Some(grpc) = probe.get("grpc") {
+        format!("grpc {}", probe_port(grpc.get("port")))
+    } else if let Some(exec) = probe.get("exec") {
+        let command = exec
+            .get("command")
+            .and_then(|value| value.as_array())
+            .map(|parts| parts.iter().filter_map(|part| part.as_str()).take(3).collect::<Vec<_>>().join(" "))
+            .filter(|command| !command.is_empty())
+            .unwrap_or_else(|| "command".to_string());
+        format!("exec {command}")
+    } else {
+        return None;
+    };
+
+    Some(check)
+}
+
+fn probe_port(value: Option<&serde_json::Value>) -> String {
+    value
+        .and_then(|port| port.as_str().map(str::to_string).or_else(|| port.as_u64().map(|number| number.to_string())))
+        .filter(|port| !port.is_empty())
+        .unwrap_or_else(|| "?".to_string())
 }
 
 fn container_ports(container: &serde_json::Value) -> Vec<u16> {
@@ -2455,6 +2500,12 @@ mod tests {
                     "name": "api",
                     "image": "registry.example/api:declared",
                     "ports": [{ "containerPort": 8080 }],
+                    "readinessProbe": {
+                        "httpGet": { "path": "/ready", "port": 8080 }
+                    },
+                    "livenessProbe": {
+                        "tcpSocket": { "port": "admin" }
+                    },
                     "resources": {
                         "requests": { "cpu": "250m", "memory": "256Mi" },
                         "limits": { "cpu": "1", "memory": "512Mi", "nvidia.com/gpu": "1" }
@@ -2475,6 +2526,11 @@ mod tests {
         assert_eq!(containers[0].name, "api");
         assert_eq!(containers[0].image, "registry.example/api:ready");
         assert_eq!(containers[0].ports, vec![8080]);
+        assert_eq!(containers[0].probes.len(), 2);
+        assert_eq!(containers[0].probes[0].kind, "readiness");
+        assert_eq!(containers[0].probes[0].check, "http /ready:8080");
+        assert_eq!(containers[0].probes[1].kind, "liveness");
+        assert_eq!(containers[0].probes[1].check, "tcp admin");
         assert_eq!(containers[0].requests.get("cpu").map(String::as_str), Some("250m"));
         assert_eq!(containers[0].requests.get("memory").map(String::as_str), Some("256Mi"));
         assert_eq!(containers[0].limits.get("cpu").map(String::as_str), Some("1"));

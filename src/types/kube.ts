@@ -97,6 +97,7 @@ export type ContainerDetails = {
   role: "app" | "init" | "ephemeral";
   image: string;
   ports: number[];
+  probes: ContainerProbe[];
   requests: Record<string, string>;
   limits: Record<string, string>;
   ready: boolean;
@@ -111,6 +112,11 @@ export type ContainerDetails = {
   lastExitCode: number | null;
   lastStartedAt: string;
   lastFinishedAt: string;
+};
+
+export type ContainerProbe = {
+  kind: string;
+  check: string;
 };
 
 export type LiveSnapshot = {

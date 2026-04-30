@@ -67,10 +67,20 @@ type KubeContainerSpec = {
   image?: string;
   name?: string;
   ports?: Array<{ containerPort?: number }>;
+  livenessProbe?: KubeProbe;
+  readinessProbe?: KubeProbe;
+  startupProbe?: KubeProbe;
   resources?: {
     requests?: Record<string, string | number>;
     limits?: Record<string, string | number>;
   };
+};
+
+type KubeProbe = {
+  exec?: { command?: string[] };
+  grpc?: { port?: string | number };
+  httpGet?: { path?: string; port?: string | number };
+  tcpSocket?: { port?: string | number };
 };
 
 type ContainerStateDetails = {
@@ -435,32 +445,83 @@ function containerDetails(
   role: "app" | "init" | "ephemeral",
   specs: KubeContainerSpec[] = [],
 ) {
-  return (containers ?? []).map((container) => {
-    const stateName = Object.keys(container.state ?? {})[0] ?? "unknown";
-    const state = container.state?.[stateName] ?? {};
-    const lastTerminated = container.lastState?.terminated ?? {};
-    const spec = specs.find((item) => item.name === container.name);
-    return {
-      name: container.name ?? "container",
-      role,
-      image: container.image ?? "",
-      ports: containerPorts(spec),
-      requests: containerResources(spec, "requests"),
-      limits: containerResources(spec, "limits"),
-      ready: Boolean(container.ready),
-      restartCount: container.restartCount ?? 0,
-      state: stateName,
-      reason: state.reason ?? "",
-      message: state.message ?? "",
-      exitCode: state.exitCode ?? null,
-      startedAt: state.startedAt ?? "",
-      finishedAt: state.finishedAt ?? "",
-      lastReason: lastTerminated.reason ?? "",
-      lastExitCode: lastTerminated.exitCode ?? null,
-      lastStartedAt: lastTerminated.startedAt ?? "",
-      lastFinishedAt: lastTerminated.finishedAt ?? "",
-    };
+  const statuses = containers ?? [];
+  const details = specs.map((spec) => {
+    const container = statuses.find((status) => status.name === spec.name);
+    return containerDetail(container, role, spec);
   });
+
+  for (const container of statuses) {
+    if (!specs.some((spec) => spec.name === container.name)) {
+      details.push(containerDetail(container, role));
+    }
+  }
+
+  return details;
+}
+
+function containerDetail(
+  container: KubeContainerStatus | undefined,
+  role: "app" | "init" | "ephemeral",
+  spec?: KubeContainerSpec,
+) {
+  const stateName = Object.keys(container?.state ?? {})[0] ?? "unknown";
+  const state = container?.state?.[stateName] ?? {};
+  const lastTerminated = container?.lastState?.terminated ?? {};
+  return {
+    name: container?.name ?? spec?.name ?? "container",
+    role,
+    image: container?.image ?? spec?.image ?? "",
+    ports: containerPorts(spec),
+    probes: containerProbes(spec),
+    requests: containerResources(spec, "requests"),
+    limits: containerResources(spec, "limits"),
+    ready: Boolean(container?.ready),
+    restartCount: container?.restartCount ?? 0,
+    state: container ? stateName : "pending",
+    reason: state.reason ?? (container ? "" : "status pending"),
+    message: state.message ?? "",
+    exitCode: state.exitCode ?? null,
+    startedAt: state.startedAt ?? "",
+    finishedAt: state.finishedAt ?? "",
+    lastReason: lastTerminated.reason ?? "",
+    lastExitCode: lastTerminated.exitCode ?? null,
+    lastStartedAt: lastTerminated.startedAt ?? "",
+    lastFinishedAt: lastTerminated.finishedAt ?? "",
+  };
+}
+
+function containerProbes(container?: KubeContainerSpec) {
+  return [
+    probeSummary("readiness", container?.readinessProbe),
+    probeSummary("liveness", container?.livenessProbe),
+    probeSummary("startup", container?.startupProbe),
+  ].filter((probe): probe is { kind: string; check: string } => Boolean(probe));
+}
+
+function probeSummary(kind: string, probe?: KubeProbe) {
+  const check = probeCheck(probe);
+  return check ? { kind, check } : null;
+}
+
+function probeCheck(probe?: KubeProbe) {
+  if (probe?.httpGet) {
+    return `http ${probe.httpGet.path || "/"}:${probePort(probe.httpGet.port)}`;
+  }
+  if (probe?.tcpSocket) {
+    return `tcp ${probePort(probe.tcpSocket.port)}`;
+  }
+  if (probe?.grpc) {
+    return `grpc ${probePort(probe.grpc.port)}`;
+  }
+  if (probe?.exec) {
+    return `exec ${probe.exec.command?.slice(0, 3).join(" ") || "command"}`;
+  }
+  return "";
+}
+
+function probePort(port: string | number | undefined) {
+  return port ? String(port) : "?";
 }
 
 function containerPorts(container?: KubeContainerSpec) {
