@@ -542,7 +542,15 @@ function LabelPills({ resource }: { resource: ResourceRow }) {
   );
 }
 
-export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
+export function NamespacePressure({
+  heat,
+  onSelectNamespace,
+  selectedNamespace,
+}: {
+  heat: NamespaceHeat[];
+  onSelectNamespace: (namespace: string) => void;
+  selectedNamespace: string;
+}) {
   const rows = useMemo(() => [...heat].sort(namespacePressureSort).slice(0, 8), [heat]);
 
   return (
@@ -554,8 +562,16 @@ export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
       <div className="pressure-list">
         {rows.map((item) => {
           const pressure = Math.max(item.cpu, item.memory);
+          const selected = selectedNamespace === item.namespace;
           return (
-            <div className={`pressure-row ${item.risk}`} key={item.namespace}>
+            <button
+              aria-pressed={selected}
+              className={selected ? `pressure-row ${item.risk} active` : `pressure-row ${item.risk}`}
+              key={item.namespace}
+              title={`Filter resources to namespace ${item.namespace}`}
+              type="button"
+              onClick={() => onSelectNamespace(item.namespace)}
+            >
               <span className="pressure-namespace">
                 <StatusDot state={item.risk} />
                 <strong title={item.namespace}>{item.namespace}</strong>
@@ -570,7 +586,7 @@ export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
                 {item.restarts}r
               </small>
               <small>{pressure}%</small>
-            </div>
+            </button>
           );
         })}
       </div>

@@ -961,9 +961,24 @@ summary:focus-visible {
   grid-template-columns: minmax(130px, 1fr) 2fr 48px 48px;
   gap: 14px;
   align-items: center;
+  inline-size: 100%;
   min-block-size: 34px;
+  padding: 0 6px;
+  border: 0;
   font-family: var(--font-mono);
   font-size: 12px;
+  text-align: start;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pressure-row:hover,
+.pressure-row.active {
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+}
+
+.pressure-row.active {
+  box-shadow: inset 2px 0 0 var(--green);
 }
 
 .pressure-namespace {

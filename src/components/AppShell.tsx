@@ -66,6 +66,13 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
   }
 
+  function selectPressureNamespace(namespace: string) {
+    data.onSetNamespaceFilter(namespace);
+    setDetailIntent(null);
+    setDetailOpen(false);
+    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
+  }
+
   return (
     <div className="kite-window">
       <div className="control-center">
@@ -120,7 +127,11 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                     onOpenResourceLogs={(id) => openResource(id, "logs")}
                     onSort={(key) => setResourceSort((current) => nextResourceSort(current, key))}
                   />
-                  <NamespacePressure heat={data.namespaceHeat} />
+                  <NamespacePressure
+                    heat={data.namespaceHeat}
+                    selectedNamespace={data.namespaceFilter}
+                    onSelectNamespace={selectPressureNamespace}
+                  />
                 </>
               )}
             </div>
