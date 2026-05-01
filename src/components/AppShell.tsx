@@ -5,7 +5,7 @@ import { pinnedResourcesNavId } from "../theme/resourceTheme";
 import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
-import { PodTriageRail } from "./PodTriageRail";
+import { PodTriageRail, shouldTriagePod } from "./PodTriageRail";
 import { ResourceDetail } from "./ResourceDetail";
 import { NamespacePressure, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
 
@@ -45,7 +45,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
     [data.visibleResources],
   );
   const podTriageResources = useMemo(
-    () => sortResources(data.visibleResources.filter((resource) => resource.kind === "Pod" && resource.status !== "healthy"), defaultResourceSort),
+    () => sortResources(data.visibleResources.filter(shouldTriagePod), defaultResourceSort),
     [data.visibleResources],
   );
 

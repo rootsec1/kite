@@ -94,19 +94,25 @@ const PodTriageButton = memo(function PodTriageButton({
   pod: ResourceRow;
 }) {
   const handleSelect = useCallback(() => onSelect(pod.id), [onSelect, pod.id]);
+  const triageTone = pod.status === "healthy" && pod.restarts > 0 ? "warning" : pod.status;
+  const diagnostic = pod.diagnostic || (pod.restarts > 0 ? `${pod.restarts} restarts` : pod.status);
 
   return (
-    <button className={`pod-triage-item ${pod.status}`} type="button" onClick={handleSelect}>
-      <StatusDot state={pod.status} />
+    <button className={`pod-triage-item ${triageTone}`} type="button" onClick={handleSelect}>
+      <StatusDot state={triageTone} />
       <span>
         <strong title={pod.name}>{pod.name}</strong>
         <small title={pod.namespace}>{pod.namespace}</small>
       </span>
-      <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
+      <em title={diagnostic}>{diagnostic}</em>
       <small>{pod.restarts}r</small>
     </button>
   );
 });
+
+export function shouldTriagePod(resource: ResourceRow) {
+  return resource.kind === "Pod" && (resource.status !== "healthy" || resource.restarts > 0 || Boolean(resource.diagnostic.trim()));
+}
 
 function podTriageBuckets(pods: ResourceRow[]): PodTriageBucket[] {
   const counts = new Map<PodTriageBucket["id"], number>([
