@@ -727,6 +727,11 @@ summary:focus-visible {
   grid-template-columns: minmax(230px, 1.45fr) minmax(112px, 0.65fr) minmax(132px, 0.75fr) 58px 118px minmax(140px, 0.75fr);
 }
 
+.resource-table.with-owner .table-head,
+.resource-table.with-owner .resource-row {
+  grid-template-columns: minmax(220px, 1.35fr) minmax(100px, 0.58fr) minmax(112px, 0.68fr) minmax(118px, 0.72fr) 54px 108px minmax(124px, 0.72fr);
+}
+
 .table-head {
   min-block-size: 38px;
   padding-inline: 18px;
@@ -865,7 +870,8 @@ summary:focus-visible {
   color: var(--green-deep);
 }
 
-.node-cell {
+.node-cell,
+.owner-cell {
   overflow: hidden;
   color: var(--text-soft);
   font-family: var(--font-mono);
@@ -874,7 +880,8 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
-.node-cell.pending {
+.node-cell.pending,
+.owner-cell.pending {
   color: var(--muted);
 }
 

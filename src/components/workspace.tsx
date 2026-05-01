@@ -172,6 +172,7 @@ export function ResourceTable({
   selectedId,
   showKind,
   showNode,
+  showOwner,
   sort,
   pinnedResourceKeys,
   title,
@@ -186,6 +187,7 @@ export function ResourceTable({
   selectedId: string;
   showKind: boolean;
   showNode: boolean;
+  showOwner: boolean;
   sort: ResourceSort;
   title: string;
 }) {
@@ -346,12 +348,13 @@ export function ResourceTable({
         <small>{resources.length} visible</small>
       </header>
 
-      <div className={tableClassName(showKind, showNode)}>
+      <div className={tableClassName(showKind, showNode, showOwner)}>
         <div className="table-head" role="row">
           <SortableHead label="Name" sort={sort} sortKey="name" onSort={onSort} />
           {showKind ? <SortableHead label="Kind" sort={sort} sortKey="kind" onSort={onSort} /> : null}
           <SortableHead label="Namespace" sort={sort} sortKey="namespace" onSort={onSort} />
           {showNode ? <SortableHead label="Node" sort={sort} sortKey="node" onSort={onSort} /> : null}
+          {showOwner ? <SortableHead label="Owner" sort={sort} sortKey="owner" onSort={onSort} /> : null}
           <SortableHead label="Age" sort={sort} sortKey="age" onSort={onSort} />
           <SortableHead label="Signals" sort={sort} sortKey="signals" onSort={onSort} />
           <span>Labels</span>
@@ -378,6 +381,7 @@ export function ResourceTable({
                   selected={resource.id === selectedId}
                   showKind={showKind}
                   showNode={showNode}
+                  showOwner={showOwner}
                   pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
                   onOpenLogs={onOpenResourceLogs}
                   onOpen={onOpenResource}
@@ -408,6 +412,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
   selected,
   showKind,
   showNode,
+  showOwner,
 }: {
   index: number;
   onOpen: (id: string) => void;
@@ -418,6 +423,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
   selected: boolean;
   showKind: boolean;
   showNode: boolean;
+  showOwner: boolean;
 }) {
   const handleOpen = useCallback(() => onOpen(resource.id), [onOpen, resource.id]);
   const handleOpenLogs = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -454,6 +460,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
       {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>
       {showNode ? <NodeCell nodeName={resource.nodeName} /> : null}
+      {showOwner ? <OwnerCell owner={resource.owner} /> : null}
       <span title={resource.age}>{formatResourceAge(resource.age)}</span>
       <SignalCell resource={resource} />
       <span className="label-action-cell">
@@ -485,11 +492,12 @@ const ResourceRowButton = memo(function ResourceRowButton({
   );
 });
 
-function tableClassName(showKind: boolean, showNode: boolean) {
+function tableClassName(showKind: boolean, showNode: boolean, showOwner: boolean) {
   return [
     "resource-table",
     showKind ? "" : "without-kind",
     showNode ? "with-node" : "",
+    showOwner ? "with-owner" : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -539,6 +547,14 @@ function NodeCell({ nodeName }: { nodeName: string }) {
   return (
     <span className={nodeName ? "node-cell" : "node-cell pending"} title={nodeName || "Pod has not been scheduled"}>
       {nodeName || "pending"}
+    </span>
+  );
+}
+
+function OwnerCell({ owner }: { owner: string }) {
+  return (
+    <span className={owner ? "owner-cell" : "owner-cell pending"} title={owner || "Standalone pod"}>
+      {owner || "standalone"}
     </span>
   );
 }
