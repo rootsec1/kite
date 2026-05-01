@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
-import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
+import { matchesSelector, ownsPod, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
@@ -8,6 +8,7 @@ import { PodLinkStrip } from "./PodLinkStrip";
 import { PodPlacementStrip } from "./PodPlacementStrip";
 import { PodTerminal, type LogMode } from "./PodTerminal";
 import { StatusDot } from "./status";
+import { StorageBindingRail } from "./StorageBindingRail";
 
 type ResourceDetailProps = {
   allResources: ResourceRow[];
@@ -182,6 +183,7 @@ export function ResourceDetail({
           ) : null}
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
         </>
@@ -1246,13 +1248,5 @@ function referencedResources(references: ResourceRow["references"], resources: R
       resource.name === reference.name &&
       (reference.namespace === "cluster" || resource.namespace === reference.namespace),
     ),
-  );
-}
-
-function referencesResource(source: ResourceRow, target: ResourceRow) {
-  return source.references.some((reference) =>
-    target.kind === reference.kind &&
-    target.name === reference.name &&
-    (reference.namespace === "cluster" || target.namespace === reference.namespace),
   );
 }

@@ -28,3 +28,11 @@ export function resourceReferenceSearchText(resource: ResourceRow) {
     ])
     .join(" ");
 }
+
+export function referencesResource(source: ResourceRow, target: ResourceRow) {
+  return source.references.some((reference) =>
+    target.kind === reference.kind &&
+    target.name === reference.name &&
+    (reference.namespace === "cluster" || target.namespace === reference.namespace),
+  );
+}

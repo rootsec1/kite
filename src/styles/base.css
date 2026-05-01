@@ -2150,6 +2150,14 @@ summary:focus-visible {
   color: var(--orange);
 }
 
+.storage-binding-rail header svg {
+  color: var(--orange);
+}
+
+.storage-binding-rail.healthy header svg {
+  color: var(--green-deep);
+}
+
 .service-backend-rail header small {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -28,6 +28,8 @@ type KubeItem = {
     affinity?: Record<string, unknown>;
     nodeSelector?: Record<string, string | number | boolean>;
     providerID?: string;
+    storageClassName?: string;
+    volumeName?: string;
     containers?: KubeContainerSpec[];
     ephemeralContainers?: KubeContainerSpec[];
     initContainers?: KubeContainerSpec[];
@@ -50,6 +52,8 @@ type KubeItem = {
       http?: { paths?: Array<{ backend?: KubeIngressBackend }> };
     }>;
   };
+  provisioner?: string;
+  reclaimPolicy?: string;
   status?: {
     phase?: string;
     podIP?: string;
@@ -711,11 +715,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
     memory: Math.min(100, pressure + 8),
     restarts,
     owner: ownerForResource(item, namespace),
-    image:
-      item.status?.containerStatuses?.[0]?.image ??
-      item.spec?.containers?.[0]?.image ??
-      item.spec?.template?.spec?.containers?.[0]?.image ??
-      "",
+    image: resourceImage(item),
     nodeName: item.kind === "Pod" ? item.spec?.nodeName ?? "" : "",
     diagnostic: resourceDiagnostic(item),
     backendReady: item.kind === "Pod" && podBackendReady(item),
@@ -846,12 +846,38 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return involved ? `${involved.kind}/${involved.name}` : fallback;
   }
 
+  if (item.kind === "PersistentVolumeClaim") {
+    return item.spec?.volumeName ?? "";
+  }
+
+  if (item.kind === "PersistentVolume") {
+    const claim = item.spec?.claimRef;
+    return claim?.name ? `${claim.namespace || "default"}/${claim.name}` : "";
+  }
+
+  if (item.kind === "StorageClass") {
+    return item.reclaimPolicy ?? "";
+  }
+
   if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
     return `${item.roleRef.kind}/${item.roleRef.name}`;
   }
 
   const owner = item.metadata?.ownerReferences?.[0];
   return owner?.kind && owner?.name ? `${owner.kind}/${owner.name}` : fallback;
+}
+
+function resourceImage(item: KubeItem) {
+  if (item.kind === "PersistentVolumeClaim" || item.kind === "PersistentVolume") {
+    return item.spec?.storageClassName ?? "";
+  }
+  if (item.kind === "StorageClass") {
+    return item.provisioner ?? "";
+  }
+  return item.status?.containerStatuses?.[0]?.image ??
+    item.spec?.containers?.[0]?.image ??
+    item.spec?.template?.spec?.containers?.[0]?.image ??
+    "";
 }
 
 function selectorLabels(selector: KubeItem["spec"]["selector"]) {
