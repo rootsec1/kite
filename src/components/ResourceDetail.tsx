@@ -42,7 +42,7 @@ export function ResourceDetail({
 }: ResourceDetailProps) {
   const isPod = resource.kind === "Pod";
   const hierarchyGroups = useMemo(() => hierarchyFor(resource, allResources), [allResources, resource]);
-  const hasContainerPorts = Boolean(details.pod?.containers.some((container) => container.ports.length));
+  const forwardedPorts = useMemo(() => podPorts(details), [details]);
   const terminalRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -127,12 +127,18 @@ export function ResourceDetail({
               <TerminalSquare size={15} />
               Exec
             </button>
-            {hasContainerPorts ? (
-              <button type="button" onClick={() => onRunPodAction("port-forward")}>
+            {forwardedPorts.map((port) => (
+              <button
+                aria-label={`Port-forward pod port ${port}`}
+                key={port}
+                title={`Port-forward pod port ${port}`}
+                type="button"
+                onClick={() => onRunPodAction(`port-forward:${port}`)}
+              >
                 <Network size={15} />
-                Port
+                {port}
               </button>
-            ) : null}
+            ))}
             <button type="button" onClick={() => onRunPodAction("restart")}>
               <RotateCw size={15} />
               Restart
@@ -225,6 +231,18 @@ function podDiagnostic(pod: ResourceDetails["pod"]) {
   return [pod.reason, pod.message]
     .filter((part, index, parts) => part && part !== pod.phase && parts.indexOf(part) === index)
     .join(" / ");
+}
+
+function podPorts(details: ResourceDetails) {
+  const ports = new Set<number>();
+  for (const container of details.pod?.containers ?? []) {
+    for (const port of container.ports) {
+      if (Number.isInteger(port) && port > 0) {
+        ports.add(port);
+      }
+    }
+  }
+  return Array.from(ports).sort((left, right) => left - right);
 }
 
 function PodRuntimeFacts({ details, resource }: { details: ResourceDetails; resource: ResourceRow }) {
@@ -567,7 +585,8 @@ function ActionFact({ label, value }: { label: string; value: string }) {
 }
 
 function actionTitle(action: string) {
-  return action.replace(/-/g, " ");
+  const [base, detail] = action.split(":", 2);
+  return detail ? `${base.replace(/-/g, " ")} ${detail}` : base.replace(/-/g, " ");
 }
 
 function statusTitle(status: PodActionResult["status"]) {
@@ -582,10 +601,11 @@ function actionMessage(result: PodActionResult) {
 }
 
 function actionRisk(action: string) {
-  if (action === "delete" || action === "kill") {
+  const [base] = action.split(":", 1);
+  if (base === "delete" || base === "kill") {
     return "high";
   }
-  if (action === "restart" || action === "exec" || action === "port-forward") {
+  if (base === "restart" || base === "exec" || base === "port-forward") {
     return "medium";
   }
   return "low";

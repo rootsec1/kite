@@ -259,6 +259,7 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
 #[tauri::command]
 pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -> PodActionResult {
     let normalized = action.to_lowercase();
+    let action_name = normalized.split_once(':').map(|(name, _)| name.to_string()).unwrap_or_else(|| normalized.clone());
     if target.kind != "Pod" {
         return pod_action_result(
             normalized,
@@ -271,7 +272,7 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
     }
 
     let is_local = is_local_context(&target.cluster);
-    match normalized.as_str() {
+    match action_name.as_str() {
         "logs" => {
             let command = display_kubectl_command(&target, &[
                 "logs".to_string(),
@@ -309,30 +310,38 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
                 ),
             }
         }
-        "port-forward" => match first_pod_port(&target).await {
-            Ok(port) => {
-                let command = pod_port_forward_command(&target, port);
-                match open_terminal(&command).await {
-                    Ok(()) => pod_action_result(
-                        normalized,
-                        PodActionStatus::Executed,
-                        format!("Opened Terminal forwarding to pod port {port}."),
-                        String::new(),
-                        command,
-                        false,
-                    ),
-                    Err(error) => pod_action_result(
-                        normalized,
-                        PodActionStatus::Ready,
-                        error,
-                        String::new(),
-                        command,
-                        false,
-                    ),
+        "port-forward" => {
+            let port = match requested_port_for_action(&normalized) {
+                Ok(Some(port)) => Ok(port),
+                Ok(None) => first_pod_port(&target).await,
+                Err(error) => Err(error),
+            };
+
+            match port {
+                Ok(port) => {
+                    let command = pod_port_forward_command(&target, port);
+                    match open_terminal(&command).await {
+                        Ok(()) => pod_action_result(
+                            normalized,
+                            PodActionStatus::Executed,
+                            format!("Opened Terminal forwarding to pod port {port}."),
+                            String::new(),
+                            command,
+                            false,
+                        ),
+                        Err(error) => pod_action_result(
+                            normalized,
+                            PodActionStatus::Ready,
+                            error,
+                            String::new(),
+                            command,
+                            false,
+                        ),
+                    }
                 }
+                Err(error) => pod_action_result(normalized, PodActionStatus::Blocked, error, String::new(), String::new(), false),
             }
-            Err(error) => pod_action_result(normalized, PodActionStatus::Blocked, error, String::new(), String::new(), false),
-        },
+        }
         "restart" => guarded_pod_write(normalized, target, confirmed, is_local).await,
         "delete" | "kill" => guarded_pod_write("delete".to_string(), target, confirmed, is_local).await,
         _ => pod_action_result(
@@ -344,6 +353,21 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
             false,
         ),
     }
+}
+
+fn requested_port_for_action(action: &str) -> Result<Option<u16>, String> {
+    let Some((name, port)) = action.split_once(':') else {
+        return Ok(None);
+    };
+    if name != "port-forward" {
+        return Ok(None);
+    }
+
+    port.parse::<u16>()
+        .ok()
+        .filter(|port| *port > 0)
+        .map(Some)
+        .ok_or_else(|| format!("Invalid pod port for {action}."))
 }
 
 async fn helm_details(target: ActionTarget) -> ResourceDetails {
@@ -2928,6 +2952,15 @@ mod tests {
         let command = pod_port_forward_command(&target, 8080);
 
         assert!(command.contains("kubectl --context kind-kite port-forward -n default pod/api :8080"));
+    }
+
+    #[test]
+    fn requested_port_for_action_reads_explicit_port() {
+        assert_eq!(requested_port_for_action("port-forward:9090"), Ok(Some(9090)));
+        assert_eq!(requested_port_for_action("port-forward"), Ok(None));
+        assert_eq!(requested_port_for_action("exec:9090"), Ok(None));
+        assert!(requested_port_for_action("port-forward:0").is_err());
+        assert!(requested_port_for_action("port-forward:http").is_err());
     }
 
     #[test]
