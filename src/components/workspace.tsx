@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowDownUp, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
@@ -153,6 +153,8 @@ export function ScopeTabs({
 }
 
 export function ResourceTable({
+  onFocusResource,
+  onOpenResource,
   onSort,
   resources,
   selectedId,
@@ -160,8 +162,9 @@ export function ResourceTable({
   sort,
   pinnedResourceKeys,
   title,
-  onSelect,
 }: {
+  onFocusResource: (id: string) => void;
+  onOpenResource: (id: string) => void;
   onSort: (key: ResourceSortKey) => void;
   pinnedResourceKeys: Set<string>;
   resources: ResourceRow[];
@@ -169,12 +172,12 @@ export function ResourceTable({
   showKind: boolean;
   sort: ResourceSort;
   title: string;
-  onSelect: (id: string) => void;
 }) {
   const tableBodyRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [rowHeight, setRowHeight] = useState(resourceRowHeight);
+  const selectedIndex = useMemo(() => resources.findIndex((resource) => resource.id === selectedId), [resources, selectedId]);
   const visibleWindow = useMemo(() => {
     if (!resources.length) {
       return { end: 0, start: 0 };
@@ -191,10 +194,49 @@ export function ResourceTable({
   const topSpacerHeight = visibleWindow.start * rowHeight;
   const bottomSpacerHeight = Math.max(0, (resources.length - visibleWindow.end) * rowHeight);
   const tableViewSignature = `${title}|${sort.key}:${sort.direction}|${resources.length}|${resources[0]?.id ?? ""}`;
+  const activeDescendantId = selectedIndex >= 0 ? resourceRowDomId(resources[selectedIndex]) : undefined;
 
   const handleTableScroll = useCallback(() => {
     setScrollTop(tableBodyRef.current?.scrollTop ?? 0);
   }, []);
+
+  const moveSelection = useCallback((nextIndex: number) => {
+    const resource = resources[Math.max(0, Math.min(nextIndex, resources.length - 1))];
+    if (resource) {
+      onFocusResource(resource.id);
+    }
+  }, [onFocusResource, resources]);
+
+  const handleTableKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!resources.length) {
+      return;
+    }
+
+    const currentIndex = selectedIndex >= 0 ? selectedIndex : 0;
+
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        moveSelection(currentIndex + 1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        moveSelection(currentIndex - 1);
+        break;
+      case "Home":
+        event.preventDefault();
+        moveSelection(0);
+        break;
+      case "End":
+        event.preventDefault();
+        moveSelection(resources.length - 1);
+        break;
+      case "Enter":
+        event.preventDefault();
+        onOpenResource(resources[currentIndex].id);
+        break;
+    }
+  }, [moveSelection, onOpenResource, resources, selectedIndex]);
 
   useLayoutEffect(() => {
     const tableBodyElement = tableBodyRef.current;
@@ -246,6 +288,30 @@ export function ResourceTable({
     setScrollTop(0);
   }, [tableViewSignature]);
 
+  useEffect(() => {
+    const tableBody = tableBodyRef.current;
+    if (!tableBody || selectedIndex < 0) {
+      return;
+    }
+
+    const selectedTop = selectedIndex * rowHeight;
+    const selectedBottom = selectedTop + rowHeight;
+    const viewTop = tableBody.scrollTop;
+    const viewBottom = viewTop + tableBody.clientHeight;
+    let nextScrollTop = viewTop;
+
+    if (selectedTop < viewTop) {
+      nextScrollTop = selectedTop;
+    } else if (selectedBottom > viewBottom) {
+      nextScrollTop = selectedBottom - tableBody.clientHeight;
+    }
+
+    if (nextScrollTop !== viewTop) {
+      tableBody.scrollTop = nextScrollTop;
+      setScrollTop(nextScrollTop);
+    }
+  }, [rowHeight, selectedIndex]);
+
   return (
     <section className="resource-panel">
       <header>
@@ -264,7 +330,17 @@ export function ResourceTable({
           <SortableHead label="Signals" sort={sort} sortKey="signals" onSort={onSort} />
           <span>Labels</span>
         </div>
-        <div className="table-body" ref={tableBodyRef} onScroll={handleTableScroll}>
+        <div
+          aria-activedescendant={activeDescendantId}
+          aria-label={`${title} resources`}
+          aria-rowcount={resources.length}
+          className="table-body"
+          ref={tableBodyRef}
+          role="grid"
+          tabIndex={0}
+          onKeyDown={handleTableKeyDown}
+          onScroll={handleTableScroll}
+        >
           {resources.length ? (
             <>
               {topSpacerHeight ? <div aria-hidden="true" className="resource-table-spacer" style={{ blockSize: topSpacerHeight }} /> : null}
@@ -276,7 +352,7 @@ export function ResourceTable({
                   selected={resource.id === selectedId}
                   showKind={showKind}
                   pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
-                  onOpen={onSelect}
+                  onOpen={onOpenResource}
                 />
               ))}
               {bottomSpacerHeight ? <div aria-hidden="true" className="resource-table-spacer" style={{ blockSize: bottomSpacerHeight }} /> : null}
@@ -312,8 +388,12 @@ const ResourceRowButton = memo(function ResourceRowButton({
 
   return (
     <button
+      aria-selected={selected}
       className={selected ? "resource-row selected" : "resource-row"}
+      id={resourceRowDomId(resource)}
+      role="row"
       style={{ "--delay": `${Math.min(index, 18) * 28}ms` } as CSSProperties}
+      tabIndex={-1}
       type="button"
       onClick={handleOpen}
     >
@@ -335,6 +415,10 @@ const ResourceRowButton = memo(function ResourceRowButton({
     </button>
   );
 });
+
+function resourceRowDomId(resource: ResourceRow) {
+  return `resource-row-${resource.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
 
 function SortableHead({
   label,

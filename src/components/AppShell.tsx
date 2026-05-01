@@ -108,8 +108,9 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                     sort={resourceSort}
                     pinnedResourceKeys={data.pinnedResourceKeys}
                     title={activeItem?.label ?? "Resource inventory"}
+                    onFocusResource={data.onSelectResource}
+                    onOpenResource={openResource}
                     onSort={(key) => setResourceSort((current) => nextResourceSort(current, key))}
-                    onSelect={openResource}
                   />
                   <NamespacePressure heat={data.namespaceHeat} />
                 </>
