@@ -6,6 +6,7 @@ import {
   Database,
   GalleryVerticalEnd,
   FileKey2,
+  GitCommitHorizontal,
   GitBranch,
   HardDrive,
   Layers3,
@@ -51,6 +52,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
     title: "Workloads",
     items: [
       { id: "Deployment", label: "Deployments", icon: GitBranch, kind: "Deployment" },
+      { id: "ReplicaSet", label: "ReplicaSets", icon: GitCommitHorizontal, kind: "ReplicaSet" },
       { id: "StatefulSet", label: "StatefulSets", icon: Boxes, kind: "StatefulSet" },
       { id: "DaemonSet", label: "DaemonSets", icon: CircleDot, kind: "DaemonSet" },
       { id: "Job", label: "Jobs", icon: Clock3, kind: "Job" },
@@ -113,6 +115,7 @@ export const kindThemes: Record<string, KindTheme> = {
   Node: { label: "Nodes", icon: Server, accent: "blue", actions: ["Shell", "Drain", "YAML"] },
   Namespace: { label: "Namespaces", icon: Layers3, accent: "green", actions: ["Quota", "Events", "YAML"] },
   Deployment: { label: "Deployments", icon: GitBranch, accent: "green", actions: ["Scale", "Restart", "Rollback"] },
+  ReplicaSet: { label: "ReplicaSets", icon: GitCommitHorizontal, accent: "green", actions: ["Pods", "Owner", "YAML"] },
   StatefulSet: { label: "StatefulSets", icon: Boxes, accent: "green", actions: ["Scale", "Restart", "YAML"] },
   DaemonSet: { label: "DaemonSets", icon: CircleDot, accent: "green", actions: ["Restart", "Events", "YAML"] },
   Job: { label: "Jobs", icon: Clock3, accent: "orange", actions: ["Rerun", "Logs", "YAML"] },

@@ -58,6 +58,7 @@ type KubeItem = {
     startTime?: string;
     replicas?: number;
     availableReplicas?: number;
+    readyReplicas?: number;
     unavailableReplicas?: number;
     conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>;
     containerStatuses?: KubeContainerStatus[];
@@ -183,6 +184,7 @@ type KubeEvent = {
 const resourceQueries = [
   { name: "pods", namespaced: true },
   { name: "deployments.apps", namespaced: true },
+  { name: "replicasets.apps", namespaced: true },
   { name: "statefulsets.apps", namespaced: true },
   { name: "daemonsets.apps", namespaced: true },
   { name: "jobs.batch", namespaced: true },
@@ -1006,7 +1008,17 @@ function resourceStatus(item: KubeItem) {
     return "healthy";
   }
 
+  if (item.kind === "ReplicaSet") {
+    return workloadStatus(item.status?.readyReplicas ?? 0, item.spec?.replicas ?? 1);
+  }
+
   return "healthy";
+}
+
+function workloadStatus(ready: number, desired: number) {
+  if (desired === 0 || ready >= desired) return "healthy";
+  if (ready === 0) return "critical";
+  return "warning";
 }
 
 function resourceDiagnostic(item: KubeItem) {

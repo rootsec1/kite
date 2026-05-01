@@ -128,6 +128,8 @@ function compactKind(kind: string) {
       return "PVC";
     case "PersistentVolume":
       return "PV";
+    case "ReplicaSet":
+      return "RS";
     case "StatefulSet":
       return "STS";
     default:

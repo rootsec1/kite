@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, env, path::PathBuf};
 
 use k8s_openapi::api::{
-    apps::v1::{DaemonSet, Deployment, StatefulSet},
+    apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
     batch::v1::{CronJob, Job},
     core::v1::{
         ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
@@ -127,9 +127,10 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
 }
 
 async fn required_snapshot_resources(client: Client, context: &str) -> Result<(Vec<ResourceSummary>, Vec<String>), String> {
-    let (pods, deployments, statefulsets, daemonsets, jobs, cronjobs, services, ingresses) = tokio::try_join!(
+    let (pods, deployments, replicasets, statefulsets, daemonsets, jobs, cronjobs, services, ingresses) = tokio::try_join!(
         list_pods(client.clone(), context),
         list_deployments(client.clone(), context),
+        list_replicasets(client.clone(), context),
         list_statefulsets(client.clone(), context),
         list_daemonsets(client.clone(), context),
         list_jobs(client.clone(), context),
@@ -174,6 +175,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
 
     resources.extend(pods);
     resources.extend(deployments);
+    resources.extend(replicasets);
     resources.extend(statefulsets);
     resources.extend(daemonsets);
     resources.extend(jobs);
@@ -1427,6 +1429,54 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
             )
             .with_age(age)
             .with_labels(labels)
+            .with_selector(selector)
+        })
+        .collect())
+}
+
+async fn list_replicasets(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let replicasets = Api::<ReplicaSet>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ReplicaSets: {error}"))?;
+
+    Ok(replicasets
+        .items
+        .into_iter()
+        .map(|replicaset| {
+            let age = resource_age(&replicaset.metadata);
+            let desired = replicaset.spec.as_ref().and_then(|spec| spec.replicas).unwrap_or(1);
+            let ready = replicaset.status.as_ref().and_then(|status| status.ready_replicas).unwrap_or(0);
+            let image = replicaset
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.template.as_ref())
+                .and_then(|template| template.spec.as_ref())
+                .and_then(|spec| spec.containers.first())
+                .map(|container| container.image.clone().unwrap_or_default())
+                .unwrap_or_default();
+            let labels = replicaset.metadata.labels.clone().unwrap_or_default();
+            let selector = replicaset.spec.as_ref().and_then(|spec| spec.selector.match_labels.clone()).unwrap_or_default();
+            let owner = replicaset
+                .metadata
+                .owner_references
+                .as_ref()
+                .and_then(|owners| owners.first())
+                .map(|owner| format!("{}/{}", owner.kind, owner.name))
+                .unwrap_or_default();
+
+            resource_summary(
+                "ReplicaSet",
+                replicaset.name_any(),
+                replicaset.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                workload_status(ready, desired),
+                0,
+                image,
+            )
+            .with_age(age)
+            .with_labels(labels)
+            .with_owner(owner)
             .with_selector(selector)
         })
         .collect())
