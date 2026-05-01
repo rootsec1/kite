@@ -722,6 +722,11 @@ summary:focus-visible {
   grid-template-columns: minmax(220px, 1.55fr) minmax(130px, 0.8fr) 66px 128px minmax(150px, 0.8fr);
 }
 
+.resource-table.with-node .table-head,
+.resource-table.with-node .resource-row {
+  grid-template-columns: minmax(230px, 1.45fr) minmax(112px, 0.65fr) minmax(132px, 0.75fr) 58px 118px minmax(140px, 0.75fr);
+}
+
 .table-head {
   min-block-size: 38px;
   padding-inline: 18px;
@@ -796,6 +801,13 @@ summary:focus-visible {
   box-shadow: inset 3px 0 0 var(--green);
 }
 
+.resource-row > span:not(.name-cell):not(.signal-cell):not(.label-action-cell) {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .name-cell {
   display: flex;
   align-items: center;
@@ -818,7 +830,7 @@ summary:focus-visible {
 }
 
 .resource-diagnostic {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   overflow: hidden;
   max-inline-size: 150px;
   padding: 3px 6px;
@@ -831,6 +843,10 @@ summary:focus-visible {
   text-transform: uppercase;
   white-space: nowrap;
   background: var(--surface-soft);
+}
+
+.resource-table.with-node .resource-diagnostic {
+  display: none;
 }
 
 .resource-diagnostic.warning,
@@ -847,6 +863,19 @@ summary:focus-visible {
 .pinned-marker {
   flex: 0 0 auto;
   color: var(--green-deep);
+}
+
+.node-cell {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-cell.pending {
+  color: var(--muted);
 }
 
 .label-pills {

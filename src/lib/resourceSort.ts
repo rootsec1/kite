@@ -1,7 +1,7 @@
 import type { ResourceRow } from "../types/kube";
 import { workloadKinds } from "./resourceRelationships";
 
-export type ResourceSortKey = "triage" | "name" | "kind" | "namespace" | "age" | "signals";
+export type ResourceSortKey = "triage" | "name" | "kind" | "namespace" | "node" | "age" | "signals";
 export type ResourceSortDirection = "asc" | "desc";
 
 export type ResourceSort = {
@@ -76,6 +76,8 @@ function compareResourceField(left: ResourceRow, right: ResourceRow, key: Resour
       return left.kind.localeCompare(right.kind);
     case "namespace":
       return left.namespace.localeCompare(right.namespace);
+    case "node":
+      return left.nodeName.localeCompare(right.nodeName);
     case "age":
       return ageRank(left.age) - ageRank(right.age);
     case "signals":

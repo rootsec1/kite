@@ -170,6 +170,7 @@ export function ResourceTable({
   resources,
   selectedId,
   showKind,
+  showNode,
   sort,
   pinnedResourceKeys,
   title,
@@ -182,6 +183,7 @@ export function ResourceTable({
   resources: ResourceRow[];
   selectedId: string;
   showKind: boolean;
+  showNode: boolean;
   sort: ResourceSort;
   title: string;
 }) {
@@ -342,11 +344,12 @@ export function ResourceTable({
         <small>{resources.length} visible</small>
       </header>
 
-      <div className={showKind ? "resource-table" : "resource-table without-kind"}>
+      <div className={tableClassName(showKind, showNode)}>
         <div className="table-head" role="row">
           <SortableHead label="Name" sort={sort} sortKey="name" onSort={onSort} />
           {showKind ? <SortableHead label="Kind" sort={sort} sortKey="kind" onSort={onSort} /> : null}
           <SortableHead label="Namespace" sort={sort} sortKey="namespace" onSort={onSort} />
+          {showNode ? <SortableHead label="Node" sort={sort} sortKey="node" onSort={onSort} /> : null}
           <SortableHead label="Age" sort={sort} sortKey="age" onSort={onSort} />
           <SortableHead label="Signals" sort={sort} sortKey="signals" onSort={onSort} />
           <span>Labels</span>
@@ -372,6 +375,7 @@ export function ResourceTable({
                   resource={resource}
                   selected={resource.id === selectedId}
                   showKind={showKind}
+                  showNode={showNode}
                   pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
                   onOpenLogs={onOpenResourceLogs}
                   onOpen={onOpenResource}
@@ -399,6 +403,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
   resource,
   selected,
   showKind,
+  showNode,
 }: {
   index: number;
   onOpen: (id: string) => void;
@@ -407,6 +412,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
   resource: ResourceRow;
   selected: boolean;
   showKind: boolean;
+  showNode: boolean;
 }) {
   const handleOpen = useCallback(() => onOpen(resource.id), [onOpen, resource.id]);
   const handleOpenLogs = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -437,6 +443,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
       </span>
       {showKind ? <span>{resource.kind}</span> : null}
       <span>{resource.namespace}</span>
+      {showNode ? <NodeCell nodeName={resource.nodeName} /> : null}
       <span title={resource.age}>{formatResourceAge(resource.age)}</span>
       <SignalCell resource={resource} />
       <span className="label-action-cell">
@@ -451,6 +458,14 @@ const ResourceRowButton = memo(function ResourceRowButton({
     </div>
   );
 });
+
+function tableClassName(showKind: boolean, showNode: boolean) {
+  return [
+    "resource-table",
+    showKind ? "" : "without-kind",
+    showNode ? "with-node" : "",
+  ].filter(Boolean).join(" ");
+}
 
 function resourceRowDomId(resource: ResourceRow) {
   return `resource-row-${resource.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -490,6 +505,14 @@ function SignalCell({ resource }: { resource: ResourceRow }) {
       <SignalBar label="cpu" value={resource.cpu} />
       <SignalBar label="mem" value={resource.memory} />
       <small>{resource.restarts}r</small>
+    </span>
+  );
+}
+
+function NodeCell({ nodeName }: { nodeName: string }) {
+  return (
+    <span className={nodeName ? "node-cell" : "node-cell pending"} title={nodeName || "Pod has not been scheduled"}>
+      {nodeName || "pending"}
     </span>
   );
 }

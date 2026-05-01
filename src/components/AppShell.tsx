@@ -119,6 +119,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                     resources={scopedResources}
                     selectedId={data.selectedResource?.id ?? ""}
                     showKind={!activeItem?.kind}
+                    showNode={activeItem?.kind === "Pod"}
                     sort={resourceSort}
                     pinnedResourceKeys={data.pinnedResourceKeys}
                     title={activeItem?.label ?? "Resource inventory"}
