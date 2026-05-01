@@ -285,13 +285,14 @@ export async function runPodAction(input: {
   target: { kind: string; name: string; namespace: string; cluster: string };
 }) {
   const action = input.action.toLowerCase();
+  const actionName = action.split(":", 1)[0];
   const { target } = input;
 
   if (target.kind !== "Pod") {
     return podActionResult(action, "blocked", "Pod actions only run against pods.");
   }
 
-  if (action === "logs") {
+  if (actionName === "logs") {
     const command = displayKubectlCommand([
       "logs",
       target.name,
@@ -307,15 +308,20 @@ export async function runPodAction(input: {
       .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
   }
 
-  if (action === "exec") {
+  if (actionName === "exec") {
     const command = podExecCommand(target);
     return openTerminal(command)
       .then(() => podActionResult(action, "executed", "Opened Terminal with an interactive pod shell.", "", command))
       .catch((error) => podActionResult(action, "ready", `${errorMessage(error)} Run this command manually.`, "", command));
   }
 
-  if (action === "port-forward") {
-    const port = await firstPodPort(target).catch(() => 0);
+  if (actionName === "port-forward") {
+    const requestedPort = requestedPortForAction(action);
+    if (requestedPort === null) {
+      return podActionResult(action, "blocked", `Invalid pod port for ${action}.`);
+    }
+
+    const port = requestedPort ?? await firstPodPort(target).catch(() => 0);
     if (!port) {
       return podActionResult(action, "blocked", "Pod has no declared container ports.");
     }
@@ -327,12 +333,12 @@ export async function runPodAction(input: {
       .catch((error) => podActionResult(action, "ready", `${errorMessage(error)} Run this command manually.`, "", command));
   }
 
-  if (action === "restart" || action === "delete" || action === "kill") {
+  if (actionName === "restart" || actionName === "delete" || actionName === "kill") {
     if (!isLocalContext(target.cluster)) {
       return podActionResult(action, "blocked", `${target.cluster} is not recognized as a local context.`);
     }
 
-    const args = action === "restart"
+    const args = actionName === "restart"
       ? await restartArgs(target).catch((error) => ({ error: errorMessage(error) }))
       : ["delete", "pod", target.name, "-n", target.namespace];
 
@@ -351,6 +357,17 @@ export async function runPodAction(input: {
   }
 
   return podActionResult(action, "blocked", "Unsupported pod action.");
+}
+
+function requestedPortForAction(action: string) {
+  const delimiter = action.indexOf(":");
+  if (delimiter === -1) {
+    return undefined;
+  }
+
+  const port = action.slice(delimiter + 1);
+  const parsed = Number(port);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65_535 ? parsed : null;
 }
 
 async function readHelmReleases(cluster: string) {
