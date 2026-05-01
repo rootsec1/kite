@@ -195,6 +195,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(nodes);
     resources.extend(namespaces);
     resources.extend(crds);
+    annotate_warning_events(&mut resources);
     annotate_service_backends(&mut resources);
 
     Ok((resources, namespace_names))
@@ -997,6 +998,55 @@ fn mark_service_backend_status(service: &mut ResourceSummary, status: HealthStat
     service.diagnostic = diagnostic;
     service.cpu = service.cpu.max(pressure);
     service.memory = service.cpu.saturating_add(8).min(100);
+}
+
+fn annotate_warning_events(resources: &mut [ResourceSummary]) {
+    let event_signals = resources
+        .iter()
+        .filter(|resource| resource.kind == "Event" && resource.status == HealthState::Warning)
+        .flat_map(|event| {
+            let diagnostic = event_warning_diagnostic(event);
+            event
+                .references
+                .iter()
+                .cloned()
+                .map(move |reference| (reference, diagnostic.clone()))
+        })
+        .collect::<Vec<_>>();
+
+    for (reference, diagnostic) in event_signals {
+        if let Some(resource) = resources
+            .iter_mut()
+            .find(|resource| resource.kind != "Event" && resource_matches_reference(resource, &reference))
+        {
+            mark_warning_event_status(resource, diagnostic);
+        }
+    }
+}
+
+fn event_warning_diagnostic(event: &ResourceSummary) -> String {
+    if event.diagnostic.is_empty() {
+        "warning event".to_string()
+    } else {
+        format!("event {}", event.diagnostic)
+    }
+}
+
+fn resource_matches_reference(resource: &ResourceSummary, reference: &ResourceReference) -> bool {
+    resource.kind == reference.kind &&
+        resource.name == reference.name &&
+        (reference.namespace == "cluster" || resource.namespace == reference.namespace)
+}
+
+fn mark_warning_event_status(resource: &mut ResourceSummary, diagnostic: String) {
+    if resource.status == HealthState::Healthy {
+        resource.status = HealthState::Warning;
+    }
+    if resource.diagnostic.is_empty() {
+        resource.diagnostic = diagnostic;
+    }
+    resource.cpu = resource.cpu.max(44);
+    resource.memory = resource.memory.max(52);
 }
 
 async fn first_pod_port(target: &ActionTarget) -> Result<u16, String> {
@@ -3158,6 +3208,71 @@ mod tests {
         assert_eq!(details.events[0].count, 2);
         assert_eq!(details.logs, "");
         assert!(details.pod.is_none());
+    }
+
+    #[test]
+    fn warning_events_promote_involved_resource_signal() {
+        let mut resources = vec![
+            resource_summary(
+                "Pod",
+                "api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "api:latest".to_string(),
+            ),
+            resource_summary(
+                "Event",
+                "api.17".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Warning,
+                0,
+                "Warning".to_string(),
+            )
+            .with_diagnostic("FailedScheduling".to_string())
+            .with_references(vec![resource_reference("Pod", "payments", "api")]),
+        ];
+
+        annotate_warning_events(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Warning);
+        assert_eq!(resources[0].diagnostic, "event FailedScheduling");
+        assert_eq!(resources[0].cpu, 44);
+        assert_eq!(resources[0].memory, 52);
+    }
+
+    #[test]
+    fn warning_events_keep_existing_resource_diagnostics() {
+        let mut resources = vec![
+            resource_summary(
+                "Pod",
+                "api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Critical,
+                4,
+                "api:latest".to_string(),
+            )
+            .with_diagnostic("container CrashLoopBackOff".to_string()),
+            resource_summary(
+                "Event",
+                "api.17".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Warning,
+                0,
+                "Warning".to_string(),
+            )
+            .with_diagnostic("BackOff".to_string())
+            .with_references(vec![resource_reference("Pod", "payments", "api")]),
+        ];
+
+        annotate_warning_events(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Critical);
+        assert_eq!(resources[0].diagnostic, "container CrashLoopBackOff");
     }
 
     #[test]
