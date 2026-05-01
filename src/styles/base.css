@@ -2061,6 +2061,71 @@ summary:focus-visible {
   font-weight: 500;
 }
 
+.service-backend-rail {
+  position: relative;
+}
+
+.service-backend-rail::before {
+  position: absolute;
+  inset-block-start: -1px;
+  inset-inline: -1px;
+  block-size: 3px;
+  content: "";
+  background: var(--green);
+}
+
+.service-backend-rail.warning::before,
+.service-backend-rail.critical::before {
+  background: var(--orange);
+}
+
+.service-backend-rail.syncing::before {
+  background: var(--blue);
+}
+
+.service-backend-rail header span {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.service-backend-rail header svg {
+  color: var(--green-deep);
+}
+
+.service-backend-rail.warning header svg,
+.service-backend-rail.critical header svg {
+  color: var(--orange);
+}
+
+.service-backend-rail header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-backend-empty {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-block-size: 78px;
+  padding-inline: 14px;
+  background: var(--surface);
+}
+
+.service-backend-empty span {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.service-backend-empty strong {
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
 .pod-action-result {
   display: grid;
   grid-template-columns: minmax(170px, 0.26fr) minmax(0, 1fr);

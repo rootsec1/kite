@@ -160,6 +160,7 @@ export function ResourceDetail({
         </>
       ) : (
         <>
+          <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
         </>
@@ -667,12 +668,96 @@ function WorkloadPodRail({
   );
 }
 
+function ServiceBackendRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const selector = useMemo(() => Object.entries(resource.selector), [resource.selector]);
+  const pods = useMemo(() => serviceBackendPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const visiblePods = pods.slice(0, 5);
+  const readyCount = pods.filter((pod) => pod.backendReady).length;
+  const tone = serviceBackendTone(selector.length, pods.length, readyCount);
+
+  if (resource.kind !== "Service") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail ${tone}`} aria-label="Service backend pods">
+      <header>
+        <span>
+          <Network size={15} />
+          Backends
+        </span>
+        <strong>{selector.length ? `${readyCount}/${pods.length} ready` : "No selector"}</strong>
+        <small>{selectorSummary(selector)}</small>
+      </header>
+      <div>
+        {visiblePods.length ? (
+          visiblePods.map((pod) => (
+            <button className={pod.status} key={pod.id} type="button" onClick={() => onOpenResource(pod.id)}>
+              <StatusDot state={pod.status} />
+              <strong title={pod.name}>{pod.name}</strong>
+              <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
+              <small>{pod.backendReady ? "ready" : "not ready"}</small>
+              <small>{pod.restarts}r</small>
+            </button>
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>{selector.length ? "No pods matched" : "Selectorless service"}</span>
+            <strong>{selector.length ? "Traffic has no live pod target." : "Endpoints are managed outside pod selectors."}</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
   if (!workloadKinds.has(resource.kind)) {
     return [];
   }
 
   return resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace && ownsPod(resource, item));
+}
+
+function serviceBackendPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "Service" || !Object.keys(resource.selector).length) {
+    return [];
+  }
+
+  return resources.filter(
+    (item) => item.kind === "Pod" && item.namespace === resource.namespace && matchesSelector(item, resource.selector),
+  );
+}
+
+function serviceBackendTone(selectorCount: number, podCount: number, readyCount: number): HealthState {
+  if (!selectorCount) {
+    return "syncing";
+  }
+  if (!podCount || readyCount === 0) {
+    return "critical";
+  }
+  return readyCount === podCount ? "healthy" : "warning";
+}
+
+function selectorSummary(selector: [string, string][]) {
+  if (!selector.length) {
+    return "external endpoints";
+  }
+
+  const visible = selector
+    .slice(0, 2)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
+
+  return selector.length > 2 ? `${visible} +${selector.length - 2}` : visible;
 }
 
 function compareRuntimePods(left: ResourceRow, right: ResourceRow) {
