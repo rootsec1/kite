@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
-import { AlertTriangle, Container, ImageOff, RotateCw, ServerCrash, Timer } from "lucide-react";
+import { AlertTriangle, Container, FileText, ImageOff, RotateCw, ServerCrash, Timer } from "lucide-react";
 import type { HealthState, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
 
@@ -10,7 +10,15 @@ type PodTriageBucket = {
   tone: Exclude<HealthState, "healthy" | "syncing">;
 };
 
-export function PodTriageRail({ pods, onSelect }: { pods: ResourceRow[]; onSelect: (id: string) => void }) {
+export function PodTriageRail({
+  onOpenLogs,
+  onSelect,
+  pods,
+}: {
+  onOpenLogs: (id: string) => void;
+  onSelect: (id: string) => void;
+  pods: ResourceRow[];
+}) {
   const [activeBucketId, setActiveBucketId] = useState<PodTriageBucket["id"] | null>(null);
   const buckets = useMemo(() => podTriageBuckets(pods), [pods]);
   const activeBucket = buckets.find((bucket) => bucket.id === activeBucketId && bucket.count > 0) ?? null;
@@ -51,7 +59,7 @@ export function PodTriageRail({ pods, onSelect }: { pods: ResourceRow[]; onSelec
         </div>
         <div className="pod-triage-items">
           {visiblePods.map((pod) => (
-            <PodTriageButton key={pod.id} pod={pod} onSelect={onSelect} />
+            <PodTriageButton key={pod.id} pod={pod} onOpenLogs={onOpenLogs} onSelect={onSelect} />
           ))}
         </div>
       </div>
@@ -87,26 +95,40 @@ function TriageBucket({
 }
 
 const PodTriageButton = memo(function PodTriageButton({
+  onOpenLogs,
   onSelect,
   pod,
 }: {
+  onOpenLogs: (id: string) => void;
   onSelect: (id: string) => void;
   pod: ResourceRow;
 }) {
   const handleSelect = useCallback(() => onSelect(pod.id), [onSelect, pod.id]);
+  const handleOpenLogs = useCallback(() => onOpenLogs(pod.id), [onOpenLogs, pod.id]);
   const triageTone = pod.status === "healthy" && pod.restarts > 0 ? "warning" : pod.status;
   const diagnostic = pod.diagnostic || (pod.restarts > 0 ? `${pod.restarts} restarts` : pod.status);
 
   return (
-    <button className={`pod-triage-item ${triageTone}`} type="button" onClick={handleSelect}>
-      <StatusDot state={triageTone} />
-      <span>
-        <strong title={pod.name}>{pod.name}</strong>
-        <small title={pod.namespace}>{pod.namespace}</small>
-      </span>
-      <em title={diagnostic}>{diagnostic}</em>
-      <small>{pod.restarts}r</small>
-    </button>
+    <div className={`pod-triage-item ${triageTone}`}>
+      <button className="pod-triage-open" type="button" onClick={handleSelect}>
+        <StatusDot state={triageTone} />
+        <span>
+          <strong title={pod.name}>{pod.name}</strong>
+          <small title={pod.namespace}>{pod.namespace}</small>
+        </span>
+        <em title={diagnostic}>{diagnostic}</em>
+        <small>{pod.restarts}r</small>
+      </button>
+      <button
+        aria-label={`Open logs for ${pod.name}`}
+        className="pod-triage-log"
+        title="Open logs"
+        type="button"
+        onClick={handleOpenLogs}
+      >
+        <FileText size={13} />
+      </button>
+    </div>
   );
 });
 

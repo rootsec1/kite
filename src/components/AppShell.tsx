@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { KiteData } from "../hooks/useKiteData";
 import { defaultResourceSort, nextResourceSort, sortResources } from "../lib/resourceSort";
 import { pinnedResourcesNavId } from "../theme/resourceTheme";
@@ -52,12 +52,14 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const clusterName = data.clusters[0]?.name ?? data.selectedContext ?? "No context";
   const detailResource = detailOpen ? data.selectedResource : null;
 
-  function openResource(id: string, intent: "logs" | null = null) {
+  const openResource = useCallback((id: string, intent: "logs" | null = null) => {
     data.onSelectResource(id);
     setDetailIntent(intent);
     setDetailOpen(true);
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
-  }
+  }, [data.onSelectResource]);
+
+  const openResourceLogs = useCallback((id: string) => openResource(id, "logs"), [openResource]);
 
   function selectNavigation(id: string) {
     setActiveId(id);
@@ -112,7 +114,11 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                 <>
                   <SummaryStrip counts={counts} warningCount={warningCount} />
                   {(!activeItem?.kind || activeItem.kind === "Pod") ? (
-                    <PodTriageRail pods={podTriageResources} onSelect={openResource} />
+                    <PodTriageRail
+                      pods={podTriageResources}
+                      onOpenLogs={openResourceLogs}
+                      onSelect={openResource}
+                    />
                   ) : null}
                   <ScopeTabs activeId={activeId} counts={counts} items={scopeTabs} onSelect={selectNavigation} />
                   <ResourceTable
