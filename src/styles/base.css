@@ -958,12 +958,27 @@ summary:focus-visible {
 
 .pressure-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) 2fr 48px;
+  grid-template-columns: minmax(130px, 1fr) 2fr 48px 48px;
   gap: 14px;
   align-items: center;
   min-block-size: 34px;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.pressure-namespace {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.pressure-namespace strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pressure-row div {
@@ -977,6 +992,20 @@ summary:focus-visible {
   inline-size: var(--value);
   block-size: 100%;
   background: var(--green);
+}
+
+.pressure-row.warning i,
+.pressure-row.critical i {
+  background: var(--orange);
+}
+
+.pressure-row small {
+  color: var(--text-soft);
+  text-align: end;
+}
+
+.pressure-row .pressure-restarts.active {
+  color: var(--orange);
 }
 
 .detail-workspace {

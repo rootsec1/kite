@@ -543,6 +543,8 @@ function LabelPills({ resource }: { resource: ResourceRow }) {
 }
 
 export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
+  const rows = useMemo(() => [...heat].sort(namespacePressureSort).slice(0, 8), [heat]);
+
   return (
     <section className="pressure-panel">
       <header>
@@ -550,14 +552,23 @@ export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
         <strong>{heat.length} namespaces</strong>
       </header>
       <div className="pressure-list">
-        {heat.slice(0, 8).map((item) => {
+        {rows.map((item) => {
           const pressure = Math.max(item.cpu, item.memory);
           return (
-            <div className="pressure-row" key={item.namespace}>
-              <span>{item.namespace}</span>
-              <div>
+            <div className={`pressure-row ${item.risk}`} key={item.namespace}>
+              <span className="pressure-namespace">
+                <StatusDot state={item.risk} />
+                <strong title={item.namespace}>{item.namespace}</strong>
+              </span>
+              <div aria-label={`${item.namespace} pressure ${pressure}%`}>
                 <i style={{ "--value": `${pressure}%` } as CSSProperties} />
               </div>
+              <small
+                className={item.restarts > 0 ? "pressure-restarts active" : "pressure-restarts"}
+                title={`${item.restarts} pod restarts`}
+              >
+                {item.restarts}r
+              </small>
               <small>{pressure}%</small>
             </div>
           );
@@ -565,4 +576,26 @@ export function NamespacePressure({ heat }: { heat: NamespaceHeat[] }) {
       </div>
     </section>
   );
+}
+
+function namespacePressureSort(left: NamespaceHeat, right: NamespaceHeat) {
+  return (
+    riskRank(left.risk) - riskRank(right.risk) ||
+    right.restarts - left.restarts ||
+    Math.max(right.cpu, right.memory) - Math.max(left.cpu, left.memory) ||
+    left.namespace.localeCompare(right.namespace)
+  );
+}
+
+function riskRank(risk: NamespaceHeat["risk"]) {
+  switch (risk) {
+    case "critical":
+      return 0;
+    case "warning":
+      return 1;
+    case "syncing":
+      return 2;
+    case "healthy":
+      return 3;
+  }
 }
