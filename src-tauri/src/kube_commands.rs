@@ -230,6 +230,9 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
     if target.kind == "HelmRelease" {
         return helm_details(target).await;
     }
+    if target.kind == "Event" {
+        return event_details(target).await;
+    }
 
     let yaml = kubectl(resource_yaml_args(&target))
         .await
@@ -252,6 +255,30 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
     };
 
     ResourceDetails { yaml, events, logs, previous_logs, pod }
+}
+
+async fn event_details(target: ActionTarget) -> ResourceDetails {
+    let yaml = kubectl(resource_yaml_args(&target))
+        .await
+        .unwrap_or_else(|error| error);
+    let json = kubectl(resource_json_args(&target)).await.unwrap_or_default();
+
+    event_resource_details(yaml, &json)
+}
+
+fn event_resource_details(yaml: String, json: &str) -> ResourceDetails {
+    let events = serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .map(|event| vec![resource_event(&event)])
+        .unwrap_or_default();
+
+    ResourceDetails {
+        yaml,
+        events,
+        logs: String::new(),
+        previous_logs: String::new(),
+        pod: None,
+    }
 }
 
 #[tauri::command]
@@ -1093,12 +1120,20 @@ fn event_timestamp(event: &serde_json::Value) -> String {
 }
 
 fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
+    resource_output_args(target, "yaml")
+}
+
+fn resource_json_args(target: &ActionTarget) -> Vec<String> {
+    resource_output_args(target, "json")
+}
+
+fn resource_output_args(target: &ActionTarget, output: &str) -> Vec<String> {
     let mut args = vec![
         "get".to_string(),
         target.kind.clone(),
         target.name.clone(),
         "-o".to_string(),
-        "yaml".to_string(),
+        output.to_string(),
     ];
 
     if target.namespace != "cluster" {
@@ -3101,6 +3136,28 @@ mod tests {
 
         assert_eq!(resource_event(&repeated).count, 7);
         assert_eq!(resource_event(&missing_count).count, 1);
+    }
+
+    #[test]
+    fn event_resource_details_returns_selected_event_payload() {
+        let json = serde_json::json!({
+            "type": "Warning",
+            "reason": "FailedScheduling",
+            "message": "0/3 nodes are available",
+            "count": 2,
+            "lastTimestamp": "2026-04-28T21:12:00Z"
+        });
+
+        let details = event_resource_details("kind: Event".to_string(), &json.to_string());
+
+        assert_eq!(details.yaml, "kind: Event");
+        assert_eq!(details.events.len(), 1);
+        assert_eq!(details.events[0].type_, "Warning");
+        assert_eq!(details.events[0].reason, "FailedScheduling");
+        assert_eq!(details.events[0].message, "0/3 nodes are available");
+        assert_eq!(details.events[0].count, 2);
+        assert_eq!(details.logs, "");
+        assert!(details.pod.is_none());
     }
 
     #[test]

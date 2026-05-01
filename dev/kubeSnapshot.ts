@@ -271,6 +271,9 @@ export async function readResourceDetails(target: { kind: string; name: string; 
   if (target.kind === "HelmRelease") {
     return readHelmDetails(target);
   }
+  if (target.kind === "Event") {
+    return readEventDetails(target);
+  }
 
   const yaml = await readResourceYaml(target).catch((error) => errorMessage(error));
   const events = await readResourceEvents(target).catch(() => []);
@@ -427,6 +430,28 @@ async function readResourceYaml(target: { kind: string; name: string; namespace:
   return kubectlText(args, target.cluster);
 }
 
+async function readResourceJson<T>(target: { kind: string; name: string; namespace: string; cluster: string }) {
+  const args = ["get", target.kind, target.name, "-o", "json"];
+  if (target.namespace && target.namespace !== "cluster") {
+    args.splice(3, 0, "-n", target.namespace);
+  }
+  return kubectlJson<T>(args, target.cluster);
+}
+
+async function readEventDetails(target: { kind: string; name: string; namespace: string; cluster: string }) {
+  const [yaml, event] = await Promise.all([
+    readResourceYaml(target).catch((error) => errorMessage(error)),
+    readResourceJson<KubeEvent>(target).catch(() => undefined),
+  ]);
+
+  return {
+    yaml,
+    events: event ? [toResourceEvent(event)] : [],
+    logs: "",
+    previousLogs: "",
+  };
+}
+
 async function readResourceEvents(target: { kind: string; name: string; namespace: string; cluster: string }) {
   const args = [
     "get",
@@ -443,13 +468,17 @@ async function readResourceEvents(target: { kind: string; name: string; namespac
   }
 
   const list = await kubectlJson<{ items?: KubeEvent[] }>(args, target.cluster);
-  return (list.items ?? []).map((event) => ({
+  return (list.items ?? []).map(toResourceEvent);
+}
+
+function toResourceEvent(event: KubeEvent) {
+  return {
     type: event.type ?? "Normal",
     reason: event.reason ?? "Event",
     message: event.message ?? "",
     age: age(event.lastTimestamp ?? event.eventTime ?? event.metadata?.creationTimestamp),
     count: positiveCount(event.count),
-  }));
+  };
 }
 
 function positiveCount(count: number | undefined) {

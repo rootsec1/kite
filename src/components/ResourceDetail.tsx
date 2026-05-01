@@ -170,6 +170,16 @@ export function ResourceDetail({
         </>
       ) : (
         <>
+          {resource.kind === "Event" ? (
+            <EventSignalRail
+              allResources={allResources}
+              details={details}
+              detailsError={detailsError}
+              detailsLoading={detailsLoading}
+              resource={resource}
+              onOpenResource={onOpenResource}
+            />
+          ) : null}
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -624,6 +634,60 @@ function actionRisk(action: string) {
     return "medium";
   }
   return "low";
+}
+
+function EventSignalRail({
+  allResources,
+  details,
+  detailsError,
+  detailsLoading,
+  onOpenResource,
+  resource,
+}: {
+  allResources: ResourceRow[];
+  details: ResourceDetails;
+  detailsError: string;
+  detailsLoading: boolean;
+  onOpenResource: (id: string) => void;
+  resource: ResourceRow;
+}) {
+  const event = details.events[0];
+  const target = referencedResources(resource.references, allResources)[0];
+  const type = detailsLoading ? "Syncing" : event?.type || resource.image || "Event";
+  const reason = detailsLoading ? "Loading" : event?.reason || resource.diagnostic || "Event";
+  const message = detailsLoading
+    ? "Loading selected event."
+    : event?.message || detailsError || resource.diagnostic || "No event message returned.";
+  const count = event ? String(event.count) : "1";
+  const age = event?.age || resource.age;
+  const tone = type.toLowerCase() === "warning" || resource.status === "warning" ? "warning" : resource.status;
+
+  return (
+    <section className={`event-signal-rail ${tone}`} aria-label="Event signal">
+      <header>
+        <StatusDot state={tone} />
+        <div>
+          <span>{type}</span>
+          <strong title={reason}>{reason}</strong>
+        </div>
+        <small>{count}x</small>
+      </header>
+      <div>
+        <p title={message}>{message}</p>
+        <div className="event-signal-facts">
+          <ActionFact label="Age" value={age || "live"} />
+          <ActionFact label="Namespace" value={resource.namespace} />
+          <ActionFact label="Target" value={resource.owner || "unknown"} />
+        </div>
+        {target ? (
+          <button type="button" onClick={() => onOpenResource(target.id)}>
+            <Network size={15} />
+            Open {target.kind}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 type HierarchyGroup = {

@@ -2350,6 +2350,125 @@ summary:focus-visible {
   color: var(--orange);
 }
 
+.event-signal-rail {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.26fr) minmax(0, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.event-signal-rail header {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  align-content: start;
+  min-inline-size: 0;
+  padding: 14px;
+  background: var(--surface);
+}
+
+.event-signal-rail header .status-dot {
+  margin-block-start: 5px;
+}
+
+.event-signal-rail header div {
+  display: grid;
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.event-signal-rail header span,
+.event-signal-rail header small,
+.event-signal-facts span {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.event-signal-rail header strong {
+  grid-column: 2 / -1;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-signal-rail header small {
+  justify-self: end;
+  color: var(--muted);
+}
+
+.event-signal-rail.warning {
+  border-color: color-mix(in srgb, var(--orange) 42%, var(--line));
+}
+
+.event-signal-rail.warning header strong,
+.event-signal-rail.warning header small {
+  color: var(--orange);
+}
+
+.event-signal-rail > div {
+  display: grid;
+  gap: 10px;
+  min-inline-size: 0;
+  padding: 14px;
+  background: var(--surface);
+}
+
+.event-signal-rail p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.event-signal-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+
+.event-signal-facts small {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  min-block-size: 48px;
+  padding: 8px 9px;
+  background: var(--surface-soft);
+}
+
+.event-signal-facts strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-signal-rail button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 34px;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+
 .terminal-panel {
   position: relative;
   display: grid;
