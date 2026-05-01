@@ -159,7 +159,10 @@ export function ResourceDetail({
           <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} panelRef={terminalRef} />
         </>
       ) : (
-        <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
+        <>
+          <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
+        </>
       )}
     </section>
   );
@@ -615,6 +618,81 @@ type HierarchyGroup = {
   title: string;
   resources: ResourceRow[];
 };
+
+function WorkloadPodRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const pods = useMemo(() => workloadPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+
+  if (!workloadKinds.has(resource.kind)) {
+    return null;
+  }
+
+  const readyCount = pods.filter((pod) => pod.status === "healthy").length;
+  const restartCount = pods.reduce((sum, pod) => sum + pod.restarts, 0);
+  const visiblePods = pods.slice(0, 4);
+
+  return (
+    <section className="workload-pod-rail" aria-label="Workload pod runtime">
+      <header>
+        <span>Runtime pods</span>
+        <strong>{readyCount}/{pods.length || 0} ready</strong>
+        <small>{restartCount} restarts</small>
+      </header>
+      <div>
+        {visiblePods.length ? (
+          visiblePods.map((pod) => (
+            <button className={pod.status} key={pod.id} type="button" onClick={() => onOpenResource(pod.id)}>
+              <StatusDot state={pod.status} />
+              <strong title={pod.name}>{pod.name}</strong>
+              <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
+              <small title={pod.nodeName || pod.namespace}>{pod.nodeName || pod.namespace}</small>
+              <small>{pod.restarts}r</small>
+            </button>
+          ))
+        ) : (
+          <div className="workload-pod-empty">
+            <span>No owned pods</span>
+            <strong>Selectors have no live pod match.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (!workloadKinds.has(resource.kind)) {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace && ownsPod(resource, item));
+}
+
+function compareRuntimePods(left: ResourceRow, right: ResourceRow) {
+  return podRuntimeRank(left) - podRuntimeRank(right) ||
+    right.restarts - left.restarts ||
+    left.name.localeCompare(right.name);
+}
+
+function podRuntimeRank(pod: ResourceRow) {
+  switch (pod.status) {
+    case "critical":
+      return 0;
+    case "warning":
+      return 1;
+    case "syncing":
+      return 2;
+    case "healthy":
+      return 3;
+  }
+}
 
 function HierarchyGroups({
   groups,
