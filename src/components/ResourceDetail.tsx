@@ -170,6 +170,7 @@ export function ResourceDetail({
         </>
       ) : (
         <>
+          <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
@@ -729,6 +730,79 @@ function ServiceBackendRail({
   );
 }
 
+function RouteBackendRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const serviceReferenceCount = resource.references.filter((reference) => reference.kind === "Service").length;
+  const backends = useMemo(() => routeBackendsFor(resource, resources), [resource, resources]);
+  const visibleBackends = backends.slice(0, 5);
+  const tone = routeBackendTone(serviceReferenceCount, backends.map((backend) => backend.tone));
+
+  if (!routeKinds.has(resource.kind)) {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail route-backend-rail ${tone}`} aria-label="Route backend services">
+      <header>
+        <span>
+          <Network size={15} />
+          Backends
+        </span>
+        <strong>{serviceReferenceCount ? `${backends.length}/${serviceReferenceCount} services` : "No refs"}</strong>
+        <small>{routeBackendSummary(resource, backends.length)}</small>
+      </header>
+      <div>
+        {visibleBackends.length ? (
+          visibleBackends.map((backend) => (
+            <button
+              className={backend.tone}
+              key={backend.service.id}
+              type="button"
+              onClick={() => onOpenResource(backend.service.id)}
+            >
+              <StatusDot state={backend.tone} />
+              <strong title={backend.service.name}>{backend.service.name}</strong>
+              <em title={backend.service.diagnostic || backend.summary}>
+                {backend.service.diagnostic || backend.summary}
+              </em>
+              <small title={backend.service.namespace}>{backend.service.namespace}</small>
+              <small>{backend.service.owner || "svc"}</small>
+            </button>
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>{serviceReferenceCount ? "Services not found" : "No service refs"}</span>
+            <strong>{serviceReferenceCount ? "Referenced services are missing from the live snapshot." : "Route has no Service backend reference."}</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function routeBackendsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  return routeBackendServicesFor(resource, resources)
+    .sort(compareRouteBackends)
+    .map((service) => {
+      const pods = backendPodsForServices([service], resources);
+      const readyCount = pods.filter((pod) => pod.backendReady).length;
+      const tone = serviceBackendTone(Object.keys(service.selector).length, pods.length, readyCount);
+
+      return {
+        service,
+        summary: backendPodSummary(pods.length, readyCount),
+        tone,
+      };
+    });
+}
+
 function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
   if (!workloadKinds.has(resource.kind)) {
     return [];
@@ -747,6 +821,14 @@ function serviceBackendPodsFor(resource: ResourceRow, resources: ResourceRow[]) 
   );
 }
 
+function routeBackendServicesFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (!routeKinds.has(resource.kind)) {
+    return [];
+  }
+
+  return referencedResources(resource.references, resources).filter((item) => item.kind === "Service");
+}
+
 function serviceBackendTone(selectorCount: number, podCount: number, readyCount: number): HealthState {
   if (!selectorCount) {
     return "syncing";
@@ -755,6 +837,36 @@ function serviceBackendTone(selectorCount: number, podCount: number, readyCount:
     return "critical";
   }
   return readyCount === podCount ? "healthy" : "warning";
+}
+
+function routeBackendTone(referenceCount: number, tones: HealthState[]): HealthState {
+  if (!referenceCount) {
+    return "syncing";
+  }
+  if (!tones.length || tones.includes("critical")) {
+    return "critical";
+  }
+  if (tones.includes("warning")) {
+    return "warning";
+  }
+  if (tones.every((tone) => tone === "syncing")) {
+    return "syncing";
+  }
+  return "healthy";
+}
+
+function routeBackendSummary(resource: ResourceRow, serviceCount: number) {
+  if (resource.kind === "HTTPRoute" && resource.owner) {
+    return `parents ${resource.owner}`;
+  }
+  if (resource.owner && resource.owner !== resource.namespace) {
+    return resource.owner;
+  }
+  return serviceCount ? `${serviceCount} linked` : "unresolved";
+}
+
+function backendPodSummary(podCount: number, readyCount: number) {
+  return podCount ? `${readyCount}/${podCount} backend pods ready` : "selectorless service";
 }
 
 function selectorSummary(selector: [string, string][]) {
@@ -773,6 +885,12 @@ function selectorSummary(selector: [string, string][]) {
 function compareRuntimePods(left: ResourceRow, right: ResourceRow) {
   return podRuntimeRank(left) - podRuntimeRank(right) ||
     right.restarts - left.restarts ||
+    left.name.localeCompare(right.name);
+}
+
+function compareRouteBackends(left: ResourceRow, right: ResourceRow) {
+  return podRuntimeRank(left) - podRuntimeRank(right) ||
+    left.namespace.localeCompare(right.namespace) ||
     left.name.localeCompare(right.name);
 }
 
