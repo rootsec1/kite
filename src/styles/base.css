@@ -256,7 +256,7 @@ summary:focus-visible {
   --toolbar-control-height: 40px;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(220px, 1.16fr) 120px 120px 176px max-content 40px;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.8fr) minmax(92px, 0.35fr) minmax(92px, 0.35fr) minmax(124px, 0.5fr) max-content 40px;
   gap: 8px;
   align-items: center;
   padding-inline: 20px 22px;
@@ -335,8 +335,46 @@ summary:focus-visible {
 .scope-readout {
   display: inline-flex;
   align-items: center;
+  gap: 7px;
   block-size: var(--toolbar-control-height);
+  min-inline-size: 0;
+  max-inline-size: 172px;
+  padding-inline: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
   white-space: nowrap;
+}
+
+.scope-readout > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-readout strong {
+  color: var(--green-deep);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scope-readout .status-dot {
+  flex: 0 0 auto;
+  inline-size: 8px;
+  block-size: 8px;
+}
+
+.scope-readout.critical {
+  border-color: color-mix(in srgb, var(--orange) 42%, var(--line));
+  background: color-mix(in srgb, var(--yellow) 10%, var(--surface));
+}
+
+.scope-readout.critical strong {
+  color: var(--orange);
+}
+
+.scope-readout.syncing strong {
+  color: #245d73;
 }
 
 .icon-button {

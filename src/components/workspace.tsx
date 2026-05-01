@@ -14,6 +14,8 @@ const resourceRowOverscan = 8;
 
 export function Toolbar({ count, data, scope }: { count: number; data: KiteData; scope: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const syncState = data.error ? "critical" : data.loading ? "syncing" : "healthy";
+  const syncLabel = data.error ? "Stale" : data.loading ? "Syncing" : "Live";
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -81,7 +83,15 @@ export function Toolbar({ count, data, scope }: { count: number; data: KiteData;
           ))}
         </select>
       </label>
-      <span className="scope-readout">{scope} · {count}</span>
+      <span
+        aria-label={`${scope}, ${count} visible, ${syncLabel} Kubernetes snapshot`}
+        className={`scope-readout ${syncState}`}
+        title={data.error || `${syncLabel} Kubernetes snapshot`}
+      >
+        <span>{scope} · {count}</span>
+        <StatusDot state={syncState} />
+        <strong>{syncLabel}</strong>
+      </span>
       <button className={data.loading ? "icon-button loading" : "icon-button"} type="button" onClick={data.onRefreshLiveSnapshot}>
         <RefreshCw size={16} />
       </button>
