@@ -121,11 +121,7 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
             workloads: resources.len(),
             warnings: warning_count,
         }],
-        namespace_heat: namespaces
-            .iter()
-            .take(10)
-            .map(|namespace| namespace_heat(namespace, &resources))
-            .collect(),
+        namespace_heat: namespace_heat_for_namespaces(&namespaces, &resources),
         resources,
     })
 }
@@ -3384,6 +3380,32 @@ mod tests {
         assert_eq!(references[0].name, "api-7d9f");
     }
 
+    #[test]
+    fn namespace_heat_keeps_all_namespaces_before_ui_ranking() {
+        let namespaces = (0..12)
+            .map(|index| format!("ns-{index:02}"))
+            .collect::<Vec<_>>();
+        let resources = vec![resource_summary(
+            "Pod",
+            "api".to_string(),
+            "ns-11".to_string(),
+            "kind-kite",
+            HealthState::Healthy,
+            7,
+            String::new(),
+        )];
+
+        let heat = namespace_heat_for_namespaces(&namespaces, &resources);
+        let risky_namespace = heat
+            .iter()
+            .find(|item| item.namespace == "ns-11")
+            .expect("late namespace heat");
+
+        assert_eq!(heat.len(), 12);
+        assert_eq!(risky_namespace.restarts, 7);
+        assert_eq!(risky_namespace.risk, HealthState::Critical);
+    }
+
     fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {
         Pod {
             status: Some(PodStatus {
@@ -3502,4 +3524,14 @@ fn namespace_heat(namespace: &str, resources: &[ResourceSummary]) -> NamespaceHe
             HealthState::Healthy
         },
     }
+}
+
+fn namespace_heat_for_namespaces(
+    namespaces: &[String],
+    resources: &[ResourceSummary],
+) -> Vec<NamespaceHeat> {
+    namespaces
+        .iter()
+        .map(|namespace| namespace_heat(namespace, resources))
+        .collect()
 }

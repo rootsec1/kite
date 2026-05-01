@@ -260,7 +260,7 @@ export async function readKubeSnapshot(selectedContext?: string) {
         warnings: warningCount,
       },
     ],
-    namespaceHeat: namespaces.slice(0, 10).map((namespace) => toNamespaceHeat(namespace, resources)),
+    namespaceHeat: namespaces.map((namespace) => toNamespaceHeat(namespace, resources)),
     resources,
   };
 }
