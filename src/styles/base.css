@@ -1332,7 +1332,9 @@ summary:focus-visible {
 .pod-issue-strip header span,
 .pod-issue-strip header strong,
 .pod-issue-strip article span,
-.pod-issue-strip article small {
+.pod-issue-strip article small,
+.pod-issue-strip button span,
+.pod-issue-strip button small {
   color: var(--text-soft);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1351,7 +1353,8 @@ summary:focus-visible {
   min-inline-size: 0;
 }
 
-.pod-issue-strip article {
+.pod-issue-strip article,
+.pod-issue-strip button {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   gap: 5px 9px;
@@ -1359,20 +1362,31 @@ summary:focus-visible {
   min-inline-size: 0;
   min-block-size: 76px;
   padding: 11px 12px;
+  border: 0;
   background: var(--surface);
+  text-align: start;
 }
 
-.pod-issue-strip article svg {
+.pod-issue-strip button {
+  cursor: pointer;
+}
+
+.pod-issue-strip article svg,
+.pod-issue-strip button svg {
   color: var(--green-deep);
 }
 
 .pod-issue-strip article.warning svg,
-.pod-issue-strip article.critical svg {
+.pod-issue-strip article.critical svg,
+.pod-issue-strip button.warning svg,
+.pod-issue-strip button.critical svg {
   color: var(--orange);
 }
 
 .pod-issue-strip article strong,
-.pod-issue-strip article small {
+.pod-issue-strip article small,
+.pod-issue-strip button strong,
+.pod-issue-strip button small {
   grid-column: 2;
   min-inline-size: 0;
   overflow: hidden;
@@ -1380,21 +1394,30 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
-.pod-issue-strip article strong {
+.pod-issue-strip article strong,
+.pod-issue-strip button strong {
   color: var(--text);
   font-size: 13px;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.pod-issue-strip article small {
+.pod-issue-strip article small,
+.pod-issue-strip button small {
   color: var(--muted);
   font-size: 10px;
 }
 
 .pod-issue-strip article.warning,
-.pod-issue-strip article.critical {
+.pod-issue-strip article.critical,
+.pod-issue-strip button.warning,
+.pod-issue-strip button.critical {
   box-shadow: inset 0 2px 0 color-mix(in srgb, var(--orange) 62%, transparent);
+}
+
+.pod-issue-strip button.actionable:hover {
+  background: var(--surface-soft);
+  box-shadow: inset 0 -2px 0 var(--green);
 }
 
 .pod-placement-strip {

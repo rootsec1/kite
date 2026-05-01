@@ -7,10 +7,19 @@ type PodIssueSignal = {
   meta: string;
   tone: Exclude<HealthState, "syncing">;
   icon: "condition" | "event" | "history" | "ready" | "restart";
+  onSelect?: () => void;
 };
 
-export function PodIssueStrip({ details, resource }: { details: ResourceDetails; resource: ResourceRow }) {
-  const signals = podIssueSignals(details, resource);
+export function PodIssueStrip({
+  details,
+  onOpenPreviousLogs,
+  resource,
+}: {
+  details: ResourceDetails;
+  onOpenPreviousLogs?: () => void;
+  resource: ResourceRow;
+}) {
+  const signals = podIssueSignals(details, resource, onOpenPreviousLogs);
 
   if (!signals.length) {
     return null;
@@ -24,19 +33,40 @@ export function PodIssueStrip({ details, resource }: { details: ResourceDetails;
       </header>
       <div>
         {signals.map((signal) => (
-          <article className={signal.tone} key={`${signal.label}-${signal.value}`}>
-            <IssueIcon icon={signal.icon} />
-            <span>{signal.label}</span>
-            <strong title={signal.value}>{signal.value}</strong>
-            <small title={signal.meta}>{signal.meta}</small>
-          </article>
+          <IssueSignal signal={signal} key={`${signal.label}-${signal.value}`} />
         ))}
       </div>
     </section>
   );
 }
 
-function podIssueSignals(details: ResourceDetails, resource: ResourceRow): PodIssueSignal[] {
+function IssueSignal({ signal }: { signal: PodIssueSignal }) {
+  const content = (
+    <>
+      <IssueIcon icon={signal.icon} />
+      <span>{signal.label}</span>
+      <strong title={signal.value}>{signal.value}</strong>
+      <small title={signal.meta}>{signal.meta}</small>
+    </>
+  );
+
+  if (signal.onSelect) {
+    return (
+      <button
+        aria-label={`${signal.label}: ${signal.value}. Open previous logs.`}
+        className={`${signal.tone} actionable`}
+        type="button"
+        onClick={signal.onSelect}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <article className={signal.tone}>{content}</article>;
+}
+
+function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpenPreviousLogs?: () => void): PodIssueSignal[] {
   const pod = details.pod;
   const containers = pod?.containers ?? [];
   const restartTotal = containers.length
@@ -113,6 +143,7 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow): PodIs
       icon: "history",
       label: "Previous logs",
       meta: "live tail switch",
+      onSelect: onOpenPreviousLogs,
       tone: "healthy",
       value: "captured",
     });

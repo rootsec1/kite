@@ -10,7 +10,7 @@ const logLevels = ["all", "info", "warn", "error", "debug"] as const;
 const allSourceFilter = "all";
 
 type LogLevel = (typeof logLevels)[number];
-type LogMode = "current" | "previous";
+export type LogMode = "current" | "previous";
 type CopyStatus = "idle" | "copied" | "failed";
 
 type ParsedLogLine = {
@@ -25,12 +25,16 @@ export function PodTerminal({
   details,
   detailsError,
   detailsLoading,
+  modeRequestId = 0,
   panelRef,
+  preferredMode = "current",
 }: {
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
+  modeRequestId?: number;
   panelRef?: Ref<HTMLElement>;
+  preferredMode?: LogMode;
 }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>("all");
   const [logMode, setLogMode] = useState<LogMode>("current");
@@ -51,6 +55,17 @@ export function PodTerminal({
       setLogMode("current");
     }
   }, [hasPreviousLogs]);
+
+  useEffect(() => {
+    if (preferredMode === "previous" && hasPreviousLogs) {
+      setLogMode("previous");
+      return;
+    }
+
+    if (preferredMode === "current") {
+      setLogMode("current");
+    }
+  }, [hasPreviousLogs, modeRequestId, preferredMode]);
 
   const logView = useMemo(() => {
     const selectedLogs = activeLogMode === "previous" ? details.previousLogs : details.logs;

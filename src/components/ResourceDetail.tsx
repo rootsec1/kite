@@ -6,7 +6,7 @@ import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
 import { PodLinkStrip } from "./PodLinkStrip";
 import { PodPlacementStrip } from "./PodPlacementStrip";
-import { PodTerminal } from "./PodTerminal";
+import { PodTerminal, type LogMode } from "./PodTerminal";
 import { StatusDot } from "./status";
 
 type ResourceDetailProps = {
@@ -44,6 +44,7 @@ export function ResourceDetail({
   const hierarchyGroups = useMemo(() => hierarchyFor(resource, allResources), [allResources, resource]);
   const forwardedPorts = useMemo(() => podPorts(details), [details]);
   const terminalRef = useRef<HTMLElement>(null);
+  const [terminalModeRequest, setTerminalModeRequest] = useState({ id: 0, mode: "current" as LogMode });
 
   useEffect(() => {
     if (!isPod) {
@@ -64,7 +65,8 @@ export function ResourceDetail({
     });
   }
 
-  function openLogs() {
+  function openLogs(mode: LogMode = "current") {
+    setTerminalModeRequest((current) => ({ id: current.id + 1, mode }));
     onRefreshDetails();
     scrollToTerminal();
   }
@@ -74,6 +76,7 @@ export function ResourceDetail({
       return;
     }
 
+    setTerminalModeRequest((current) => ({ id: current.id + 1, mode: "current" }));
     scrollToTerminal();
   }, [initialFocus, isPod, resource.id]);
 
@@ -109,7 +112,7 @@ export function ResourceDetail({
 
       {isPod ? (
         <>
-          <PodIssueStrip details={details} resource={resource} />
+          <PodIssueStrip details={details} resource={resource} onOpenPreviousLogs={() => openLogs("previous")} />
           <PodStatusPanel details={details} resource={resource} />
           <PodPlacementStrip pod={details.pod} />
           <PodLinkStrip
@@ -119,7 +122,7 @@ export function ResourceDetail({
             onOpenResource={onOpenResource}
           />
           <div className="pod-actions" aria-label="Pod actions">
-            <button type="button" onClick={openLogs}>
+            <button type="button" onClick={() => openLogs()}>
               <FileText size={15} />
               Logs
             </button>
@@ -156,7 +159,14 @@ export function ResourceDetail({
       {isPod ? (
         <>
           <PodEventRail details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
-          <PodTerminal details={details} detailsError={detailsError} detailsLoading={detailsLoading} panelRef={terminalRef} />
+          <PodTerminal
+            details={details}
+            detailsError={detailsError}
+            detailsLoading={detailsLoading}
+            modeRequestId={terminalModeRequest.id}
+            panelRef={terminalRef}
+            preferredMode={terminalModeRequest.mode}
+          />
         </>
       ) : (
         <>

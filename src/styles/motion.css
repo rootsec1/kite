@@ -16,7 +16,8 @@
   }
 
   .runtime-tile,
-  .container-card {
+  .container-card,
+  .pod-issue-strip button {
     animation: surface-enter 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 
@@ -31,6 +32,7 @@
   .hierarchy-table button,
   .pod-actions button,
   .pod-action-result button,
+  .pod-issue-strip button,
   .row-action,
   .log-level-tabs button,
   .log-source-tabs button,
@@ -54,6 +56,7 @@
   .hierarchy-table button:hover,
   .pod-actions button:hover,
   .pod-action-result button:hover,
+  .pod-issue-strip button:hover,
   .row-action:hover,
   .log-level-tabs button:hover,
   .log-source-tabs button:hover,
@@ -75,6 +78,7 @@
   .hierarchy-table button:active,
   .pod-actions button:active,
   .pod-action-result button:active,
+  .pod-issue-strip button:active,
   .row-action:active,
   .log-level-tabs button:active,
   .log-source-tabs button:active,
