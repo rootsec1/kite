@@ -167,6 +167,7 @@ export function ResourceTable({
   onOpenResourceLogs,
   onOpenResource,
   onSort,
+  onTogglePinnedResource,
   resources,
   selectedId,
   showKind,
@@ -179,6 +180,7 @@ export function ResourceTable({
   onOpenResourceLogs: (id: string) => void;
   onOpenResource: (id: string) => void;
   onSort: (key: ResourceSortKey) => void;
+  onTogglePinnedResource: (resource: ResourceRow) => void;
   pinnedResourceKeys: Set<string>;
   resources: ResourceRow[];
   selectedId: string;
@@ -379,6 +381,7 @@ export function ResourceTable({
                   pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
                   onOpenLogs={onOpenResourceLogs}
                   onOpen={onOpenResource}
+                  onTogglePinned={onTogglePinnedResource}
                 />
               ))}
               {bottomSpacerHeight ? <div aria-hidden="true" className="resource-table-spacer" style={{ blockSize: bottomSpacerHeight }} /> : null}
@@ -399,6 +402,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
   index,
   onOpen,
   onOpenLogs,
+  onTogglePinned,
   pinned,
   resource,
   selected,
@@ -408,6 +412,7 @@ const ResourceRowButton = memo(function ResourceRowButton({
   index: number;
   onOpen: (id: string) => void;
   onOpenLogs: (id: string) => void;
+  onTogglePinned: (resource: ResourceRow) => void;
   pinned: boolean;
   resource: ResourceRow;
   selected: boolean;
@@ -419,7 +424,12 @@ const ResourceRowButton = memo(function ResourceRowButton({
     event.stopPropagation();
     onOpenLogs(resource.id);
   }, [onOpenLogs, resource.id]);
+  const handleTogglePinned = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onTogglePinned(resource);
+  }, [onTogglePinned, resource]);
   const showLogsAction = selected && resource.kind === "Pod";
+  const showPinnedAction = selected;
 
   return (
     <div
@@ -448,11 +458,27 @@ const ResourceRowButton = memo(function ResourceRowButton({
       <SignalCell resource={resource} />
       <span className="label-action-cell">
         <LabelPills resource={resource} />
-        {showLogsAction ? (
-          <button aria-label={`Open logs for ${resource.name}`} className="row-action" type="button" onClick={handleOpenLogs}>
-            <FileText size={13} />
-            <span>Logs</span>
-          </button>
+        {showPinnedAction || showLogsAction ? (
+          <span className="row-actions" aria-label={`Actions for ${resource.name}`}>
+            {showPinnedAction ? (
+              <button
+                aria-label={pinned ? `Unpin ${resource.name}` : `Pin ${resource.name}`}
+                aria-pressed={pinned}
+                className={pinned ? "row-action icon-only active" : "row-action icon-only"}
+                title={pinned ? "Unpin resource" : "Pin resource"}
+                type="button"
+                onClick={handleTogglePinned}
+              >
+                <Star size={13} fill={pinned ? "currentColor" : "none"} />
+              </button>
+            ) : null}
+            {showLogsAction ? (
+              <button aria-label={`Open logs for ${resource.name}`} className="row-action" type="button" onClick={handleOpenLogs}>
+                <FileText size={13} />
+                <span>Logs</span>
+              </button>
+            ) : null}
+          </span>
         ) : null}
       </span>
     </div>

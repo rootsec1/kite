@@ -899,6 +899,13 @@ summary:focus-visible {
   flex: 1 1 auto;
 }
 
+.row-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+
 .row-action {
   display: inline-flex;
   flex: 0 0 auto;
@@ -914,6 +921,18 @@ summary:focus-visible {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+.row-action.icon-only {
+  justify-content: center;
+  inline-size: 28px;
+  padding-inline: 0;
+}
+
+.row-action.active {
+  color: var(--green-deep);
+  background: #f7fffc;
+  box-shadow: inset 0 -2px 0 var(--green);
 }
 
 .label-pills small {

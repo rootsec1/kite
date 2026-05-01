@@ -127,6 +127,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                     onOpenResource={openResource}
                     onOpenResourceLogs={(id) => openResource(id, "logs")}
                     onSort={(key) => setResourceSort((current) => nextResourceSort(current, key))}
+                    onTogglePinnedResource={data.onTogglePinnedResource}
                   />
                   <NamespacePressure
                     heat={data.namespaceHeat}
