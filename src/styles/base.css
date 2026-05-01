@@ -728,12 +728,21 @@ summary:focus-visible {
 }
 
 .table-body {
-  overflow: visible;
+  --resource-row-height: 48px;
+  max-block-size: clamp(360px, 58dvh, 760px);
+  min-block-size: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.resource-table-spacer {
+  pointer-events: none;
 }
 
 .resource-row {
   inline-size: 100%;
-  min-block-size: 48px;
+  block-size: var(--resource-row-height);
+  min-block-size: var(--resource-row-height);
   padding-inline: 18px;
   border: 0;
   border-block-end: 1px solid var(--line);
@@ -2733,6 +2742,10 @@ summary:focus-visible {
     grid-template-columns: 1fr;
     gap: 4px;
     padding-block: 12px;
+  }
+
+  .table-body {
+    --resource-row-height: 136px;
   }
 
   .pod-vitals,

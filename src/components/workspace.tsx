@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowDownUp, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
@@ -8,6 +8,9 @@ import type { NamespaceHeat, ResourceRow } from "../types/kube";
 import { overviewCards } from "./navigation";
 import { StatusDot } from "./status";
 import type { NavItem } from "../theme/resourceTheme";
+
+const resourceRowHeight = 48;
+const resourceRowOverscan = 8;
 
 export function Toolbar({ count, data, scope }: { count: number; data: KiteData; scope: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +171,81 @@ export function ResourceTable({
   title: string;
   onSelect: (id: string) => void;
 }) {
+  const tableBodyRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [rowHeight, setRowHeight] = useState(resourceRowHeight);
+  const visibleWindow = useMemo(() => {
+    if (!resources.length) {
+      return { end: 0, start: 0 };
+    }
+
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - resourceRowOverscan);
+    const visibleCount = Math.ceil(viewportHeight / rowHeight) + resourceRowOverscan * 2;
+    return {
+      start,
+      end: Math.min(resources.length, start + Math.max(visibleCount, resourceRowOverscan * 2)),
+    };
+  }, [resources.length, rowHeight, scrollTop, viewportHeight]);
+  const virtualRows = resources.slice(visibleWindow.start, visibleWindow.end);
+  const topSpacerHeight = visibleWindow.start * rowHeight;
+  const bottomSpacerHeight = Math.max(0, (resources.length - visibleWindow.end) * rowHeight);
+  const tableViewSignature = `${title}|${sort.key}:${sort.direction}|${resources.length}|${resources[0]?.id ?? ""}`;
+
+  const handleTableScroll = useCallback(() => {
+    setScrollTop(tableBodyRef.current?.scrollTop ?? 0);
+  }, []);
+
+  useLayoutEffect(() => {
+    const tableBodyElement = tableBodyRef.current;
+    if (!tableBodyElement) {
+      return;
+    }
+    const tableBody = tableBodyElement;
+
+    function syncViewport() {
+      const nextRowHeight = Number.parseFloat(getComputedStyle(tableBody).getPropertyValue("--resource-row-height"));
+
+      setViewportHeight(tableBody.clientHeight);
+      setScrollTop(tableBody.scrollTop);
+      setRowHeight(Number.isFinite(nextRowHeight) && nextRowHeight > 0 ? nextRowHeight : resourceRowHeight);
+    }
+
+    syncViewport();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncViewport);
+      return () => window.removeEventListener("resize", syncViewport);
+    }
+
+    const observer = new ResizeObserver(syncViewport);
+    observer.observe(tableBody);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const tableBody = tableBodyRef.current;
+    if (!tableBody) {
+      return;
+    }
+
+    const maxScrollTop = Math.max(0, resources.length * rowHeight - tableBody.clientHeight);
+    if (tableBody.scrollTop > maxScrollTop) {
+      tableBody.scrollTop = maxScrollTop;
+      setScrollTop(maxScrollTop);
+    }
+  }, [resources.length, rowHeight]);
+
+  useEffect(() => {
+    const tableBody = tableBodyRef.current;
+    if (!tableBody) {
+      return;
+    }
+
+    tableBody.scrollTop = 0;
+    setScrollTop(0);
+  }, [tableViewSignature]);
+
   return (
     <section className="resource-panel">
       <header>
@@ -186,19 +264,23 @@ export function ResourceTable({
           <SortableHead label="Signals" sort={sort} sortKey="signals" onSort={onSort} />
           <span>Labels</span>
         </div>
-        <div className="table-body">
+        <div className="table-body" ref={tableBodyRef} onScroll={handleTableScroll}>
           {resources.length ? (
-            resources.map((resource, index) => (
-              <ResourceRowButton
-                key={resource.id}
-                index={index}
-                resource={resource}
-                selected={resource.id === selectedId}
-                showKind={showKind}
-                pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
-                onOpen={onSelect}
-              />
-            ))
+            <>
+              {topSpacerHeight ? <div aria-hidden="true" className="resource-table-spacer" style={{ blockSize: topSpacerHeight }} /> : null}
+              {virtualRows.map((resource, index) => (
+                <ResourceRowButton
+                  key={resource.id}
+                  index={visibleWindow.start + index}
+                  resource={resource}
+                  selected={resource.id === selectedId}
+                  showKind={showKind}
+                  pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
+                  onOpen={onSelect}
+                />
+              ))}
+              {bottomSpacerHeight ? <div aria-hidden="true" className="resource-table-spacer" style={{ blockSize: bottomSpacerHeight }} /> : null}
+            </>
           ) : (
             <div className="empty-state">
               <strong>No live resources in this group</strong>
