@@ -819,6 +819,36 @@ summary:focus-visible {
   overflow: hidden;
 }
 
+.label-action-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.label-action-cell .label-pills {
+  flex: 1 1 auto;
+}
+
+.row-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-block-size: 28px;
+  padding-inline: 8px;
+  border: 1px solid var(--line);
+  color: var(--green-deep);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
 .label-pills small {
   overflow: hidden;
   max-inline-size: 132px;

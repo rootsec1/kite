@@ -1,5 +1,5 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ArrowDownUp, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { ArrowDownUp, FileText, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
@@ -154,6 +154,7 @@ export function ScopeTabs({
 
 export function ResourceTable({
   onFocusResource,
+  onOpenResourceLogs,
   onOpenResource,
   onSort,
   resources,
@@ -164,6 +165,7 @@ export function ResourceTable({
   title,
 }: {
   onFocusResource: (id: string) => void;
+  onOpenResourceLogs: (id: string) => void;
   onOpenResource: (id: string) => void;
   onSort: (key: ResourceSortKey) => void;
   pinnedResourceKeys: Set<string>;
@@ -235,8 +237,17 @@ export function ResourceTable({
         event.preventDefault();
         onOpenResource(resources[currentIndex].id);
         break;
+      case "l":
+      case "L": {
+        const resource = resources[currentIndex];
+        if (!event.metaKey && !event.ctrlKey && !event.altKey && resource?.kind === "Pod") {
+          event.preventDefault();
+          onOpenResourceLogs(resource.id);
+        }
+        break;
+      }
     }
-  }, [moveSelection, onOpenResource, resources, selectedIndex]);
+  }, [moveSelection, onOpenResource, onOpenResourceLogs, resources, selectedIndex]);
 
   useLayoutEffect(() => {
     const tableBodyElement = tableBodyRef.current;
@@ -352,6 +363,7 @@ export function ResourceTable({
                   selected={resource.id === selectedId}
                   showKind={showKind}
                   pinned={pinnedResourceKeys.has(resourceIdentity(resource))}
+                  onOpenLogs={onOpenResourceLogs}
                   onOpen={onOpenResource}
                 />
               ))}
@@ -372,6 +384,7 @@ export function ResourceTable({
 const ResourceRowButton = memo(function ResourceRowButton({
   index,
   onOpen,
+  onOpenLogs,
   pinned,
   resource,
   selected,
@@ -379,22 +392,27 @@ const ResourceRowButton = memo(function ResourceRowButton({
 }: {
   index: number;
   onOpen: (id: string) => void;
+  onOpenLogs: (id: string) => void;
   pinned: boolean;
   resource: ResourceRow;
   selected: boolean;
   showKind: boolean;
 }) {
   const handleOpen = useCallback(() => onOpen(resource.id), [onOpen, resource.id]);
+  const handleOpenLogs = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onOpenLogs(resource.id);
+  }, [onOpenLogs, resource.id]);
+  const showLogsAction = selected && resource.kind === "Pod";
 
   return (
-    <button
+    <div
       aria-selected={selected}
       className={selected ? "resource-row selected" : "resource-row"}
       id={resourceRowDomId(resource)}
       role="row"
       style={{ "--delay": `${Math.min(index, 18) * 28}ms` } as CSSProperties}
       tabIndex={-1}
-      type="button"
       onClick={handleOpen}
     >
       <span className="name-cell">
@@ -411,8 +429,16 @@ const ResourceRowButton = memo(function ResourceRowButton({
       <span>{resource.namespace}</span>
       <span title={resource.age}>{formatResourceAge(resource.age)}</span>
       <SignalCell resource={resource} />
-      <LabelPills resource={resource} />
-    </button>
+      <span className="label-action-cell">
+        <LabelPills resource={resource} />
+        {showLogsAction ? (
+          <button aria-label={`Open logs for ${resource.name}`} className="row-action" type="button" onClick={handleOpenLogs}>
+            <FileText size={13} />
+            <span>Logs</span>
+          </button>
+        ) : null}
+      </span>
+    </div>
   );
 });
 

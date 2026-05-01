@@ -19,6 +19,7 @@ const navItems = navSections.flatMap((section) => section.items);
 export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailIntent, setDetailIntent] = useState<"logs" | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [resourceSort, setResourceSort] = useState(defaultResourceSort);
   const primaryPaneRef = useRef<HTMLDivElement>(null);
@@ -51,14 +52,16 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const clusterName = data.clusters[0]?.name ?? data.selectedContext ?? "No context";
   const detailResource = detailOpen ? data.selectedResource : null;
 
-  function openResource(id: string) {
+  function openResource(id: string, intent: "logs" | null = null) {
     data.onSelectResource(id);
+    setDetailIntent(intent);
     setDetailOpen(true);
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
   }
 
   function selectNavigation(id: string) {
     setActiveId(id);
+    setDetailIntent(null);
     setDetailOpen(false);
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
   }
@@ -85,10 +88,14 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                   details={data.resourceDetails}
                   detailsError={data.detailsError}
                   detailsLoading={data.detailsLoading}
+                  initialFocus={detailIntent}
                   isPinned={data.isPinnedResource(detailResource)}
                   resource={detailResource}
                   result={data.podActionResult}
-                  onBack={() => setDetailOpen(false)}
+                  onBack={() => {
+                    setDetailIntent(null);
+                    setDetailOpen(false);
+                  }}
                   onOpenResource={openResource}
                   onRefreshDetails={data.onRefreshResourceDetails}
                   onRunPodAction={data.onRunPodAction}
@@ -110,6 +117,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                     title={activeItem?.label ?? "Resource inventory"}
                     onFocusResource={data.onSelectResource}
                     onOpenResource={openResource}
+                    onOpenResourceLogs={(id) => openResource(id, "logs")}
                     onSort={(key) => setResourceSort((current) => nextResourceSort(current, key))}
                   />
                   <NamespacePressure heat={data.namespaceHeat} />

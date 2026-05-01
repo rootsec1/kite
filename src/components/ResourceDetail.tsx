@@ -14,6 +14,7 @@ type ResourceDetailProps = {
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
+  initialFocus: "logs" | null;
   isPinned: boolean;
   result: PodActionResult | null;
   resource: ResourceRow;
@@ -29,6 +30,7 @@ export function ResourceDetail({
   details,
   detailsError,
   detailsLoading,
+  initialFocus,
   isPinned,
   onBack,
   onOpenResource,
@@ -53,8 +55,7 @@ export function ResourceDetail({
     return () => window.clearInterval(interval);
   }, [isPod, onRefreshDetails, resource.id]);
 
-  function openLogs() {
-    onRefreshDetails();
+  function scrollToTerminal() {
     window.requestAnimationFrame(() => {
       terminalRef.current?.scrollIntoView({
         block: "start",
@@ -62,6 +63,19 @@ export function ResourceDetail({
       });
     });
   }
+
+  function openLogs() {
+    onRefreshDetails();
+    scrollToTerminal();
+  }
+
+  useEffect(() => {
+    if (!isPod || initialFocus !== "logs") {
+      return;
+    }
+
+    scrollToTerminal();
+  }, [initialFocus, isPod, resource.id]);
 
   return (
     <section className="detail-workspace">
