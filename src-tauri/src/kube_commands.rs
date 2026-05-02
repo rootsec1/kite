@@ -1617,11 +1617,8 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
         .into_iter()
         .map(|deployment| {
             let age = resource_age(&deployment.metadata);
-            let unavailable = deployment
-                .status
-                .as_ref()
-                .and_then(|status| status.unavailable_replicas)
-                .unwrap_or(0);
+            let desired = deployment.spec.as_ref().and_then(|spec| spec.replicas).unwrap_or(1);
+            let ready = deployment.status.as_ref().and_then(|status| status.ready_replicas).unwrap_or(0);
             let image = deployment
                 .spec
                 .as_ref()
@@ -1629,11 +1626,6 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
                 .and_then(|spec| spec.containers.first())
                 .map(|container| container.image.clone().unwrap_or_default())
                 .unwrap_or_default();
-            let status = if unavailable > 0 {
-                HealthState::Warning
-            } else {
-                HealthState::Healthy
-            };
             let labels = deployment.metadata.labels.clone().unwrap_or_default();
             let selector = deployment.spec.as_ref().and_then(|spec| spec.selector.match_labels.clone()).unwrap_or_default();
 
@@ -1642,11 +1634,12 @@ async fn list_deployments(client: Client, cluster: &str) -> Result<Vec<ResourceS
                 deployment.name_any(),
                 deployment.namespace().unwrap_or_else(|| "default".to_string()),
                 cluster,
-                status,
+                workload_status(ready, desired),
                 0,
                 image,
             )
             .with_age(age)
+            .with_diagnostic(workload_diagnostic(ready, desired))
             .with_labels(labels)
             .with_selector(selector)
         })
@@ -1694,6 +1687,7 @@ async fn list_replicasets(client: Client, cluster: &str) -> Result<Vec<ResourceS
                 image,
             )
             .with_age(age)
+            .with_diagnostic(workload_diagnostic(ready, desired))
             .with_labels(labels)
             .with_owner(owner)
             .with_selector(selector)
@@ -1734,6 +1728,7 @@ async fn list_statefulsets(client: Client, cluster: &str) -> Result<Vec<Resource
                 image,
             )
             .with_age(age)
+            .with_diagnostic(workload_diagnostic(ready, desired))
             .with_labels(labels)
             .with_selector(selector)
         })
@@ -1777,6 +1772,7 @@ async fn list_daemonsets(client: Client, cluster: &str) -> Result<Vec<ResourceSu
                 image,
             )
             .with_age(age)
+            .with_diagnostic(workload_diagnostic(ready, desired))
             .with_labels(labels)
             .with_selector(selector)
         })
@@ -2934,6 +2930,13 @@ fn workload_status(ready: i32, desired: i32) -> HealthState {
     }
 }
 
+fn workload_diagnostic(ready: i32, desired: i32) -> String {
+    if desired == 0 || ready >= desired {
+        return String::new();
+    }
+    format!("{}/{} ready", ready.max(0), desired.max(0))
+}
+
 fn volume_phase_status(phase: &str) -> HealthState {
     match phase {
         "Available" | "Bound" => HealthState::Healthy,
@@ -3183,6 +3186,18 @@ mod tests {
         }
 
         assert_eq!(pod_diagnostic(&pod), "container ImagePullBackOff");
+    }
+
+    #[test]
+    fn workload_diagnostic_reports_only_degraded_readiness() {
+        assert_eq!(workload_status(0, 3), HealthState::Critical);
+        assert_eq!(workload_diagnostic(0, 3), "0/3 ready");
+        assert_eq!(workload_status(2, 3), HealthState::Warning);
+        assert_eq!(workload_diagnostic(2, 3), "2/3 ready");
+        assert_eq!(workload_status(3, 3), HealthState::Healthy);
+        assert_eq!(workload_diagnostic(3, 3), "");
+        assert_eq!(workload_status(0, 0), HealthState::Healthy);
+        assert_eq!(workload_diagnostic(0, 0), "");
     }
 
     #[test]
