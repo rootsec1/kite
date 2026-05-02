@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
-import { matchesSelector, ownsPod, referencesResource, workloadKinds } from "../lib/resourceRelationships";
+import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
@@ -1007,7 +1007,24 @@ function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
     return [];
   }
 
+  if (resource.kind === "CronJob") {
+    const jobs = cronJobJobsFor(resource, resources);
+    return resources.filter((item) =>
+      item.kind === "Pod" &&
+      item.namespace === resource.namespace &&
+      jobs.some((job) => ownsPod(job, item))
+    );
+  }
+
   return resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace && ownsPod(resource, item));
+}
+
+function cronJobJobsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "CronJob") {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "Job" && ownsResource(resource, item));
 }
 
 function nodePodsFor(resource: ResourceRow, resources: ResourceRow[]) {
@@ -1329,8 +1346,18 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     ];
   }
 
+  if (resource.kind === "CronJob") {
+    const jobs = cronJobJobsFor(resource, resources);
+    const pods = workloadPodsFor(resource, resources);
+    return [
+      { title: "Jobs", resources: jobs },
+      { title: "Pods", resources: pods },
+      { title: "Config nearby", resources: resources.filter((item) => item.namespace === resource.namespace && ["ConfigMap", "Secret"].includes(item.kind)) },
+    ];
+  }
+
   if (workloadKinds.has(resource.kind)) {
-    const pods = resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace && ownsPod(resource, item));
+    const pods = workloadPodsFor(resource, resources);
     const services = resources.filter(
       (item) =>
         item.kind === "Service" &&

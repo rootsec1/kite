@@ -1558,6 +1558,15 @@ fn resource_age(metadata: &ObjectMeta) -> String {
         .unwrap_or_else(|| "live".to_string())
 }
 
+fn owner_label(metadata: &ObjectMeta) -> String {
+    metadata
+        .owner_references
+        .as_ref()
+        .and_then(|owners| owners.first())
+        .map(|owner| format!("{}/{}", owner.kind, owner.name))
+        .unwrap_or_default()
+}
+
 async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let pods = Api::<Pod>::all(client)
         .list(&ListParams::default())
@@ -1584,13 +1593,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .map(|status| status.image.clone())
                 .unwrap_or_default();
             let status = pod_status(&pod, restarts);
-            let owner = pod
-                .metadata
-                .owner_references
-                .as_ref()
-                .and_then(|owners| owners.first())
-                .map(|owner| format!("{}/{}", owner.kind, owner.name))
-                .unwrap_or_default();
+            let owner = owner_label(&pod.metadata);
             let labels = pod.metadata.labels.clone().unwrap_or_default();
             let references = pod_dependency_references(&pod, &namespace);
             let node_name = pod
@@ -1675,13 +1678,7 @@ async fn list_replicasets(client: Client, cluster: &str) -> Result<Vec<ResourceS
                 .unwrap_or_default();
             let labels = replicaset.metadata.labels.clone().unwrap_or_default();
             let selector = replicaset.spec.as_ref().and_then(|spec| spec.selector.match_labels.clone()).unwrap_or_default();
-            let owner = replicaset
-                .metadata
-                .owner_references
-                .as_ref()
-                .and_then(|owners| owners.first())
-                .map(|owner| format!("{}/{}", owner.kind, owner.name))
-                .unwrap_or_default();
+            let owner = owner_label(&replicaset.metadata);
 
             resource_summary(
                 "ReplicaSet",
@@ -1805,6 +1802,13 @@ async fn list_jobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .map(|container| container.image.clone().unwrap_or_default())
                 .unwrap_or_default();
             let labels = job.metadata.labels.clone().unwrap_or_default();
+            let selector = job
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.selector.as_ref())
+                .and_then(|selector| selector.match_labels.clone())
+                .unwrap_or_default();
+            let owner = owner_label(&job.metadata);
 
             resource_summary(
                 "Job",
@@ -1817,6 +1821,8 @@ async fn list_jobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
             )
             .with_age(age)
             .with_labels(labels)
+            .with_owner(owner)
+            .with_selector(selector)
         })
         .collect())
 }
@@ -3175,12 +3181,29 @@ mod tests {
         HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
         IngressSpec, ServiceBackendPort,
     };
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 
     #[test]
     fn running_ready_pod_without_restarts_is_healthy() {
         let pod = pod_with_status("Running", vec![container_status(true, 0, None)]);
 
         assert_eq!(pod_status(&pod, 0), HealthState::Healthy);
+    }
+
+    #[test]
+    fn owner_label_preserves_controller_lineage() {
+        let metadata = ObjectMeta {
+            owner_references: Some(vec![OwnerReference {
+                api_version: "batch/v1".to_string(),
+                kind: "CronJob".to_string(),
+                name: "nightly-reconcile".to_string(),
+                uid: "uid-1".to_string(),
+                ..OwnerReference::default()
+            }]),
+            ..ObjectMeta::default()
+        };
+
+        assert_eq!(owner_label(&metadata), "CronJob/nightly-reconcile");
     }
 
     #[test]

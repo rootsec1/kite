@@ -2,8 +2,12 @@ import type { ResourceRow } from "../types/kube";
 
 export const workloadKinds = new Set(["Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet"]);
 
+export function ownsResource(owner: ResourceRow, child: ResourceRow) {
+  return child.namespace === owner.namespace && child.owner === `${owner.kind}/${owner.name}`;
+}
+
 export function ownsPod(owner: ResourceRow, pod: ResourceRow) {
-  if (pod.owner.includes(`/${owner.name}`)) {
+  if (ownsResource(owner, pod)) {
     return true;
   }
   if (owner.kind === "Deployment" && pod.owner.startsWith(`ReplicaSet/${owner.name}-`)) {
