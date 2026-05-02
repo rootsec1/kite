@@ -154,7 +154,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         nodes,
         namespaces,
         crds,
-    ) = tokio::try_join!(
+    ) = tokio::join!(
         list_configmaps(client.clone(), context),
         list_secrets(client.clone(), context),
         list_persistent_volume_claims(client.clone(), context),
@@ -168,11 +168,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_nodes(client.clone(), context),
         list_namespaces(client.clone(), context),
         list_crds(client, context),
-    )?;
-    let namespace_names = namespaces
-        .iter()
-        .map(|namespace| namespace.name.clone())
-        .collect::<Vec<_>>();
+    );
     let mut resources = Vec::new();
 
     resources.extend(pods);
@@ -185,23 +181,44 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(services);
     resources.extend(endpoint_slices);
     resources.extend(ingresses);
-    resources.extend(configmaps);
-    resources.extend(secrets);
-    resources.extend(persistent_volume_claims);
-    resources.extend(persistent_volumes);
-    resources.extend(storage_classes);
-    resources.extend(roles);
-    resources.extend(role_bindings);
-    resources.extend(cluster_roles);
-    resources.extend(cluster_role_bindings);
-    resources.extend(events);
-    resources.extend(nodes);
-    resources.extend(namespaces);
-    resources.extend(crds);
+    resources.extend(configmaps.unwrap_or_default());
+    resources.extend(secrets.unwrap_or_default());
+    resources.extend(persistent_volume_claims.unwrap_or_default());
+    resources.extend(persistent_volumes.unwrap_or_default());
+    resources.extend(storage_classes.unwrap_or_default());
+    resources.extend(roles.unwrap_or_default());
+    resources.extend(role_bindings.unwrap_or_default());
+    resources.extend(cluster_roles.unwrap_or_default());
+    resources.extend(cluster_role_bindings.unwrap_or_default());
+    resources.extend(events.unwrap_or_default());
+    resources.extend(nodes.unwrap_or_default());
+    resources.extend(namespaces.unwrap_or_default());
+    resources.extend(crds.unwrap_or_default());
     annotate_warning_events(&mut resources);
     annotate_service_backends(&mut resources);
+    let namespace_names = namespace_names_for(&resources);
 
     Ok((resources, namespace_names))
+}
+
+fn namespace_names_for(resources: &[ResourceSummary]) -> Vec<String> {
+    let mut names = resources
+        .iter()
+        .filter_map(|resource| {
+            if resource.kind == "Namespace" {
+                Some(resource.name.as_str())
+            } else if resource.namespace != "cluster" && !resource.namespace.is_empty() {
+                Some(resource.namespace.as_str())
+            } else {
+                None
+            }
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    names.sort();
+    names.dedup();
+    names
 }
 
 #[tauri::command]
@@ -3343,6 +3360,53 @@ mod tests {
         assert_eq!(
             rollout_restart_args_for_owner(&owner, "default"),
             Err("Restart is not available for pods owned by ReplicaSet.".to_string())
+        );
+    }
+
+    #[test]
+    fn namespace_names_fall_back_to_resource_namespaces() {
+        let resources = vec![
+            resource_summary(
+                "Pod",
+                "api-74d9".to_string(),
+                "prosights-local".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "api:latest".to_string(),
+            ),
+            resource_summary(
+                "Service",
+                "api".to_string(),
+                "prosights-local".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "ClusterIP".to_string(),
+            ),
+            resource_summary(
+                "Node",
+                "kind-control-plane".to_string(),
+                "cluster".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "kubelet".to_string(),
+            ),
+            resource_summary(
+                "Namespace",
+                "kube-system".to_string(),
+                "cluster".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                String::new(),
+            ),
+        ];
+
+        assert_eq!(
+            namespace_names_for(&resources),
+            vec!["kube-system".to_string(), "prosights-local".to_string()]
         );
     }
 
