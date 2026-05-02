@@ -26,6 +26,7 @@ type KubeItem = {
     kind?: string;
     name?: string;
   };
+  subjects?: KubeSubject[];
   spec?: {
     affinity?: Record<string, unknown>;
     nodeSelector?: Record<string, string | number | boolean>;
@@ -91,6 +92,12 @@ type KubeEndpoint = {
     name?: string;
     namespace?: string;
   };
+};
+
+type KubeSubject = {
+  kind?: string;
+  name?: string;
+  namespace?: string;
 };
 
 type KubeContainerStatus = {
@@ -769,6 +776,9 @@ function resourceReferences(item: KubeItem, namespace: string) {
       ...envReferences(item, namespace),
     ]);
   }
+  if (item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") {
+    return bindingSubjectReferences(item, namespace);
+  }
   return volumeReferences(item, namespace);
 }
 
@@ -889,6 +899,17 @@ function uniqueReferences(references: Array<{ kind: string; namespace: string; n
     seen.add(key);
     return true;
   });
+}
+
+function bindingSubjectReferences(item: KubeItem, fallbackNamespace: string) {
+  return uniqueReferences((item.subjects ?? []).flatMap((subject) => {
+    if (subject.kind !== "ServiceAccount" || !subject.name) {
+      return [];
+    }
+
+    const namespace = subject.namespace || (fallbackNamespace === "cluster" ? "" : fallbackNamespace);
+    return namespace ? [{ kind: "ServiceAccount", namespace, name: subject.name }] : [];
+  }));
 }
 
 function ownerForResource(item: KubeItem, fallback: string) {

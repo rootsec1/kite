@@ -1426,6 +1426,7 @@ function accessHierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hi
   if (resource.kind === "RoleBinding" || resource.kind === "ClusterRoleBinding") {
     const [roleKind, roleName] = roleReference(resource.owner);
     return [
+      { title: "Subjects", resources: referencedResources(resource.references, resources) },
       { title: "Referenced role", resources: referencedRole(resource, roleKind, roleName, resources) },
       { title: "Sibling bindings", resources: siblingBindings(resource, resources) },
     ];

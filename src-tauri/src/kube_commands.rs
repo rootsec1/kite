@@ -9,7 +9,7 @@ use k8s_openapi::api::{
     },
     discovery::v1::{Endpoint, EndpointSlice},
     networking::v1::Ingress,
-    rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
+    rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding, Subject},
     storage::v1::StorageClass,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -2538,13 +2538,15 @@ async fn list_role_bindings(client: Client, cluster: &str) -> Result<Vec<Resourc
         .into_iter()
         .map(|binding| {
             let age = resource_age(&binding.metadata);
+            let namespace = binding.namespace().unwrap_or_else(|| "default".to_string());
             let role_ref = format!("{}/{}", binding.role_ref.kind, binding.role_ref.name);
             let labels = binding.metadata.labels.clone().unwrap_or_default();
+            let references = binding_subject_references(binding.subjects.as_ref(), &namespace);
 
             resource_summary(
                 "RoleBinding",
                 binding.name_any(),
-                binding.namespace().unwrap_or_else(|| "default".to_string()),
+                namespace,
                 cluster,
                 HealthState::Healthy,
                 0,
@@ -2553,6 +2555,7 @@ async fn list_role_bindings(client: Client, cluster: &str) -> Result<Vec<Resourc
             .with_age(age)
             .with_labels(labels)
             .with_owner(role_ref)
+            .with_references(references)
         })
         .collect())
 }
@@ -2602,6 +2605,7 @@ async fn list_cluster_role_bindings(
             let age = resource_age(&binding.metadata);
             let role_ref = format!("{}/{}", binding.role_ref.kind, binding.role_ref.name);
             let labels = binding.metadata.labels.clone().unwrap_or_default();
+            let references = binding_subject_references(binding.subjects.as_ref(), "cluster");
 
             resource_summary(
                 "ClusterRoleBinding",
@@ -2615,6 +2619,7 @@ async fn list_cluster_role_bindings(
             .with_age(age)
             .with_labels(labels)
             .with_owner(role_ref)
+            .with_references(references)
         })
         .collect())
 }
@@ -2926,6 +2931,29 @@ fn resource_reference(kind: &str, namespace: &str, name: &str) -> ResourceRefere
         namespace: namespace.to_string(),
         name: name.to_string(),
     }
+}
+
+fn binding_subject_references(subjects: Option<&Vec<Subject>>, fallback_namespace: &str) -> Vec<ResourceReference> {
+    let mut references = Vec::new();
+
+    for subject in subjects.map(Vec::as_slice).unwrap_or_default() {
+        if subject.kind != "ServiceAccount" || subject.name.is_empty() {
+            continue;
+        }
+
+        let namespace = subject
+            .namespace
+            .as_deref()
+            .filter(|namespace| !namespace.is_empty())
+            .or_else(|| (fallback_namespace != "cluster").then_some(fallback_namespace));
+        let Some(namespace) = namespace else {
+            continue;
+        };
+
+        push_unique_reference(&mut references, resource_reference("ServiceAccount", namespace, &subject.name));
+    }
+
+    references
 }
 
 fn event_involved_references(event: &Event, fallback_namespace: &str) -> Vec<ResourceReference> {
@@ -3277,6 +3305,56 @@ mod tests {
         };
 
         assert_eq!(event_field_selector(&target), "involvedObject.name=api,involvedObject.kind=Pod");
+    }
+
+    #[test]
+    fn role_binding_subject_references_default_service_accounts_to_binding_namespace() {
+        let subjects = vec![
+            Subject {
+                kind: "ServiceAccount".to_string(),
+                name: "api".to_string(),
+                namespace: None,
+                ..Subject::default()
+            },
+            Subject {
+                kind: "User".to_string(),
+                name: "alice@example.com".to_string(),
+                namespace: None,
+                ..Subject::default()
+            },
+        ];
+
+        let references = binding_subject_references(Some(&subjects), "payments");
+
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].kind, "ServiceAccount");
+        assert_eq!(references[0].namespace, "payments");
+        assert_eq!(references[0].name, "api");
+    }
+
+    #[test]
+    fn cluster_role_binding_subject_references_require_service_account_namespace() {
+        let subjects = vec![
+            Subject {
+                kind: "ServiceAccount".to_string(),
+                name: "controller".to_string(),
+                namespace: Some("ops".to_string()),
+                ..Subject::default()
+            },
+            Subject {
+                kind: "ServiceAccount".to_string(),
+                name: "missing-namespace".to_string(),
+                namespace: None,
+                ..Subject::default()
+            },
+        ];
+
+        let references = binding_subject_references(Some(&subjects), "cluster");
+
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].kind, "ServiceAccount");
+        assert_eq!(references[0].namespace, "ops");
+        assert_eq!(references[0].name, "controller");
     }
 
     #[test]
