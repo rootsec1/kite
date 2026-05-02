@@ -186,6 +186,7 @@ export function ResourceDetail({
           ) : null}
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
@@ -764,6 +765,76 @@ function LinkedEndpointSliceTile({
   );
 }
 
+function EndpointSliceTargetRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const services = useMemo(() => endpointSliceServicesFor(resource, resources), [resource, resources]);
+  const pods = useMemo(() => endpointSlicePodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const visibleServices = services.slice(0, 1);
+  const visiblePods = pods.slice(0, visibleServices.length ? 4 : 5);
+  const readyPods = pods.filter((pod) => pod.backendReady).length;
+
+  if (resource.kind !== "EndpointSlice") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail ${resource.status}`} aria-label="EndpointSlice targets">
+      <header>
+        <span>
+          <Network size={15} />
+          Targets
+        </span>
+        <strong>{endpointSliceTargetReadout(services.length, pods.length, readyPods)}</strong>
+        <small>{resource.diagnostic || resource.image || "endpoint slice"}</small>
+      </header>
+      <div>
+        {visibleServices.map((service) => (
+          <LinkedServiceTile key={service.id} service={service} onOpenResource={onOpenResource} />
+        ))}
+        {visiblePods.map((pod) => (
+          <LinkedPodTile
+            key={pod.id}
+            meta={pod.backendReady ? "ready" : "not ready"}
+            pod={pod}
+            onOpenResource={onOpenResource}
+          />
+        ))}
+        {!visibleServices.length && !visiblePods.length ? (
+          <div className="service-backend-empty">
+            <span>No live targets</span>
+            <strong>EndpointSlice references did not resolve in this snapshot.</strong>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function LinkedServiceTile({
+  onOpenResource,
+  service,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  service: ResourceRow;
+}) {
+  return (
+    <button className={service.status} type="button" onClick={() => onOpenResource(service.id)}>
+      <StatusDot state={service.status} />
+      <strong title={service.name}>{service.name}</strong>
+      <em title={service.diagnostic || service.status}>{service.diagnostic || service.status}</em>
+      <small title={service.namespace}>{service.namespace}</small>
+      <small>{service.owner || "svc"}</small>
+    </button>
+  );
+}
+
 function LinkedPodTile({
   meta,
   onOpenResource,
@@ -904,6 +975,22 @@ function serviceEndpointSlicesFor(resource: ResourceRow, resources: ResourceRow[
   return resources.filter((item) => item.kind === "EndpointSlice" && referencesResource(item, resource));
 }
 
+function endpointSliceServicesFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "EndpointSlice") {
+    return [];
+  }
+
+  return referencedResources(resource.references, resources).filter((item) => item.kind === "Service");
+}
+
+function endpointSlicePodsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "EndpointSlice") {
+    return [];
+  }
+
+  return referencedResources(resource.references, resources).filter((item) => item.kind === "Pod");
+}
+
 function routeBackendServicesFor(resource: ResourceRow, resources: ResourceRow[]) {
   if (!routeKinds.has(resource.kind)) {
     return [];
@@ -956,6 +1043,16 @@ function serviceBackendReadout(
     return `${readyEndpointSlices}/${endpointSliceCount} slices`;
   }
   return "No endpoints";
+}
+
+function endpointSliceTargetReadout(serviceCount: number, podCount: number, readyPods: number) {
+  if (podCount) {
+    return `${readyPods}/${podCount} pods`;
+  }
+  if (serviceCount) {
+    return `${serviceCount} service`;
+  }
+  return "No targets";
 }
 
 function routeBackendTone(referenceCount: number, tones: HealthState[]): HealthState {
