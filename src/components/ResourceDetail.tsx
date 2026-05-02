@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
@@ -188,6 +188,7 @@ export function ResourceDetail({
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
         </>
@@ -692,6 +693,56 @@ function WorkloadPodRail({
   );
 }
 
+function NodePodRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const pods = useMemo(() => nodePodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const readyCount = pods.filter((pod) => pod.status === "healthy").length;
+  const restartCount = pods.reduce((sum, pod) => sum + pod.restarts, 0);
+  const visiblePods = pods.slice(0, 5);
+  const tone = nodePodTone(pods);
+
+  if (resource.kind !== "Node") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail node-pod-rail ${tone}`} aria-label="Node scheduled pods">
+      <header>
+        <span>
+          <Server size={15} />
+          Pods
+        </span>
+        <strong>{readyCount}/{pods.length || 0} ready</strong>
+        <small>{restartCount} restarts</small>
+      </header>
+      <div>
+        {visiblePods.length ? (
+          visiblePods.map((pod) => (
+            <LinkedPodTile
+              key={pod.id}
+              meta={pod.namespace}
+              pod={pod}
+              onOpenResource={onOpenResource}
+            />
+          ))
+        ) : (
+          <div className="workload-pod-empty">
+            <span>No scheduled pods</span>
+            <strong>This node has no pods in the live snapshot.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ServiceBackendRail({
   onOpenResource,
   resource,
@@ -959,6 +1010,14 @@ function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
   return resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace && ownsPod(resource, item));
 }
 
+function nodePodsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "Node") {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "Pod" && item.nodeName === resource.name);
+}
+
 function serviceBackendPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
   if (resource.kind !== "Service" || !Object.keys(resource.selector).length) {
     return [];
@@ -1068,6 +1127,22 @@ function routeBackendTone(referenceCount: number, tones: HealthState[]): HealthS
     return "warning";
   }
   if (tones.every((tone) => tone === "syncing")) {
+    return "syncing";
+  }
+  return "healthy";
+}
+
+function nodePodTone(pods: ResourceRow[]): HealthState {
+  if (!pods.length) {
+    return "syncing";
+  }
+  if (pods.some((pod) => pod.status === "critical")) {
+    return "critical";
+  }
+  if (pods.some((pod) => pod.status === "warning")) {
+    return "warning";
+  }
+  if (pods.every((pod) => pod.status === "syncing")) {
     return "syncing";
   }
   return "healthy";
