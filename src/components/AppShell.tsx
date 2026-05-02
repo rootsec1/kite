@@ -3,6 +3,7 @@ import type { KiteData } from "../hooks/useKiteData";
 import { defaultResourceSort, nextResourceSort, sortResources } from "../lib/resourceSort";
 import { pinnedResourcesNavId } from "../theme/resourceTheme";
 import type { ResourceRow } from "../types/kube";
+import { ControlPlaneMap } from "./ControlPlaneMap";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
 import { PodTriageRail, podMatchesTriageBucket, podTriageBucketLabel, shouldTriagePod, type PodTriageBucketId } from "./PodTriageRail";
@@ -129,6 +130,9 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                 />
               ) : (
                 <>
+                  {activeId === "overview" ? (
+                    <ControlPlaneMap resources={data.visibleResources} onSelectKind={selectNavigation} />
+                  ) : null}
                   <SummaryStrip counts={counts} warningCount={warningCount} />
                   {(!activeItem?.kind || activeItem.kind === "Pod") ? (
                     <PodTriageRail

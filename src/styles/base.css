@@ -416,6 +416,149 @@ summary:focus-visible {
   background: var(--green);
 }
 
+.control-plane-map {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  margin-block-end: 14px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.control-plane-map header {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-block-size: 84px;
+  padding-inline: 14px;
+  background: var(--surface);
+}
+
+.control-plane-map header span,
+.control-plane-map header strong,
+.control-plane-stage span,
+.control-plane-stage small,
+.control-plane-connector small {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.control-plane-map header span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.control-plane-map header svg {
+  color: var(--green-deep);
+}
+
+.control-plane-map.warning header svg,
+.control-plane-map.critical header svg {
+  color: var(--orange);
+}
+
+.control-plane-map header strong {
+  color: var(--text);
+}
+
+.control-plane-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(154px, 1fr));
+  gap: 1px;
+  min-inline-size: 0;
+}
+
+.control-plane-hop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-inline-size: 0;
+  background: var(--surface);
+}
+
+.control-plane-hop:last-child {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.control-plane-stage {
+  display: grid;
+  grid-template-columns: 10px 18px minmax(0, 1fr) auto;
+  gap: 6px 9px;
+  align-content: center;
+  align-items: center;
+  min-block-size: 84px;
+  min-inline-size: 0;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.control-plane-stage:hover {
+  background: var(--surface-soft);
+}
+
+.control-plane-stage > svg {
+  color: var(--green-deep);
+}
+
+.control-plane-stage.warning > svg,
+.control-plane-stage.critical > svg {
+  color: var(--orange);
+}
+
+.control-plane-stage strong {
+  justify-self: end;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 18px;
+}
+
+.control-plane-stage small {
+  grid-column: 3 / -1;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-plane-connector {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+  place-items: center;
+  inline-size: 54px;
+  min-block-size: 84px;
+  border-inline: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.control-plane-connector i {
+  grid-row: 1 / -1;
+  grid-column: 1;
+  inline-size: 1px;
+  block-size: 100%;
+  background: var(--line-bright);
+}
+
+.control-plane-connector small {
+  grid-row: 2;
+  grid-column: 1;
+  max-inline-size: 48px;
+  padding: 4px 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.15;
+  text-align: center;
+  text-overflow: ellipsis;
+  background: var(--surface-soft);
+}
+
 .summary-strip {
   display: flex;
   align-items: center;
@@ -3611,6 +3754,32 @@ summary:focus-visible {
 
   .summary-metrics {
     grid-template-columns: repeat(5, minmax(96px, 1fr));
+  }
+
+  .control-plane-map {
+    grid-template-columns: 1fr;
+  }
+
+  .control-plane-map header {
+    min-block-size: 48px;
+    border-block-end: 1px solid var(--line);
+  }
+
+  .control-plane-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .control-plane-hop,
+  .control-plane-hop:last-child {
+    grid-template-columns: 1fr;
+  }
+
+  .control-plane-stage {
+    min-block-size: 58px;
+  }
+
+  .control-plane-connector {
+    display: none;
   }
 
   .pod-triage-rail {
