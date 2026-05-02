@@ -954,34 +954,145 @@ fn annotate_service_backends(resources: &mut [ResourceSummary]) {
         .filter(|resource| resource.kind == "Pod")
         .map(|pod| (pod.namespace.clone(), pod.labels.clone(), pod.backend_ready))
         .collect::<Vec<_>>();
+    let endpoint_slices = endpoint_slice_signals(resources);
 
     for service in resources.iter_mut().filter(|resource| resource.kind == "Service") {
-        if service.selector.is_empty() {
-            continue;
+        if let Some((status, diagnostic)) = strongest_service_annotation(
+            selected_pod_service_annotation(service, &pods),
+            endpoint_slice_service_annotation(service, &endpoint_slices),
+        ) {
+            mark_service_backend_status(service, status, diagnostic);
         }
+    }
+}
 
-        let selected_pods = pods
-            .iter()
-            .filter(|(namespace, labels, _)| namespace == &service.namespace && selector_matches(labels, &service.selector))
-            .collect::<Vec<_>>();
+type ServiceAnnotation = (HealthState, String);
 
-        if selected_pods.is_empty() {
-            mark_service_backend_status(service, HealthState::Critical, "no selected pods".to_string());
-            continue;
-        }
+struct EndpointSliceSignal {
+    namespace: String,
+    service_name: String,
+    status: HealthState,
+    diagnostic: String,
+}
 
-        let ready = selected_pods.iter().filter(|(_, _, ready)| *ready).count();
-        if ready == selected_pods.len() {
-            continue;
-        }
+fn selected_pod_service_annotation(
+    service: &ResourceSummary,
+    pods: &[(String, BTreeMap<String, String>, bool)],
+) -> Option<ServiceAnnotation> {
+    if service.selector.is_empty() {
+        return None;
+    }
 
-        let diagnostic = format!("{ready}/{} backend pods ready", selected_pods.len());
-        let status = if ready == 0 {
-            HealthState::Critical
+    let selected_pods = pods
+        .iter()
+        .filter(|(namespace, labels, _)| namespace == &service.namespace && selector_matches(labels, &service.selector))
+        .collect::<Vec<_>>();
+
+    if selected_pods.is_empty() {
+        return Some((HealthState::Critical, "no selected pods".to_string()));
+    }
+
+    let ready = selected_pods.iter().filter(|(_, _, ready)| *ready).count();
+    if ready == selected_pods.len() {
+        return None;
+    }
+
+    let diagnostic = format!("{ready}/{} backend pods ready", selected_pods.len());
+    let status = if ready == 0 {
+        HealthState::Critical
+    } else {
+        HealthState::Warning
+    };
+    Some((status, diagnostic))
+}
+
+fn endpoint_slice_service_annotation(
+    service: &ResourceSummary,
+    endpoint_slices: &[EndpointSliceSignal],
+) -> Option<ServiceAnnotation> {
+    let slices = endpoint_slices
+        .iter()
+        .filter(|slice| slice.namespace == service.namespace && slice.service_name == service.name)
+        .collect::<Vec<_>>();
+
+    if slices.is_empty() {
+        return if service.selector.is_empty() && service.image != "ExternalName" {
+            Some((HealthState::Critical, "no endpoint slices".to_string()))
         } else {
-            HealthState::Warning
+            None
         };
-        mark_service_backend_status(service, status, diagnostic);
+    }
+
+    let healthy = slices.iter().filter(|slice| slice.status == HealthState::Healthy).count();
+    if healthy == slices.len() {
+        return None;
+    }
+
+    let status = if healthy == 0 && slices.iter().all(|slice| slice.status == HealthState::Critical) {
+        HealthState::Critical
+    } else {
+        HealthState::Warning
+    };
+
+    Some((status, service_endpoint_slice_diagnostic(&slices)))
+}
+
+fn service_endpoint_slice_diagnostic(slices: &[&EndpointSliceSignal]) -> String {
+    let degraded = slices
+        .iter()
+        .filter(|slice| slice.status != HealthState::Healthy)
+        .collect::<Vec<_>>();
+
+    if degraded.len() == 1 && !degraded[0].diagnostic.is_empty() {
+        return degraded[0].diagnostic.clone();
+    }
+
+    let ready = slices.iter().filter(|slice| slice.status == HealthState::Healthy).count();
+    format!("{ready}/{} endpoint slices ready", slices.len())
+}
+
+fn endpoint_slice_signals(resources: &[ResourceSummary]) -> Vec<EndpointSliceSignal> {
+    resources
+        .iter()
+        .filter(|resource| resource.kind == "EndpointSlice")
+        .flat_map(|slice| {
+            slice
+                .references
+                .iter()
+                .filter(|reference| reference.kind == "Service")
+                .map(|reference| EndpointSliceSignal {
+                    namespace: reference.namespace.clone(),
+                    service_name: reference.name.clone(),
+                    status: slice.status.clone(),
+                    diagnostic: slice.diagnostic.clone(),
+                })
+        })
+        .collect()
+}
+
+fn strongest_service_annotation(
+    left: Option<ServiceAnnotation>,
+    right: Option<ServiceAnnotation>,
+) -> Option<ServiceAnnotation> {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            if service_annotation_rank(&right.0) < service_annotation_rank(&left.0) {
+                Some(right)
+            } else {
+                Some(left)
+            }
+        }
+        (Some(annotation), None) | (None, Some(annotation)) => Some(annotation),
+        (None, None) => None,
+    }
+}
+
+fn service_annotation_rank(status: &HealthState) -> u8 {
+    match status {
+        HealthState::Critical => 0,
+        HealthState::Warning => 1,
+        HealthState::Syncing => 2,
+        HealthState::Healthy => 3,
     }
 }
 
@@ -3486,6 +3597,106 @@ mod tests {
 
         assert_eq!(resources[0].status, HealthState::Healthy);
         assert_eq!(resources[0].diagnostic, "");
+    }
+
+    #[test]
+    fn service_backend_annotation_marks_selectorless_service_without_endpoint_slices_critical() {
+        let mut resources = vec![resource_summary(
+            "Service",
+            "manual-api".to_string(),
+            "payments".to_string(),
+            "kind-kite",
+            HealthState::Healthy,
+            0,
+            "ClusterIP".to_string(),
+        )];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Critical);
+        assert_eq!(resources[0].diagnostic, "no endpoint slices");
+    }
+
+    #[test]
+    fn service_backend_annotation_does_not_require_endpoint_slices_for_external_name() {
+        let mut resources = vec![resource_summary(
+            "Service",
+            "vendor-api".to_string(),
+            "payments".to_string(),
+            "kind-kite",
+            HealthState::Healthy,
+            0,
+            "ExternalName".to_string(),
+        )];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Healthy);
+        assert_eq!(resources[0].diagnostic, "");
+    }
+
+    #[test]
+    fn service_backend_annotation_uses_endpoint_slice_readiness_for_selectorless_service() {
+        let slice = endpoint_slice(
+            "manual-api-abcd",
+            "payments",
+            "manual-api",
+            vec![
+                endpoint_ref("api-ready", true),
+                endpoint_ref("api-draining", false),
+            ],
+        );
+        let mut resources = vec![
+            resource_summary(
+                "Service",
+                "manual-api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "ClusterIP".to_string(),
+            ),
+            endpoint_slice_summary(slice, "kind-kite"),
+        ];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Warning);
+        assert_eq!(resources[0].diagnostic, "1/2 endpoints ready");
+    }
+
+    #[test]
+    fn service_backend_annotation_promotes_ready_pod_service_when_endpoint_slices_are_degraded() {
+        let slice = endpoint_slice("api-empty", "payments", "api", Vec::new());
+        let mut resources = vec![
+            resource_summary(
+                "Service",
+                "api".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "ClusterIP".to_string(),
+            )
+            .with_selector(BTreeMap::from([("app".to_string(), "api".to_string())])),
+            resource_summary(
+                "Pod",
+                "api-ready".to_string(),
+                "payments".to_string(),
+                "kind-kite",
+                HealthState::Healthy,
+                0,
+                "api:latest".to_string(),
+            )
+            .with_labels(BTreeMap::from([("app".to_string(), "api".to_string())]))
+            .with_backend_ready(true),
+            endpoint_slice_summary(slice, "kind-kite"),
+        ];
+
+        annotate_service_backends(&mut resources);
+
+        assert_eq!(resources[0].status, HealthState::Critical);
+        assert_eq!(resources[0].diagnostic, "no endpoints");
     }
 
     #[test]
