@@ -101,24 +101,26 @@ export function Toolbar({ count, data, scope }: { count: number; data: KiteData;
 
 export function SummaryStrip({ counts, warningCount }: { counts: Map<string, number>; warningCount: number }) {
   return (
-    <section className="summary-strip" aria-label="Cluster summary">
-      {overviewCards.map((card, index) => {
-        const Icon = card.icon;
-        return (
-          <article className="summary-card" key={card.kind} style={{ "--delay": `${index * 65}ms` } as CSSProperties}>
-            <Icon size={20} />
-            <span>{card.label}</span>
-            <strong>{counts.get(card.kind) ?? 0}</strong>
-            <small>live</small>
-          </article>
-        );
-      })}
-      <article className="summary-card risk" style={{ "--delay": "260ms" } as CSSProperties}>
-        <Gauge size={20} />
-        <span>Warnings</span>
-        <strong>{warningCount}</strong>
-        <small>needs review</small>
-      </article>
+    <section className="summary-strip" aria-label="Cluster signals">
+      <span className="summary-strip-label">Cluster</span>
+      <div className="summary-metrics">
+        {overviewCards.map((card, index) => {
+          const Icon = card.icon;
+          return (
+            <article className="summary-metric" key={card.kind} style={{ "--delay": `${index * 45}ms` } as CSSProperties}>
+              <Icon size={20} />
+              <span>{card.label}</span>
+              <strong>{counts.get(card.kind) ?? 0}</strong>
+            </article>
+          );
+        })}
+        <article className="summary-metric risk" style={{ "--delay": "180ms" } as CSSProperties}>
+          <Gauge size={20} />
+          <span>Warnings</span>
+          <strong>{warningCount}</strong>
+        </article>
+      </div>
+      <small className={warningCount ? "summary-state warning" : "summary-state"}>{warningCount ? "review" : "clear"}</small>
     </section>
   );
 }
