@@ -601,11 +601,13 @@ function EventSignalRail({
   details: ResourceDetails;
   detailsError: string;
   detailsLoading: boolean;
-  onOpenResource: (id: string) => void;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
   resource: ResourceRow;
 }) {
   const event = details.events[0];
   const target = referencedResources(resource.references, allResources)[0];
+  const targetIsPod = target?.kind === "Pod";
+  const TargetActionIcon = targetIsPod ? FileText : Network;
   const type = detailsLoading ? "Syncing" : event?.type || resource.image || "Event";
   const reason = detailsLoading ? "Loading" : event?.reason || resource.diagnostic || "Event";
   const message = detailsLoading
@@ -633,9 +635,9 @@ function EventSignalRail({
           <ActionFact label="Target" value={resource.owner || "unknown"} />
         </div>
         {target ? (
-          <button type="button" onClick={() => onOpenResource(target.id)}>
-            <Network size={15} />
-            Open {target.kind}
+          <button type="button" onClick={() => onOpenResource(target.id, targetIsPod ? "logs" : null)}>
+            <TargetActionIcon size={15} />
+            {targetIsPod ? "Open pod logs" : `Open ${target.kind}`}
           </button>
         ) : null}
       </div>
