@@ -9,6 +9,7 @@ const isViteDevBrowser = /^https?:\/\/(127\.0\.0\.1|localhost):1420$/.test(windo
 const canUseTauri = "__TAURI_INTERNALS__" in window && !isViteDevBrowser;
 const pinnedStorageKey = "kite:pinned-resources:v1";
 const selectedContextStorageKey = "kite:selected-context:v1";
+const liveSnapshotIntervalMs = 15_000;
 const emptyResourceDetails = (): ResourceDetails => ({
   yaml: "",
   events: [],
@@ -36,6 +37,7 @@ export function useKiteData() {
   const [detailsError, setDetailsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const snapshotRequestId = useRef(0);
   const detailsRequestId = useRef(0);
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
@@ -110,6 +112,17 @@ export function useKiteData() {
   }, []);
 
   useEffect(() => {
+    if (!selectedContext) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshLiveSnapshot(selectedContext, { showLoading: false });
+    }, liveSnapshotIntervalMs);
+    return () => window.clearInterval(interval);
+  }, [selectedContext]);
+
+  useEffect(() => {
     if (!selectedResource) {
       detailsRequestId.current += 1;
       setDetailsLoading(false);
@@ -138,19 +151,30 @@ export function useKiteData() {
     }
   }
 
-  async function refreshLiveSnapshot(contextOverride = selectedContext) {
-    setLoading(true);
+  async function refreshLiveSnapshot(contextOverride = selectedContext, options: { showLoading?: boolean } = {}) {
+    const requestId = ++snapshotRequestId.current;
+    if (options.showLoading !== false) {
+      setLoading(true);
+    }
     setError("");
 
     try {
       const nextSnapshot = await readLiveSnapshot(contextOverride);
 
+      if (requestId !== snapshotRequestId.current) {
+        return;
+      }
+
       setSnapshot(nextSnapshot);
       setSelectedId((current) => nextSnapshot.resources.some((resource) => resource.id === current) ? current : nextSnapshot.resources[0]?.id || "");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to read Kubernetes state");
+      if (requestId === snapshotRequestId.current) {
+        setError(caught instanceof Error ? caught.message : "Unable to read Kubernetes state");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === snapshotRequestId.current) {
+        setLoading(false);
+      }
     }
   }
 
