@@ -63,6 +63,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
     title: "Traffic",
     items: [
       { id: "Service", label: "Services", icon: Network, kind: "Service" },
+      { id: "EndpointSlice", label: "EndpointSlices", icon: Network, kind: "EndpointSlice" },
       { id: "Gateway", label: "Gateways", icon: Network, kind: "Gateway" },
       { id: "HTTPRoute", label: "HTTPRoutes", icon: Network, kind: "HTTPRoute" },
       { id: "Ingress", label: "Ingresses", icon: Network, kind: "Ingress" },
@@ -121,6 +122,7 @@ export const kindThemes: Record<string, KindTheme> = {
   Job: { label: "Jobs", icon: Clock3, accent: "orange", actions: ["Rerun", "Logs", "YAML"] },
   CronJob: { label: "CronJobs", icon: Clock3, accent: "orange", actions: ["Trigger", "Suspend", "YAML"] },
   Service: { label: "Services", icon: Network, accent: "blue", actions: ["Port", "Endpoints", "YAML"] },
+  EndpointSlice: { label: "EndpointSlices", icon: Network, accent: "blue", actions: ["Service", "Pods", "YAML"] },
   Gateway: { label: "Gateways", icon: Network, accent: "blue", actions: ["Routes", "Events", "YAML"] },
   HTTPRoute: { label: "HTTPRoutes", icon: Network, accent: "blue", actions: ["Parents", "Refs", "YAML"] },
   Ingress: { label: "Ingresses", icon: Network, accent: "blue", actions: ["Rules", "TLS", "YAML"] },

@@ -7,6 +7,7 @@ use k8s_openapi::api::{
         ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
         PersistentVolumeClaim, Pod, Secret, Service,
     },
+    discovery::v1::{Endpoint, EndpointSlice},
     networking::v1::Ingress,
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
     storage::v1::StorageClass,
@@ -127,7 +128,7 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
 }
 
 async fn required_snapshot_resources(client: Client, context: &str) -> Result<(Vec<ResourceSummary>, Vec<String>), String> {
-    let (pods, deployments, replicasets, statefulsets, daemonsets, jobs, cronjobs, services, ingresses) = tokio::try_join!(
+    let (pods, deployments, replicasets, statefulsets, daemonsets, jobs, cronjobs, services, endpoint_slices, ingresses) = tokio::try_join!(
         list_pods(client.clone(), context),
         list_deployments(client.clone(), context),
         list_replicasets(client.clone(), context),
@@ -136,6 +137,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_jobs(client.clone(), context),
         list_cronjobs(client.clone(), context),
         list_services(client.clone(), context),
+        list_endpoint_slices(client.clone(), context),
         list_ingresses(client.clone(), context),
     )?;
     let (
@@ -181,6 +183,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(jobs);
     resources.extend(cronjobs);
     resources.extend(services);
+    resources.extend(endpoint_slices);
     resources.extend(ingresses);
     resources.extend(configmaps);
     resources.extend(secrets);
@@ -1742,6 +1745,110 @@ async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
         .collect())
 }
 
+async fn list_endpoint_slices(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let endpoint_slices = Api::<EndpointSlice>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list endpoint slices: {error}"))?;
+
+    Ok(endpoint_slices
+        .items
+        .into_iter()
+        .map(|slice| endpoint_slice_summary(slice, cluster))
+        .collect())
+}
+
+fn endpoint_slice_summary(slice: EndpointSlice, cluster: &str) -> ResourceSummary {
+    let age = resource_age(&slice.metadata);
+    let labels = slice.metadata.labels.clone().unwrap_or_default();
+    let namespace = slice.namespace().unwrap_or_else(|| "default".to_string());
+    let service_name = labels.get("kubernetes.io/service-name").cloned().unwrap_or_default();
+    let ready_count = slice.endpoints.iter().filter(|endpoint| endpoint_ready(endpoint)).count();
+    let endpoint_count = slice.endpoints.len();
+    let port_count = slice.ports.as_deref().unwrap_or_default().len();
+
+    resource_summary(
+        "EndpointSlice",
+        slice.name_any(),
+        namespace.clone(),
+        cluster,
+        endpoint_slice_status(endpoint_count, ready_count),
+        0,
+        endpoint_slice_kind_summary(&slice.address_type, port_count),
+    )
+    .with_age(age)
+    .with_owner(if service_name.is_empty() { namespace.clone() } else { format!("Service/{service_name}") })
+    .with_diagnostic(endpoint_slice_diagnostic(endpoint_count, ready_count))
+    .with_labels(labels)
+    .with_references(endpoint_slice_references(&slice, &namespace, &service_name))
+}
+
+fn endpoint_slice_status(endpoint_count: usize, ready_count: usize) -> HealthState {
+    if endpoint_count == 0 || ready_count == 0 {
+        HealthState::Critical
+    } else if ready_count == endpoint_count {
+        HealthState::Healthy
+    } else {
+        HealthState::Warning
+    }
+}
+
+fn endpoint_slice_diagnostic(endpoint_count: usize, ready_count: usize) -> String {
+    if endpoint_count == 0 {
+        return "no endpoints".to_string();
+    }
+    if ready_count == endpoint_count {
+        return String::new();
+    }
+    format!("{ready_count}/{endpoint_count} endpoints ready")
+}
+
+fn endpoint_slice_kind_summary(address_type: &str, port_count: usize) -> String {
+    let ports = if port_count == 1 { "1 port".to_string() } else { format!("{port_count} ports") };
+    if address_type.is_empty() {
+        ports
+    } else {
+        format!("{address_type} · {ports}")
+    }
+}
+
+fn endpoint_slice_references(slice: &EndpointSlice, namespace: &str, service_name: &str) -> Vec<ResourceReference> {
+    let mut references = Vec::new();
+    if !service_name.is_empty() {
+        references.push(resource_reference("Service", namespace, service_name));
+    }
+
+    for endpoint in &slice.endpoints {
+        if let Some(target) = endpoint.target_ref.as_ref() {
+            if let (Some(kind), Some(name)) = (target.kind.as_deref(), target.name.as_deref()) {
+                push_unique_reference(
+                    &mut references,
+                    resource_reference(
+                        kind,
+                        target
+                            .namespace
+                            .as_deref()
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or(namespace),
+                        name,
+                    ),
+                );
+            }
+        }
+    }
+    references
+}
+
+fn endpoint_ready(endpoint: &Endpoint) -> bool {
+    let Some(conditions) = endpoint.conditions.as_ref() else {
+        return true;
+    };
+
+    conditions.ready.unwrap_or(true)
+        && conditions.serving.unwrap_or(true)
+        && !conditions.terminating.unwrap_or(false)
+}
+
 async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let ingresses = Api::<Ingress>::all(client)
         .list(&ListParams::default())
@@ -2842,6 +2949,7 @@ mod tests {
         ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, ObjectReference, PersistentVolumeClaimVolumeSource,
         PodSpec, PodStatus, SecretEnvSource, SecretKeySelector, SecretVolumeSource, Volume,
     };
+    use k8s_openapi::api::discovery::v1::{Endpoint, EndpointConditions, EndpointSlice};
     use k8s_openapi::api::networking::v1::{
         HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
         IngressSpec, ServiceBackendPort,
@@ -3381,6 +3489,42 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_slice_summary_links_service_and_target_pods() {
+        let slice = endpoint_slice(
+            "api-abcd",
+            "payments",
+            "api",
+            vec![
+                endpoint_ref("api-ready", true),
+                endpoint_ref("api-draining", false),
+            ],
+        );
+
+        let summary = endpoint_slice_summary(slice, "kind-kite");
+
+        assert_eq!(summary.kind, "EndpointSlice");
+        assert_eq!(summary.namespace, "payments");
+        assert_eq!(summary.owner, "Service/api");
+        assert_eq!(summary.status, HealthState::Warning);
+        assert_eq!(summary.diagnostic, "1/2 endpoints ready");
+        assert_eq!(summary.references.len(), 3);
+        assert_eq!(summary.references[0].kind, "Service");
+        assert_eq!(summary.references[0].name, "api");
+        assert_eq!(summary.references[1].kind, "Pod");
+        assert_eq!(summary.references[1].name, "api-ready");
+    }
+
+    #[test]
+    fn endpoint_slice_without_endpoints_is_critical() {
+        let slice = endpoint_slice("api-empty", "payments", "api", Vec::new());
+
+        let summary = endpoint_slice_summary(slice, "kind-kite");
+
+        assert_eq!(summary.status, HealthState::Critical);
+        assert_eq!(summary.diagnostic, "no endpoints");
+    }
+
+    #[test]
     fn gateway_api_status_uses_nested_route_conditions() {
         let route = serde_json::json!({
             "spec": {
@@ -3664,6 +3808,41 @@ mod tests {
                 }),
             }),
             ..IngressBackend::default()
+        }
+    }
+
+    fn endpoint_slice(name: &str, namespace: &str, service: &str, endpoints: Vec<Endpoint>) -> EndpointSlice {
+        EndpointSlice {
+            address_type: "IPv4".to_string(),
+            endpoints,
+            metadata: ObjectMeta {
+                name: Some(name.to_string()),
+                namespace: Some(namespace.to_string()),
+                labels: Some(BTreeMap::from([(
+                    "kubernetes.io/service-name".to_string(),
+                    service.to_string(),
+                )])),
+                ..ObjectMeta::default()
+            },
+            ports: None,
+        }
+    }
+
+    fn endpoint_ref(name: &str, ready: bool) -> Endpoint {
+        Endpoint {
+            addresses: vec!["10.42.0.10".to_string()],
+            conditions: Some(EndpointConditions {
+                ready: Some(ready),
+                serving: Some(ready),
+                terminating: Some(!ready),
+            }),
+            target_ref: Some(ObjectReference {
+                kind: Some("Pod".to_string()),
+                namespace: Some("payments".to_string()),
+                name: Some(name.to_string()),
+                ..ObjectReference::default()
+            }),
+            ..Endpoint::default()
         }
     }
 }

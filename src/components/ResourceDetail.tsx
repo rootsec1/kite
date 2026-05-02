@@ -1075,7 +1075,7 @@ function HierarchyGroups({
   );
 }
 
-const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
+const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", "HTTPRoute"]);
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "PersistentVolumeClaim"]);
 const configKinds = new Set(["ConfigMap", "Secret", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
@@ -1115,8 +1115,10 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     const hasSelector = Object.keys(resource.selector).length > 0;
     const pods = hasSelector ? selectedPods : namespacePods;
     const routes = resources.filter((item) => routeKinds.has(item.kind) && referencesResource(item, resource));
+    const endpointSlices = resources.filter((item) => item.kind === "EndpointSlice" && referencesResource(item, resource));
     return [
       { title: hasSelector ? "Selected pods" : "Pods in namespace", resources: pods },
+      { title: "EndpointSlices", resources: endpointSlices },
       { title: "Workloads in namespace", resources: workloadsForPods(pods, resources) },
       { title: "Routes", resources: routes },
       { title: "Config nearby", resources: resources.filter((item) => item.namespace === resource.namespace && ["ConfigMap", "Secret", "HelmRelease"].includes(item.kind)) },
@@ -1153,6 +1155,13 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     return [
       { title: "Backend services", resources: services },
       ...(pods.length ? [{ title: "Backend pods", resources: pods }] : []),
+    ];
+  }
+
+  if (resource.kind === "EndpointSlice") {
+    return [
+      { title: "Service", resources: referencedResources(resource.references, resources).filter((item) => item.kind === "Service") },
+      { title: "Endpoint pods", resources: referencedResources(resource.references, resources).filter((item) => item.kind === "Pod") },
     ];
   }
 

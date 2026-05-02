@@ -4,6 +4,8 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 
 type KubeItem = {
+  addressType?: string;
+  endpoints?: KubeEndpoint[];
   kind?: string;
   message?: string;
   reason?: string;
@@ -52,6 +54,7 @@ type KubeItem = {
       http?: { paths?: Array<{ backend?: KubeIngressBackend }> };
     }>;
   };
+  ports?: unknown[];
   provisioner?: string;
   reclaimPolicy?: string;
   status?: {
@@ -70,6 +73,19 @@ type KubeItem = {
     initContainerStatuses?: KubeContainerStatus[];
     reason?: string;
     message?: string;
+  };
+};
+
+type KubeEndpoint = {
+  conditions?: {
+    ready?: boolean;
+    serving?: boolean;
+    terminating?: boolean;
+  };
+  targetRef?: {
+    kind?: string;
+    name?: string;
+    namespace?: string;
   };
 };
 
@@ -194,6 +210,7 @@ const resourceQueries = [
   { name: "jobs.batch", namespaced: true },
   { name: "cronjobs.batch", namespaced: true },
   { name: "services", namespaced: true },
+  { name: "endpointslices.discovery.k8s.io", namespaced: true },
   { name: "events", namespaced: true },
   { name: "ingresses.networking.k8s.io", namespaced: true },
   { name: "gateways.gateway.networking.k8s.io", namespaced: true },
@@ -729,6 +746,9 @@ function resourceReferences(item: KubeItem, namespace: string) {
   if (item.kind === "Event") {
     return eventReferences(item, namespace);
   }
+  if (item.kind === "EndpointSlice") {
+    return endpointSliceReferences(item, namespace);
+  }
   if (item.kind === "HTTPRoute") {
     return httpRouteBackendReferences(item, namespace);
   }
@@ -779,6 +799,18 @@ function eventReferences(item: KubeItem, fallbackNamespace: string) {
     namespace: involved.namespace || fallbackNamespace,
     name: involved.name,
   }];
+}
+
+function endpointSliceReferences(item: KubeItem, namespace: string) {
+  return uniqueReferences([
+    ...(endpointSliceServiceName(item) ? [{ kind: "Service", namespace, name: endpointSliceServiceName(item) }] : []),
+    ...(item.endpoints ?? []).flatMap((endpoint) => {
+      const target = endpoint.targetRef;
+      return target?.kind && target.name
+        ? [{ kind: target.kind, namespace: target.namespace || namespace, name: target.name }]
+        : [];
+    }),
+  ]);
 }
 
 function volumeReferences(item: KubeItem, namespace: string) {
@@ -846,6 +878,11 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return involved ? `${involved.kind}/${involved.name}` : fallback;
   }
 
+  if (item.kind === "EndpointSlice") {
+    const serviceName = endpointSliceServiceName(item);
+    return serviceName ? `Service/${serviceName}` : fallback;
+  }
+
   if (item.kind === "PersistentVolumeClaim") {
     return item.spec?.volumeName ?? "";
   }
@@ -868,6 +905,9 @@ function ownerForResource(item: KubeItem, fallback: string) {
 }
 
 function resourceImage(item: KubeItem) {
+  if (item.kind === "EndpointSlice") {
+    return endpointSliceKindSummary(item);
+  }
   if (item.kind === "PersistentVolumeClaim" || item.kind === "PersistentVolume") {
     return item.spec?.storageClassName ?? "";
   }
@@ -1039,6 +1079,10 @@ function resourceStatus(item: KubeItem) {
     return item.type === "Warning" ? "warning" : "healthy";
   }
 
+  if (item.kind === "EndpointSlice") {
+    return endpointSliceStatus(item);
+  }
+
   if (item.kind === "PersistentVolumeClaim" || item.kind === "PersistentVolume") {
     return item.status?.phase === "Bound" || item.status?.phase === "Available" ? "healthy" : "warning";
   }
@@ -1081,8 +1125,43 @@ function resourceDiagnostic(item: KubeItem) {
     return item.reason || item.message || "";
   }
 
+  if (item.kind === "EndpointSlice") {
+    return endpointSliceDiagnostic(item);
+  }
+
   if (item.kind !== "Pod") return "";
   return podDiagnostic(item);
+}
+
+function endpointSliceServiceName(item: KubeItem) {
+  return item.metadata?.labels?.["kubernetes.io/service-name"] ?? "";
+}
+
+function endpointSliceReadyCount(item: KubeItem) {
+  return (item.endpoints ?? []).filter((endpoint) => {
+    const conditions = endpoint.conditions;
+    return (conditions?.ready ?? true) && (conditions?.serving ?? true) && !(conditions?.terminating ?? false);
+  }).length;
+}
+
+function endpointSliceStatus(item: KubeItem) {
+  const endpointCount = item.endpoints?.length ?? 0;
+  const readyCount = endpointSliceReadyCount(item);
+  if (!endpointCount || !readyCount) return "critical";
+  return readyCount === endpointCount ? "healthy" : "warning";
+}
+
+function endpointSliceDiagnostic(item: KubeItem) {
+  const endpointCount = item.endpoints?.length ?? 0;
+  const readyCount = endpointSliceReadyCount(item);
+  if (!endpointCount) return "no endpoints";
+  return readyCount === endpointCount ? "" : `${readyCount}/${endpointCount} endpoints ready`;
+}
+
+function endpointSliceKindSummary(item: KubeItem) {
+  const portCount = item.ports?.length ?? 0;
+  const ports = portCount === 1 ? "1 port" : `${portCount} ports`;
+  return item.addressType ? `${item.addressType} · ${ports}` : ports;
 }
 
 function podStatus(item: KubeItem) {
