@@ -40,6 +40,7 @@ type KubeItem = {
     runtimeClassName?: string;
     schedulerName?: string;
     schedulingGates?: Array<{ name?: string }>;
+    imagePullSecrets?: Array<{ name?: string }>;
     selector?: Record<string, string> | { matchLabels?: Record<string, string> };
     serviceAccountName?: string;
     tolerations?: KubeToleration[];
@@ -763,6 +764,7 @@ function resourceReferences(item: KubeItem, namespace: string) {
     return uniqueReferences([
       ...volumeReferences(item, namespace),
       ...serviceAccountReferences(item, namespace),
+      ...imagePullSecretReferences(item, namespace),
       ...envReferences(item, namespace),
     ]);
   }
@@ -837,6 +839,12 @@ function volumeReferences(item: KubeItem, namespace: string) {
 function serviceAccountReferences(item: KubeItem, namespace: string) {
   const serviceAccountName = item.spec?.serviceAccountName;
   return serviceAccountName ? [{ kind: "ServiceAccount", namespace, name: serviceAccountName }] : [];
+}
+
+function imagePullSecretReferences(item: KubeItem, namespace: string) {
+  return (item.spec?.imagePullSecrets ?? [])
+    .filter((secret) => secret.name)
+    .map((secret) => ({ kind: "Secret", namespace, name: secret.name ?? "" }));
 }
 
 function envReferences(item: KubeItem, namespace: string) {

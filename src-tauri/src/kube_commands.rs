@@ -2799,6 +2799,9 @@ fn pod_dependency_references(pod: &Pod, namespace: &str) -> Vec<ResourceReferenc
     if let Some(reference) = pod_service_account_reference(pod, namespace) {
         push_unique_reference(&mut references, reference);
     }
+    for reference in pod_image_pull_secret_references(pod, namespace) {
+        push_unique_reference(&mut references, reference);
+    }
     for reference in pod_env_references(pod, namespace) {
         push_unique_reference(&mut references, reference);
     }
@@ -2811,6 +2814,16 @@ fn pod_service_account_reference(pod: &Pod, namespace: &str) -> Option<ResourceR
         .and_then(|spec| spec.service_account_name.as_deref())
         .filter(|name| !name.is_empty())
         .map(|name| resource_reference("ServiceAccount", namespace, name))
+}
+
+fn pod_image_pull_secret_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
+    pod.spec
+        .as_ref()
+        .and_then(|spec| spec.image_pull_secrets.as_deref())
+        .unwrap_or_default()
+        .iter()
+        .map(|secret| resource_reference("Secret", namespace, &secret.name))
+        .collect()
 }
 
 fn pod_volume_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
@@ -3130,8 +3143,8 @@ mod tests {
     use super::*;
     use k8s_openapi::api::core::v1::{
         ConfigMapEnvSource, ConfigMapKeySelector, ConfigMapVolumeSource, Container, ContainerState,
-        ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, ObjectReference, PersistentVolumeClaimVolumeSource,
-        PodSpec, PodStatus, SecretEnvSource, SecretKeySelector, SecretVolumeSource, Volume,
+        ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, LocalObjectReference, ObjectReference,
+        PersistentVolumeClaimVolumeSource, PodSpec, PodStatus, SecretEnvSource, SecretKeySelector, SecretVolumeSource, Volume,
     };
     use k8s_openapi::api::discovery::v1::{Endpoint, EndpointConditions, EndpointSlice};
     use k8s_openapi::api::networking::v1::{
@@ -3983,6 +3996,9 @@ mod tests {
         let mut pod = Pod::default();
         pod.spec = Some(PodSpec {
             service_account_name: Some("api-sa".to_string()),
+            image_pull_secrets: Some(vec![LocalObjectReference {
+                name: "registry-creds".to_string(),
+            }]),
             containers: vec![Container {
                 name: "api".to_string(),
                 env_from: Some(vec![
@@ -4057,7 +4073,7 @@ mod tests {
 
         let references = pod_dependency_references(&pod, "default");
 
-        assert_eq!(references.len(), 6);
+        assert_eq!(references.len(), 7);
         assert_eq!(references[0].kind, "ConfigMap");
         assert_eq!(references[0].name, "app-config");
         assert_eq!(references[1].kind, "Secret");
@@ -4067,9 +4083,11 @@ mod tests {
         assert_eq!(references[3].kind, "ServiceAccount");
         assert_eq!(references[3].name, "api-sa");
         assert_eq!(references[4].kind, "Secret");
-        assert_eq!(references[4].name, "env-secret");
-        assert_eq!(references[5].kind, "ConfigMap");
-        assert_eq!(references[5].name, "feature-config");
+        assert_eq!(references[4].name, "registry-creds");
+        assert_eq!(references[5].kind, "Secret");
+        assert_eq!(references[5].name, "env-secret");
+        assert_eq!(references[6].kind, "ConfigMap");
+        assert_eq!(references[6].name, "feature-config");
     }
 
     #[test]
