@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
-import { ArrowDownToLine, Check, Copy, History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Check, Copy, History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import type { ResourceDetails } from "../types/kube";
 
@@ -20,6 +20,16 @@ type ParsedLogLine = {
   source: string;
   level: Exclude<LogLevel, "all">;
   message: string;
+};
+
+type LogInsight = {
+  id: string;
+  label: string;
+  level?: Exclude<LogLevel, "all">;
+  message: string;
+  source?: string;
+  tone: "error" | "warn" | "info";
+  value: string;
 };
 
 export function PodTerminal({
@@ -100,6 +110,7 @@ export function PodTerminal({
     return {
       activeSource,
       counts,
+      insights: logInsights(sourceScopedLines, sourceOptions, activeSource),
       lines: sourceScopedLines,
       sourceOptions,
       totalLines: lines.length,
@@ -128,6 +139,13 @@ export function PodTerminal({
     setFollowingState(true);
     window.requestAnimationFrame(scrollToLatest);
   }, [scrollToLatest, setFollowingState]);
+
+  const applyInsight = useCallback((insight: LogInsight) => {
+    setLevelFilter(insight.level ?? "all");
+    if (insight.source) {
+      setSourceFilter(insight.source);
+    }
+  }, []);
 
   const copyVisibleLogs = useCallback(async () => {
     if (!visibleLogText) {
@@ -257,6 +275,28 @@ export function PodTerminal({
         </button>
       </div>
 
+      {logView.insights.length ? (
+        <div className="log-insight-strip" aria-label="Log diagnostics">
+          {logView.insights.map((insight) => {
+            const InsightIcon = insight.level ? AlertTriangle : Layers;
+            return (
+              <button
+                aria-label={`${insight.label}: ${insight.value}. ${insight.message}`}
+                className={`log-insight ${insight.tone}`}
+                key={insight.id}
+                type="button"
+                onClick={() => applyInsight(insight)}
+              >
+                <InsightIcon size={14} />
+                <span>{insight.label}</span>
+                <strong title={insight.value}>{insight.value}</strong>
+                <code title={insight.message}>{insight.message}</code>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {logView.sourceOptions.some((option) => option.source !== "pod") ? (
         <div className="log-source-tabs" role="tablist" aria-label="Log source">
           <Layers size={14} />
@@ -368,6 +408,54 @@ function parseLogLines(output: string): ParsedLogLine[] {
 function matchesLogQuery(line: ParsedLogLine, terms: string[]) {
   const haystack = `${line.time} ${line.source} ${line.level} ${line.message}`.toLowerCase();
   return terms.every((term) => haystack.includes(term));
+}
+
+function logInsights(lines: ParsedLogLine[], sourceOptions: { source: string; count: number }[], activeSource: string): LogInsight[] {
+  const insights: LogInsight[] = [];
+  const firstError = lines.find((line) => line.level === "error");
+  const firstWarning = lines.find((line) => line.level === "warn");
+
+  if (firstError) {
+    insights.push({
+      id: `error-${firstError.source}-${firstError.raw}`,
+      label: "First error",
+      level: "error",
+      message: compactLogMessage(firstError.message),
+      source: firstError.source,
+      tone: "error",
+      value: firstError.source,
+    });
+  }
+
+  if (firstWarning) {
+    insights.push({
+      id: `warn-${firstWarning.source}-${firstWarning.raw}`,
+      label: "First warn",
+      level: "warn",
+      message: compactLogMessage(firstWarning.message),
+      source: firstWarning.source,
+      tone: "warn",
+      value: firstWarning.source,
+    });
+  }
+
+  const topSource = sourceOptions[0];
+  if (activeSource === allSourceFilter && sourceOptions.length > 1 && topSource) {
+    insights.push({
+      id: `source-${topSource.source}`,
+      label: "Top source",
+      message: "Largest share of this stream",
+      source: topSource.source,
+      tone: "info",
+      value: `${topSource.source} · ${topSource.count}`,
+    });
+  }
+
+  return insights.slice(0, 3);
+}
+
+function compactLogMessage(message: string) {
+  return message.replace(/\s+/g, " ").trim() || "No message body";
 }
 
 function compactLogSource(source: string) {

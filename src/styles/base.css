@@ -2802,6 +2802,84 @@ summary:focus-visible {
   background: color-mix(in srgb, var(--surface) 88%, var(--surface-soft));
 }
 
+.log-insight-strip {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 1px;
+  border-block-end: 1px solid var(--line);
+  background: var(--line);
+}
+
+.log-insight {
+  display: grid;
+  grid-template-columns: 16px auto minmax(72px, 0.32fr) minmax(120px, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-block-size: 40px;
+  min-inline-size: 0;
+  padding-inline: 12px;
+  border: 0;
+  border-inline-start: 3px solid transparent;
+  background: var(--surface);
+  color: var(--text-soft);
+  text-align: start;
+  cursor: pointer;
+}
+
+.log-insight svg {
+  color: var(--green-deep);
+}
+
+.log-insight span,
+.log-insight strong,
+.log-insight code {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-insight span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.log-insight strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.log-insight code {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.log-insight.warn {
+  border-inline-start-color: color-mix(in srgb, var(--yellow) 76%, var(--line));
+}
+
+.log-insight.warn svg {
+  color: #7d5317;
+}
+
+.log-insight.error {
+  border-inline-start-color: color-mix(in srgb, var(--orange) 72%, var(--line));
+}
+
+.log-insight.error svg {
+  color: var(--orange);
+}
+
+.log-insight:hover {
+  background: var(--surface-soft);
+}
+
 .log-search {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
@@ -3615,6 +3693,14 @@ summary:focus-visible {
 
   .log-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .log-insight-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .log-insight {
+    grid-template-columns: 16px auto minmax(84px, 0.42fr) minmax(0, 1fr);
   }
 
   .log-level-tabs {
