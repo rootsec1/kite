@@ -1,12 +1,12 @@
-import { AlertTriangle, CheckCircle2, History, RotateCw, ShieldAlert } from "lucide-react";
-import type { ContainerDetails, HealthState, ResourceDetails, ResourceRow } from "../types/kube";
+import { Activity, AlertTriangle, CheckCircle2, History, RotateCw, ShieldAlert } from "lucide-react";
+import type { ContainerDetails, ContainerProbe, HealthState, ResourceDetails, ResourceEvent, ResourceRow } from "../types/kube";
 
 type PodIssueSignal = {
   label: string;
   value: string;
   meta: string;
   tone: Exclude<HealthState, "syncing">;
-  icon: "condition" | "event" | "history" | "ready" | "restart";
+  icon: "condition" | "event" | "history" | "probe" | "ready" | "restart";
   onSelect?: () => void;
 };
 
@@ -78,6 +78,7 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
   const warningEvents = details.events.filter((event) => event.type.toLowerCase() === "warning");
   const warningEventCount = warningEvents.reduce((sum, event) => sum + (Number.isFinite(event.count) && event.count > 0 ? event.count : 1), 0);
   const diagnostic = primaryDiagnostic(details, resource);
+  const probeFailure = probeFailureSignal(details.events, containers.flatMap((container) => container.probes ?? []));
   const signals: PodIssueSignal[] = [];
 
   if (notReadyContainers.length) {
@@ -88,6 +89,10 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
       tone: "critical",
       value: `${Math.max(containers.length - notReadyContainers.length, 0)}/${containers.length || "?"}`,
     });
+  }
+
+  if (probeFailure) {
+    signals.push(probeFailure);
   }
 
   if (restartTotal > 0) {
@@ -152,6 +157,38 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
   return signals.slice(0, 4);
 }
 
+function probeFailureSignal(events: ResourceEvent[], probes: ContainerProbe[]): PodIssueSignal | null {
+  const event = events.find(isProbeFailureEvent);
+  if (!event) {
+    return null;
+  }
+
+  const probeKind = probeFailureKind(event.message);
+  const matchingProbe = probeKind ? probes.find((probe) => probe.kind === probeKind) : probes.length === 1 ? probes[0] : undefined;
+  const displayKind = probeKind || matchingProbe?.kind || "";
+  const count = Number.isFinite(event.count) && event.count > 1 ? `x${event.count}` : event.age || "warning";
+
+  return {
+    icon: "probe",
+    label: "Probe",
+    meta: matchingProbe?.check || event.reason || count,
+    tone: "warning",
+    value: displayKind ? `${displayKind} failed` : "probe failed",
+  };
+}
+
+function isProbeFailureEvent(event: ResourceEvent) {
+  return event.type.toLowerCase() === "warning" && (
+    event.reason === "Unhealthy" ||
+    /\b(readiness|liveness|startup)\s+probe\s+(failed|errored|error)\b/i.test(event.message)
+  );
+}
+
+function probeFailureKind(message: string) {
+  const match = message.match(/\b(readiness|liveness|startup)\s+probe\b/i);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
 function primaryDiagnostic(details: ResourceDetails, resource: ResourceRow) {
   const pod = details.pod;
   const parts = [pod?.reason, pod?.message, resource.diagnostic]
@@ -189,6 +226,8 @@ function IssueIcon({ icon }: { icon: PodIssueSignal["icon"] }) {
       return <AlertTriangle size={15} />;
     case "history":
       return <History size={15} />;
+    case "probe":
+      return <Activity size={15} />;
     case "ready":
       return <CheckCircle2 size={15} />;
     case "restart":
