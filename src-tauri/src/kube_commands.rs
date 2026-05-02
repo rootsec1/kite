@@ -5,7 +5,7 @@ use k8s_openapi::api::{
     batch::v1::{CronJob, Job},
     core::v1::{
         ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
-        PersistentVolumeClaim, Pod, Secret, Service,
+        PersistentVolumeClaim, Pod, Secret, Service, ServiceAccount,
     },
     discovery::v1::{Endpoint, EndpointSlice},
     networking::v1::Ingress,
@@ -143,6 +143,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     let (
         configmaps,
         secrets,
+        service_accounts,
         persistent_volume_claims,
         persistent_volumes,
         storage_classes,
@@ -157,6 +158,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     ) = tokio::join!(
         list_configmaps(client.clone(), context),
         list_secrets(client.clone(), context),
+        list_service_accounts(client.clone(), context),
         list_persistent_volume_claims(client.clone(), context),
         list_persistent_volumes(client.clone(), context),
         list_storage_classes(client.clone(), context),
@@ -183,6 +185,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(ingresses);
     resources.extend(configmaps.unwrap_or_default());
     resources.extend(secrets.unwrap_or_default());
+    resources.extend(service_accounts.unwrap_or_default());
     resources.extend(persistent_volume_claims.unwrap_or_default());
     resources.extend(persistent_volumes.unwrap_or_default());
     resources.extend(storage_classes.unwrap_or_default());
@@ -2333,6 +2336,45 @@ async fn list_secrets(client: Client, cluster: &str) -> Result<Vec<ResourceSumma
         .collect())
 }
 
+async fn list_service_accounts(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let accounts = Api::<ServiceAccount>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ServiceAccounts: {error}"))?;
+
+    Ok(accounts
+        .items
+        .into_iter()
+        .map(|account| {
+            let age = resource_age(&account.metadata);
+            let labels = account.metadata.labels.clone().unwrap_or_default();
+            let secret_count = account.secrets.as_ref().map(|secrets| secrets.len()).unwrap_or(0);
+            let pull_secret_count = account
+                .image_pull_secrets
+                .as_ref()
+                .map(|secrets| secrets.len())
+                .unwrap_or(0);
+            let token_policy = match account.automount_service_account_token {
+                Some(false) => "manual token",
+                _ => "automount token",
+            };
+
+            resource_summary(
+                "ServiceAccount",
+                account.name_any(),
+                account.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                HealthState::Healthy,
+                0,
+                token_policy.to_string(),
+            )
+            .with_age(age)
+            .with_labels(labels)
+            .with_owner(format!("{secret_count} secrets / {pull_secret_count} pulls"))
+        })
+        .collect())
+}
+
 async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let claims = Api::<PersistentVolumeClaim>::all(client)
         .list(&ListParams::default())
@@ -2758,10 +2800,21 @@ fn resource_summary(
 
 fn pod_dependency_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
     let mut references = pod_volume_references(pod, namespace);
+    if let Some(reference) = pod_service_account_reference(pod, namespace) {
+        push_unique_reference(&mut references, reference);
+    }
     for reference in pod_env_references(pod, namespace) {
         push_unique_reference(&mut references, reference);
     }
     references
+}
+
+fn pod_service_account_reference(pod: &Pod, namespace: &str) -> Option<ResourceReference> {
+    pod.spec
+        .as_ref()
+        .and_then(|spec| spec.service_account_name.as_deref())
+        .filter(|name| !name.is_empty())
+        .map(|name| resource_reference("ServiceAccount", namespace, name))
 }
 
 fn pod_volume_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
@@ -3914,6 +3967,7 @@ mod tests {
     fn pod_dependency_references_track_mounted_and_env_resources() {
         let mut pod = Pod::default();
         pod.spec = Some(PodSpec {
+            service_account_name: Some("api-sa".to_string()),
             containers: vec![Container {
                 name: "api".to_string(),
                 env_from: Some(vec![
@@ -3988,17 +4042,19 @@ mod tests {
 
         let references = pod_dependency_references(&pod, "default");
 
-        assert_eq!(references.len(), 5);
+        assert_eq!(references.len(), 6);
         assert_eq!(references[0].kind, "ConfigMap");
         assert_eq!(references[0].name, "app-config");
         assert_eq!(references[1].kind, "Secret");
         assert_eq!(references[1].name, "app-secret");
         assert_eq!(references[2].kind, "PersistentVolumeClaim");
         assert_eq!(references[2].name, "app-data");
-        assert_eq!(references[3].kind, "Secret");
-        assert_eq!(references[3].name, "env-secret");
-        assert_eq!(references[4].kind, "ConfigMap");
-        assert_eq!(references[4].name, "feature-config");
+        assert_eq!(references[3].kind, "ServiceAccount");
+        assert_eq!(references[3].name, "api-sa");
+        assert_eq!(references[4].kind, "Secret");
+        assert_eq!(references[4].name, "env-secret");
+        assert_eq!(references[5].kind, "ConfigMap");
+        assert_eq!(references[5].name, "feature-config");
     }
 
     #[test]

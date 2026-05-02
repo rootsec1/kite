@@ -57,6 +57,9 @@ type KubeItem = {
   ports?: unknown[];
   provisioner?: string;
   reclaimPolicy?: string;
+  automountServiceAccountToken?: boolean;
+  imagePullSecrets?: Array<{ name?: string }>;
+  secrets?: Array<{ name?: string }>;
   status?: {
     phase?: string;
     podIP?: string;
@@ -217,6 +220,7 @@ const resourceQueries = [
   { name: "httproutes.gateway.networking.k8s.io", namespaced: true },
   { name: "configmaps", namespaced: true },
   { name: "secrets", namespaced: true },
+  { name: "serviceaccounts", namespaced: true },
   { name: "persistentvolumeclaims", namespaced: true },
   { name: "roles.rbac.authorization.k8s.io", namespaced: true },
   { name: "rolebindings.rbac.authorization.k8s.io", namespaced: true },
@@ -758,6 +762,7 @@ function resourceReferences(item: KubeItem, namespace: string) {
   if (item.kind === "Pod") {
     return uniqueReferences([
       ...volumeReferences(item, namespace),
+      ...serviceAccountReferences(item, namespace),
       ...envReferences(item, namespace),
     ]);
   }
@@ -829,6 +834,11 @@ function volumeReferences(item: KubeItem, namespace: string) {
   });
 }
 
+function serviceAccountReferences(item: KubeItem, namespace: string) {
+  const serviceAccountName = item.spec?.serviceAccountName;
+  return serviceAccountName ? [{ kind: "ServiceAccount", namespace, name: serviceAccountName }] : [];
+}
+
 function envReferences(item: KubeItem, namespace: string) {
   const references: Array<{ kind: string; namespace: string; name: string }> = [];
   const containers = [
@@ -896,6 +906,10 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return item.reclaimPolicy ?? "";
   }
 
+  if (item.kind === "ServiceAccount") {
+    return `${item.secrets?.length ?? 0} secrets / ${item.imagePullSecrets?.length ?? 0} pulls`;
+  }
+
   if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
     return `${item.roleRef.kind}/${item.roleRef.name}`;
   }
@@ -913,6 +927,9 @@ function resourceImage(item: KubeItem) {
   }
   if (item.kind === "StorageClass") {
     return item.provisioner ?? "";
+  }
+  if (item.kind === "ServiceAccount") {
+    return item.automountServiceAccountToken === false ? "manual token" : "automount token";
   }
   return item.status?.containerStatuses?.[0]?.image ??
     item.spec?.containers?.[0]?.image ??

@@ -88,6 +88,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { id: "ConfigMap", label: "ConfigMaps", icon: Settings2, kind: "ConfigMap" },
       { id: "Secret", label: "Secrets", icon: FileKey2, kind: "Secret" },
+      { id: "ServiceAccount", label: "ServiceAccounts", icon: Shield, kind: "ServiceAccount" },
       { id: "Role", label: "Roles", icon: Shield, kind: "Role" },
       { id: "RoleBinding", label: "Bindings", icon: Link2, kind: "RoleBinding" },
       { id: "ClusterRole", label: "ClusterRoles", icon: Shield, kind: "ClusterRole" },
@@ -131,6 +132,7 @@ export const kindThemes: Record<string, KindTheme> = {
   StorageClass: { label: "StorageClasses", icon: Database, accent: "orange", actions: ["Provisioner", "YAML"] },
   ConfigMap: { label: "ConfigMaps", icon: Settings2, accent: "green", actions: ["Data", "YAML"] },
   Secret: { label: "Secrets", icon: FileKey2, accent: "orange", actions: ["Keys", "YAML"] },
+  ServiceAccount: { label: "ServiceAccounts", icon: Shield, accent: "orange", actions: ["Pods", "Tokens", "YAML"] },
   Role: { label: "Roles", icon: Shield, accent: "orange", actions: ["Rules", "Bindings", "YAML"] },
   RoleBinding: { label: "Bindings", icon: Link2, accent: "orange", actions: ["Role", "Subjects", "YAML"] },
   ClusterRole: { label: "ClusterRoles", icon: Shield, accent: "orange", actions: ["Rules", "Bindings", "YAML"] },

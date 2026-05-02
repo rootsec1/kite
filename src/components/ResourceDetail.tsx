@@ -1281,8 +1281,8 @@ function HierarchyGroups({
 
 const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", "HTTPRoute"]);
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
-const inputDependencyKinds = new Set(["ConfigMap", "Secret", "PersistentVolumeClaim"]);
-const configKinds = new Set(["ConfigMap", "Secret", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
+const inputDependencyKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "PersistentVolumeClaim"]);
+const configKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
 
