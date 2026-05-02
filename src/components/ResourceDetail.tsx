@@ -700,9 +700,12 @@ function ServiceBackendRail({
 }) {
   const selector = useMemo(() => Object.entries(resource.selector), [resource.selector]);
   const pods = useMemo(() => serviceBackendPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const endpointSlices = useMemo(() => serviceEndpointSlicesFor(resource, resources).sort(compareEndpointSlices), [resource, resources]);
   const visiblePods = pods.slice(0, 5);
+  const visibleEndpointSlices = endpointSlices.slice(0, 5);
   const readyCount = pods.filter((pod) => pod.backendReady).length;
-  const tone = serviceBackendTone(selector.length, pods.length, readyCount);
+  const readyEndpointSlices = endpointSlices.filter((slice) => slice.status === "healthy").length;
+  const tone = serviceBackendTone(resource, selector.length, pods.length, readyCount, endpointSlices.length, readyEndpointSlices);
 
   if (resource.kind !== "Service") {
     return null;
@@ -715,8 +718,8 @@ function ServiceBackendRail({
           <Network size={15} />
           Backends
         </span>
-        <strong>{selector.length ? `${readyCount}/${pods.length} ready` : "No selector"}</strong>
-        <small>{selectorSummary(selector)}</small>
+        <strong>{serviceBackendReadout(selector.length, pods.length, readyCount, endpointSlices.length, readyEndpointSlices)}</strong>
+        <small>{selector.length ? selectorSummary(selector) : resource.diagnostic || "external endpoints"}</small>
       </header>
       <div>
         {visiblePods.length ? (
@@ -728,14 +731,36 @@ function ServiceBackendRail({
               onOpenResource={onOpenResource}
             />
           ))
+        ) : visibleEndpointSlices.length ? (
+          visibleEndpointSlices.map((slice) => (
+            <LinkedEndpointSliceTile endpointSlice={slice} key={slice.id} onOpenResource={onOpenResource} />
+          ))
         ) : (
           <div className="service-backend-empty">
-            <span>{selector.length ? "No pods matched" : "Selectorless service"}</span>
-            <strong>{selector.length ? "Traffic has no live pod target." : "Endpoints are managed outside pod selectors."}</strong>
+            <span>{selector.length ? "No pods matched" : "No endpoint slices"}</span>
+            <strong>{selector.length ? "Traffic has no live pod target." : "EndpointSlice discovery has no live target."}</strong>
           </div>
         )}
       </div>
     </section>
+  );
+}
+
+function LinkedEndpointSliceTile({
+  endpointSlice,
+  onOpenResource,
+}: {
+  endpointSlice: ResourceRow;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+}) {
+  return (
+    <button className={endpointSlice.status} type="button" onClick={() => onOpenResource(endpointSlice.id)}>
+      <StatusDot state={endpointSlice.status} />
+      <strong title={endpointSlice.name}>{endpointSlice.name}</strong>
+      <em title={endpointSlice.diagnostic || endpointSlice.status}>{endpointSlice.diagnostic || endpointSlice.status}</em>
+      <small title={endpointSlice.image || endpointSlice.namespace}>{endpointSlice.image || endpointSlice.namespace}</small>
+      <small>{endpointSlice.age}</small>
+    </button>
   );
 }
 
@@ -832,12 +857,22 @@ function routeBackendsFor(resource: ResourceRow, resources: ResourceRow[]) {
     .sort(compareRouteBackends)
     .map((service) => {
       const pods = backendPodsForServices([service], resources);
+      const selectorCount = Object.keys(service.selector).length;
       const readyCount = pods.filter((pod) => pod.backendReady).length;
-      const tone = serviceBackendTone(Object.keys(service.selector).length, pods.length, readyCount);
+      const endpointSlices = serviceEndpointSlicesFor(service, resources);
+      const readyEndpointSlices = endpointSlices.filter((slice) => slice.status === "healthy").length;
+      const tone = serviceBackendTone(
+        service,
+        selectorCount,
+        pods.length,
+        readyCount,
+        endpointSlices.length,
+        readyEndpointSlices,
+      );
 
       return {
         service,
-        summary: backendPodSummary(pods.length, readyCount),
+        summary: serviceBackendReadout(selectorCount, pods.length, readyCount, endpointSlices.length, readyEndpointSlices),
         tone,
       };
     });
@@ -861,6 +896,14 @@ function serviceBackendPodsFor(resource: ResourceRow, resources: ResourceRow[]) 
   );
 }
 
+function serviceEndpointSlicesFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "Service") {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "EndpointSlice" && referencesResource(item, resource));
+}
+
 function routeBackendServicesFor(resource: ResourceRow, resources: ResourceRow[]) {
   if (!routeKinds.has(resource.kind)) {
     return [];
@@ -869,14 +912,50 @@ function routeBackendServicesFor(resource: ResourceRow, resources: ResourceRow[]
   return referencedResources(resource.references, resources).filter((item) => item.kind === "Service");
 }
 
-function serviceBackendTone(selectorCount: number, podCount: number, readyCount: number): HealthState {
+function serviceBackendTone(
+  service: ResourceRow,
+  selectorCount: number,
+  podCount: number,
+  readyCount: number,
+  endpointSliceCount: number,
+  readyEndpointSlices: number,
+): HealthState {
+  if (service.status !== "healthy") {
+    return service.status;
+  }
   if (!selectorCount) {
-    return "syncing";
+    return endpointSliceTone(service, endpointSliceCount, readyEndpointSlices);
   }
   if (!podCount || readyCount === 0) {
     return "critical";
   }
   return readyCount === podCount ? "healthy" : "warning";
+}
+
+function endpointSliceTone(service: ResourceRow, endpointSliceCount: number, readyEndpointSlices: number): HealthState {
+  if (!endpointSliceCount) {
+    return service.image === "ExternalName" ? "syncing" : "critical";
+  }
+  if (readyEndpointSlices === 0) {
+    return "critical";
+  }
+  return readyEndpointSlices === endpointSliceCount ? "healthy" : "warning";
+}
+
+function serviceBackendReadout(
+  selectorCount: number,
+  podCount: number,
+  readyCount: number,
+  endpointSliceCount: number,
+  readyEndpointSlices: number,
+) {
+  if (selectorCount) {
+    return `${readyCount}/${podCount} ready`;
+  }
+  if (endpointSliceCount) {
+    return `${readyEndpointSlices}/${endpointSliceCount} slices`;
+  }
+  return "No endpoints";
 }
 
 function routeBackendTone(referenceCount: number, tones: HealthState[]): HealthState {
@@ -905,10 +984,6 @@ function routeBackendSummary(resource: ResourceRow, serviceCount: number) {
   return serviceCount ? `${serviceCount} linked` : "unresolved";
 }
 
-function backendPodSummary(podCount: number, readyCount: number) {
-  return podCount ? `${readyCount}/${podCount} backend pods ready` : "selectorless service";
-}
-
 function selectorSummary(selector: [string, string][]) {
   if (!selector.length) {
     return "external endpoints";
@@ -925,6 +1000,11 @@ function selectorSummary(selector: [string, string][]) {
 function compareRuntimePods(left: ResourceRow, right: ResourceRow) {
   return podRuntimeRank(left) - podRuntimeRank(right) ||
     right.restarts - left.restarts ||
+    left.name.localeCompare(right.name);
+}
+
+function compareEndpointSlices(left: ResourceRow, right: ResourceRow) {
+  return podRuntimeRank(left) - podRuntimeRank(right) ||
     left.name.localeCompare(right.name);
 }
 
