@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
+import { PodLifecycleRail } from "./PodLifecycleRail";
 import { PodLinkStrip } from "./PodLinkStrip";
 import { PodPlacementStrip } from "./PodPlacementStrip";
 import { PodTerminal, type LogMode } from "./PodTerminal";
@@ -115,6 +117,7 @@ export function ResourceDetail({
         <>
           <PodIssueStrip details={details} resource={resource} onOpenPreviousLogs={() => openLogs("previous")} />
           <PodStatusPanel details={details} resource={resource} />
+          <PodLifecycleRail details={details} />
           <PodPlacementStrip pod={details.pod} />
           <PodLinkStrip
             allResources={allResources}
@@ -500,59 +503,6 @@ function ContainerStateFact({
       {hint ? <time title={hint}>{hint}</time> : null}
     </span>
   );
-}
-
-function containerCurrentState(container: ContainerDetails) {
-  const parts = [
-    container.state,
-    container.reason,
-    container.exitCode == null ? "" : `exit ${container.exitCode}`,
-  ].filter(Boolean);
-
-  return parts.join(" / ");
-}
-
-function containerLastState(container: ContainerDetails) {
-  const parts = [
-    container.lastReason,
-    container.lastExitCode == null ? "" : `exit ${container.lastExitCode}`,
-  ].filter(Boolean);
-
-  return parts.join(" / ");
-}
-
-function currentStateTime(container: ContainerDetails) {
-  if (container.startedAt) {
-    return `since ${formatLifecycleTime(container.startedAt)}`;
-  }
-  if (container.finishedAt) {
-    return `ended ${formatLifecycleTime(container.finishedAt)}`;
-  }
-  return "";
-}
-
-function lastStateTime(container: ContainerDetails) {
-  if (container.lastFinishedAt) {
-    return `ended ${formatLifecycleTime(container.lastFinishedAt)}`;
-  }
-  if (container.lastStartedAt) {
-    return `started ${formatLifecycleTime(container.lastStartedAt)}`;
-  }
-  return "";
-}
-
-function formatLifecycleTime(value: string) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) {
-    return value.replace("T", " ").replace("Z", "");
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(timestamp);
 }
 
 function ActionResult({
