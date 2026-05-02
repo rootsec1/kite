@@ -5,7 +5,7 @@ import { pinnedResourcesNavId } from "../theme/resourceTheme";
 import type { ResourceRow } from "../types/kube";
 import { Inspector } from "./Inspector";
 import { navSections, Sidebar } from "./navigation";
-import { PodTriageRail, shouldTriagePod } from "./PodTriageRail";
+import { PodTriageRail, podMatchesTriageBucket, podTriageBucketLabel, shouldTriagePod, type PodTriageBucketId } from "./PodTriageRail";
 import { ResourceDetail } from "./ResourceDetail";
 import { NamespacePressure, ResourceTable, ScopeTabs, SummaryStrip, Toolbar } from "./workspace";
 
@@ -21,6 +21,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIntent, setDetailIntent] = useState<"logs" | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [podTriageBucketId, setPodTriageBucketId] = useState<PodTriageBucketId | null>(null);
   const [resourceSort, setResourceSort] = useState(defaultResourceSort);
   const primaryPaneRef = useRef<HTMLDivElement>(null);
   const activeItem = useMemo(() => navItems.find((item) => item.id === activeId), [activeId]);
@@ -32,14 +33,17 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
 
   const counts = useMemo(() => countByKind(data.visibleResources), [data.visibleResources]);
   const scopedResources = useMemo(() => {
-    const resources = activeId === pinnedResourcesNavId
+    const baseResources = activeId === pinnedResourcesNavId
       ? data.pinnedResources
       : activeItem?.kind
       ? data.visibleResources.filter((resource) => resource.kind === activeItem.kind)
       : data.visibleResources;
+    const resources = podTriageBucketId && (!activeItem?.kind || activeItem.kind === "Pod")
+      ? baseResources.filter((resource) => resource.kind === "Pod" && podMatchesTriageBucket(resource, podTriageBucketId))
+      : baseResources;
 
     return sortResources(resources, resourceSort);
-  }, [activeId, activeItem?.kind, data.pinnedResources, data.visibleResources, resourceSort]);
+  }, [activeId, activeItem?.kind, data.pinnedResources, data.visibleResources, podTriageBucketId, resourceSort]);
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
     [data.visibleResources],
@@ -51,6 +55,9 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
 
   const clusterName = data.clusters[0]?.name ?? data.selectedContext ?? "No context";
   const detailResource = detailOpen ? data.selectedResource : null;
+  const activeScopeLabel = podTriageBucketId && (!activeItem?.kind || activeItem.kind === "Pod")
+    ? `Pods / ${podTriageBucketLabel(podTriageBucketId)}`
+    : activeItem?.label ?? "Overview";
 
   const openResource = useCallback((id: string, intent: "logs" | null = null) => {
     data.onSelectResource(id);
@@ -63,6 +70,15 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
 
   function selectNavigation(id: string) {
     setActiveId(id);
+    setPodTriageBucketId(null);
+    setDetailIntent(null);
+    setDetailOpen(false);
+    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
+  }
+
+  function selectPodTriageBucket(id: PodTriageBucketId | null) {
+    setActiveId("Pod");
+    setPodTriageBucketId(id);
     setDetailIntent(null);
     setDetailOpen(false);
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
@@ -70,6 +86,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
 
   function selectPressureNamespace(namespace: string) {
     data.onSetNamespaceFilter(namespace);
+    setPodTriageBucketId(null);
     setDetailIntent(null);
     setDetailOpen(false);
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
@@ -88,7 +105,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
         />
 
         <main className="workspace">
-          <Toolbar count={scopedResources.length} data={data} scope={activeItem?.label ?? "Overview"} />
+          <Toolbar count={scopedResources.length} data={data} scope={activeScopeLabel} />
           <section className={inspectorOpen ? "content-grid" : "content-grid inspector-collapsed"}>
             <div className="primary-pane" ref={primaryPaneRef}>
               {detailResource ? (
@@ -115,9 +132,11 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                   <SummaryStrip counts={counts} warningCount={warningCount} />
                   {(!activeItem?.kind || activeItem.kind === "Pod") ? (
                     <PodTriageRail
+                      activeBucketId={podTriageBucketId}
                       pods={podTriageResources}
                       onOpenLogs={openResourceLogs}
                       onSelect={openResource}
+                      onSelectBucket={selectPodTriageBucket}
                     />
                   ) : null}
                   <ScopeTabs activeId={activeId} counts={counts} items={scopeTabs} onSelect={selectNavigation} />
@@ -129,7 +148,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                     showOwner={activeItem?.kind === "Pod"}
                     sort={resourceSort}
                     pinnedResourceKeys={data.pinnedResourceKeys}
-                    title={activeItem?.label ?? "Resource inventory"}
+                    title={activeScopeLabel === "Overview" ? "Resource inventory" : activeScopeLabel}
                     onFocusResource={data.onSelectResource}
                     onOpenResource={openResource}
                     onOpenResourceLogs={(id) => openResource(id, "logs")}

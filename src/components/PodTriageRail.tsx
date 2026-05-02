@@ -1,25 +1,30 @@
-import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
+import { memo, useCallback, useMemo, type CSSProperties } from "react";
 import { AlertTriangle, Container, FileText, ImageOff, RotateCw, ServerCrash, Timer } from "lucide-react";
 import type { HealthState, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
 
+export type PodTriageBucketId = "crash" | "image" | "pending" | "restarts";
+
 type PodTriageBucket = {
-  id: "crash" | "image" | "pending" | "restarts";
+  id: PodTriageBucketId;
   count: number;
   label: string;
   tone: Exclude<HealthState, "healthy" | "syncing">;
 };
 
 export function PodTriageRail({
+  activeBucketId,
   onOpenLogs,
   onSelect,
+  onSelectBucket,
   pods,
 }: {
+  activeBucketId: PodTriageBucketId | null;
   onOpenLogs: (id: string) => void;
   onSelect: (id: string) => void;
+  onSelectBucket: (id: PodTriageBucketId | null) => void;
   pods: ResourceRow[];
 }) {
-  const [activeBucketId, setActiveBucketId] = useState<PodTriageBucket["id"] | null>(null);
   const buckets = useMemo(() => podTriageBuckets(pods), [pods]);
   const activeBucket = buckets.find((bucket) => bucket.id === activeBucketId && bucket.count > 0) ?? null;
   const activeBucketFilter = activeBucket?.id ?? null;
@@ -53,7 +58,7 @@ export function PodTriageRail({
               active={bucket.id === activeBucket?.id}
               bucket={bucket}
               key={bucket.id}
-              onSelect={() => setActiveBucketId((current) => current === bucket.id ? null : bucket.id)}
+              onSelect={() => onSelectBucket(activeBucket?.id === bucket.id ? null : bucket.id)}
             />
           ))}
         </div>
@@ -136,8 +141,16 @@ export function shouldTriagePod(resource: ResourceRow) {
   return resource.kind === "Pod" && (resource.status !== "healthy" || resource.restarts > 0 || Boolean(resource.diagnostic.trim()));
 }
 
+export function podMatchesTriageBucket(pod: ResourceRow, bucketId: PodTriageBucketId) {
+  return podTriageBucket(pod) === bucketId;
+}
+
+export function podTriageBucketLabel(bucketId: PodTriageBucketId) {
+  return bucketLabel(bucketId);
+}
+
 function podTriageBuckets(pods: ResourceRow[]): PodTriageBucket[] {
-  const counts = new Map<PodTriageBucket["id"], number>([
+  const counts = new Map<PodTriageBucketId, number>([
     ["crash", 0],
     ["image", 0],
     ["pending", 0],
@@ -150,14 +163,14 @@ function podTriageBuckets(pods: ResourceRow[]): PodTriageBucket[] {
   }
 
   return [
-    { id: "crash", label: "Crash", count: counts.get("crash") ?? 0, tone: "critical" },
-    { id: "image", label: "Image", count: counts.get("image") ?? 0, tone: "critical" },
-    { id: "pending", label: "Pending", count: counts.get("pending") ?? 0, tone: "warning" },
-    { id: "restarts", label: "Restarts", count: counts.get("restarts") ?? 0, tone: "warning" },
+    { id: "crash", label: bucketLabel("crash"), count: counts.get("crash") ?? 0, tone: "critical" },
+    { id: "image", label: bucketLabel("image"), count: counts.get("image") ?? 0, tone: "critical" },
+    { id: "pending", label: bucketLabel("pending"), count: counts.get("pending") ?? 0, tone: "warning" },
+    { id: "restarts", label: bucketLabel("restarts"), count: counts.get("restarts") ?? 0, tone: "warning" },
   ];
 }
 
-function podTriageBucket(pod: ResourceRow): PodTriageBucket["id"] {
+function podTriageBucket(pod: ResourceRow): PodTriageBucketId {
   const diagnostic = pod.diagnostic.toLowerCase();
 
   if (/(crashloop|oomkilled|runcontainer|terminated|exit)/.test(diagnostic)) {
@@ -172,7 +185,20 @@ function podTriageBucket(pod: ResourceRow): PodTriageBucket["id"] {
   return pod.restarts > 0 ? "restarts" : "pending";
 }
 
-function bucketIcon(id: PodTriageBucket["id"]) {
+function bucketLabel(id: PodTriageBucketId) {
+  switch (id) {
+    case "crash":
+      return "Crash";
+    case "image":
+      return "Image";
+    case "pending":
+      return "Pending";
+    case "restarts":
+      return "Restarts";
+  }
+}
+
+function bucketIcon(id: PodTriageBucketId) {
   switch (id) {
     case "crash":
       return ServerCrash;

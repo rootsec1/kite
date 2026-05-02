@@ -912,7 +912,7 @@ summary:focus-visible {
 
 .resource-table.with-node .resource-diagnostic,
 .resource-table.with-owner .resource-diagnostic {
-  max-inline-size: 112px;
+  max-inline-size: 76px;
 }
 
 .resource-diagnostic.warning,
