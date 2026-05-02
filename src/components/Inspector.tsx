@@ -1,6 +1,10 @@
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Check, Copy, PanelRightClose, PanelRightOpen, Search } from "lucide-react";
+import { copyTextToClipboard } from "../lib/clipboard";
 import type { ResourceDetails, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
+
+type CopyStatus = "idle" | "copied" | "failed";
 
 export function Inspector({
   collapsed,
@@ -90,10 +94,88 @@ function LiveObject({
   detailsError: string;
   detailsLoading: boolean;
 }) {
+  const [query, setQuery] = useState("");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const yamlText = detailsLoading ? "Loading YAML..." : details.yaml || detailsError || "No YAML returned.";
+  const yamlLines = useMemo(() => yamlText.split(/\r?\n/), [yamlText]);
+  const queryTerms = useMemo(() => (deferredQuery ? deferredQuery.split(/\s+/) : []), [deferredQuery]);
+  const visibleLines = useMemo(() => {
+    if (!queryTerms.length) {
+      return yamlLines.map((line, index) => ({ line, number: index + 1 }));
+    }
+
+    return yamlLines
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter(({ line }) => {
+        const haystack = line.toLowerCase();
+        return queryTerms.every((term) => haystack.includes(term));
+      });
+  }, [queryTerms, yamlLines]);
+  const CopyIcon = copyStatus === "copied" ? Check : Copy;
+  const copyLabel = copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Blocked" : "Copy";
+
+  async function copyYaml() {
+    if (!details.yaml) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(details.yaml);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  useEffect(() => {
+    if (copyStatus === "idle") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setCopyStatus("idle"), 1_600);
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
+
   return (
     <details className="inspector-yaml">
-      <summary>Live object</summary>
-      <pre>{detailsLoading ? "Loading YAML..." : details.yaml || detailsError || "No YAML returned."}</pre>
+      <summary>
+        <span>Live object</span>
+        <small>{queryTerms.length ? `${visibleLines.length}/${yamlLines.length} lines` : `${yamlLines.length} lines`}</small>
+      </summary>
+      <div className="inspector-yaml-toolbar">
+        <label>
+          <Search size={13} />
+          <input
+            aria-label="Find YAML"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find YAML..."
+          />
+        </label>
+        <button
+          className={copyStatus === "idle" ? "" : copyStatus}
+          disabled={!details.yaml}
+          title="Copy full YAML"
+          type="button"
+          onClick={copyYaml}
+        >
+          <CopyIcon size={13} />
+          <span>{copyLabel}</span>
+        </button>
+      </div>
+      <div aria-label="Live object YAML" className="inspector-yaml-code">
+        {visibleLines.length ? (
+          visibleLines.map(({ line, number }) => (
+            <span className="yaml-line" key={number}>
+              <span>{number}</span>
+              <code>{line || " "}</code>
+            </span>
+          ))
+        ) : (
+          <span className="yaml-empty">No matching YAML lines</span>
+        )}
+      </div>
     </details>
   );
 }

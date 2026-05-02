@@ -46,7 +46,7 @@ summary:focus-visible {
 .code-pane,
 .log-pane,
 .event-pane,
-.inspector-yaml pre {
+.inspector-yaml-code {
   scrollbar-color: color-mix(in srgb, var(--green-deep) 28%, transparent) transparent;
   scrollbar-gutter: stable;
 }
@@ -3322,11 +3322,97 @@ summary:focus-visible {
 }
 
 .inspector-yaml summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 12px 14px;
   cursor: pointer;
 }
 
-.inspector-yaml pre {
+.inspector-yaml summary small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.inspector-yaml-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 10px;
+  border-block-start: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-soft));
+}
+
+.inspector-yaml-toolbar label,
+.inspector-yaml-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-block-size: 30px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.inspector-yaml-toolbar label {
+  min-inline-size: 0;
+  padding-inline: 9px;
+}
+
+.inspector-yaml-toolbar label svg,
+.inspector-yaml-toolbar button svg {
+  flex: 0 0 auto;
+  color: var(--green-deep);
+}
+
+.inspector-yaml-toolbar input {
+  min-inline-size: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+}
+
+.inspector-yaml-toolbar input::placeholder {
+  color: var(--muted);
+}
+
+.inspector-yaml-toolbar button {
+  padding-inline: 9px;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.inspector-yaml-toolbar button span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.inspector-yaml-toolbar button.copied {
+  color: var(--text);
+  background: var(--surface-soft);
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+
+.inspector-yaml-toolbar button.failed {
+  color: var(--orange);
+  background: var(--surface-soft);
+}
+
+.inspector-yaml-toolbar button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.inspector-yaml-code {
+  display: grid;
   max-block-size: 360px;
   margin: 0;
   padding: 14px;
@@ -3337,6 +3423,31 @@ summary:focus-visible {
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: pre-wrap;
+}
+
+.yaml-line {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  min-inline-size: 0;
+}
+
+.yaml-line > span {
+  color: var(--muted);
+  text-align: end;
+  user-select: none;
+}
+
+.yaml-line code {
+  min-inline-size: 0;
+  color: var(--text-soft);
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.yaml-empty {
+  color: var(--muted);
 }
 
 .detail-list {

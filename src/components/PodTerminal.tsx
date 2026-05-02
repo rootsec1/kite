@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { ArrowDownToLine, Check, Copy, History, Layers, ListFilter, Radio, Rows3, Search } from "lucide-react";
+import { copyTextToClipboard } from "../lib/clipboard";
 import type { ResourceDetails } from "../types/kube";
 
 const ansiPattern = /\u001b\[[0-9;]*m/g;
@@ -324,36 +325,6 @@ export function PodTerminal({
 
 function isScrolledToBottom(element: HTMLElement) {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= 36;
-}
-
-async function copyTextToClipboard(text: string) {
-  if (copyTextViaSelection(text)) {
-    return;
-  }
-
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  throw new Error("Clipboard copy was rejected");
-}
-
-function copyTextViaSelection(text: string) {
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.inset = "0";
-  textarea.style.opacity = "0";
-  document.body.append(textarea);
-  textarea.select();
-
-  try {
-    return document.execCommand("copy");
-  } finally {
-    textarea.remove();
-  }
 }
 
 function terminalOutput(output: string, mode: LogMode, detailsLoading: boolean, detailsError: string) {
