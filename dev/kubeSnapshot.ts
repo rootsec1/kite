@@ -736,6 +736,7 @@ function toResource(item: KubeItem, cluster: string, index: number) {
     cpu: pressure,
     memory: Math.min(100, pressure + 8),
     restarts,
+    lastRestartAt: item.kind === "Pod" ? podLastRestartAt(item) : "",
     owner: ownerForResource(item, namespace),
     image: resourceImage(item),
     nodeName: item.kind === "Pod" ? item.spec?.nodeName ?? "" : "",
@@ -1212,6 +1213,18 @@ function podStatus(item: KubeItem) {
 function podBackendReady(item: KubeItem) {
   const containers = item.status?.containerStatuses ?? [];
   return item.status?.phase === "Running" && containers.length > 0 && containers.every((container) => container.ready);
+}
+
+function podLastRestartAt(item: KubeItem) {
+  return [
+    ...(item.status?.initContainerStatuses ?? []),
+    ...(item.status?.containerStatuses ?? []),
+    ...(item.status?.ephemeralContainerStatuses ?? []),
+  ]
+    .map((container) => container.lastState?.terminated?.finishedAt || container.lastState?.terminated?.startedAt || "")
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? "";
 }
 
 function podDiagnostic(item: KubeItem) {

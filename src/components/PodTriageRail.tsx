@@ -112,6 +112,11 @@ const PodTriageButton = memo(function PodTriageButton({
   const handleOpenLogs = useCallback(() => onOpenLogs(pod.id), [onOpenLogs, pod.id]);
   const triageTone = pod.status === "healthy" && pod.restarts > 0 ? "warning" : pod.status;
   const diagnostic = pod.diagnostic || (pod.restarts > 0 ? `${pod.restarts} restarts` : pod.status);
+  const restartAge = restartAgeLabel(pod.lastRestartAt);
+  const restartMeta = pod.restarts > 0 && restartAge ? restartAge : `${pod.restarts}r`;
+  const restartTitle = pod.restarts > 0 && restartAge
+    ? `Last restart ${new Date(pod.lastRestartAt).toLocaleString()}`
+    : `${pod.restarts} restarts`;
 
   return (
     <div className={`pod-triage-item ${triageTone}`}>
@@ -122,7 +127,7 @@ const PodTriageButton = memo(function PodTriageButton({
           <small title={pod.namespace}>{pod.namespace}</small>
         </span>
         <em title={diagnostic}>{diagnostic}</em>
-        <small>{pod.restarts}r</small>
+        <small title={restartTitle}>{restartMeta}</small>
       </button>
       <button
         aria-label={`Open logs for ${pod.name}`}
@@ -136,6 +141,26 @@ const PodTriageButton = memo(function PodTriageButton({
     </div>
   );
 });
+
+function restartAgeLabel(value: string) {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return "";
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  if (elapsedSeconds < 60) {
+    return "now";
+  }
+
+  const units = [
+    { suffix: "d", seconds: 86_400 },
+    { suffix: "h", seconds: 3_600 },
+    { suffix: "m", seconds: 60 },
+  ];
+  const unit = units.find((item) => elapsedSeconds >= item.seconds) ?? units[units.length - 1];
+  return `${Math.floor(elapsedSeconds / unit.seconds)}${unit.suffix}`;
+}
 
 export function shouldTriagePod(resource: ResourceRow) {
   return resource.kind === "Pod" && (resource.status !== "healthy" || resource.restarts > 0 || Boolean(resource.diagnostic.trim()));

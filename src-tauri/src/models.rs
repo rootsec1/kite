@@ -57,6 +57,7 @@ pub struct ResourceSummary {
     pub cpu: u8,
     pub memory: u8,
     pub restarts: u32,
+    pub last_restart_at: String,
     pub owner: String,
     pub image: String,
     pub node_name: String,

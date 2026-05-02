@@ -39,6 +39,7 @@ export type ResourceRow = {
   cpu: number;
   memory: number;
   restarts: number;
+  lastRestartAt: string;
   owner: string;
   image: string;
   nodeName: string;

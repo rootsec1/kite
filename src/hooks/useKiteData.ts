@@ -81,6 +81,7 @@ export function useKiteData() {
         resource.owner,
         resource.nodeName,
         resource.status,
+        resource.lastRestartAt,
         resource.image,
         resource.diagnostic,
         resourceReferenceSearchText(resource),

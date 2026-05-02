@@ -1571,6 +1571,11 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
             let namespace = pod.namespace().unwrap_or_else(|| "default".to_string());
             let age = resource_age(&pod.metadata);
             let restarts = pod.status.as_ref().map(pod_restart_count).unwrap_or(0);
+            let last_restart_at = pod
+                .status
+                .as_ref()
+                .map(pod_last_restart_at)
+                .unwrap_or_default();
             let image = pod
                 .status
                 .as_ref()
@@ -1601,6 +1606,7 @@ async fn list_pods(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 .with_node_name(node_name)
                 .with_diagnostic(pod_diagnostic(&pod))
                 .with_backend_ready(pod_backend_ready(&pod))
+                .with_last_restart_at(last_restart_at)
                 .with_references(references)
         })
         .collect())
@@ -2783,6 +2789,7 @@ fn resource_summary(
         cpu: pressure,
         memory: pressure.saturating_add(8).min(100),
         restarts,
+        last_restart_at: String::new(),
         owner: namespace,
         image,
         node_name: String::new(),
@@ -3090,6 +3097,23 @@ fn pod_restart_count(status: &k8s_openapi::api::core::v1::PodStatus) -> u32 {
         .sum()
 }
 
+fn pod_last_restart_at(status: &k8s_openapi::api::core::v1::PodStatus) -> String {
+    [
+        status.init_container_statuses.as_deref().unwrap_or_default(),
+        status.container_statuses.as_deref().unwrap_or_default(),
+        status.ephemeral_container_statuses.as_deref().unwrap_or_default(),
+    ]
+    .into_iter()
+    .flat_map(|statuses| statuses.iter())
+    .filter_map(|container| {
+        let terminated = container.last_state.as_ref()?.terminated.as_ref()?;
+        terminated.finished_at.as_ref().or(terminated.started_at.as_ref())
+    })
+    .max_by(|left, right| left.0.cmp(&right.0))
+    .map(|timestamp| timestamp.0.to_string())
+    .unwrap_or_default()
+}
+
 fn container_status_diagnostic(statuses: Option<&[ContainerStatus]>) -> Option<String> {
     statuses.unwrap_or_default().iter().find_map(|container| {
         let name = if container.name.is_empty() {
@@ -3346,6 +3370,35 @@ mod tests {
         assert_eq!(containers[0].finished_at, "");
         assert_eq!(containers[0].last_started_at, "2026-04-30T11:58:00Z");
         assert_eq!(containers[0].last_finished_at, "2026-04-30T12:00:00Z");
+    }
+
+    #[test]
+    fn pod_last_restart_at_uses_latest_terminated_time() {
+        let status = serde_json::from_value::<PodStatus>(serde_json::json!({
+            "initContainerStatuses": [{
+                "name": "migrate",
+                "restartCount": 1,
+                "lastState": {
+                    "terminated": {
+                        "startedAt": "2026-04-30T10:58:00Z",
+                        "finishedAt": "2026-04-30T11:00:00Z"
+                    }
+                }
+            }],
+            "containerStatuses": [{
+                "name": "api",
+                "restartCount": 3,
+                "lastState": {
+                    "terminated": {
+                        "startedAt": "2026-04-30T11:58:00Z",
+                        "finishedAt": "2026-04-30T12:00:00Z"
+                    }
+                }
+            }]
+        }))
+        .expect("pod status");
+
+        assert_eq!(pod_last_restart_at(&status), "2026-04-30T12:00:00Z");
     }
 
     #[test]
@@ -4217,6 +4270,7 @@ trait ResourceSummaryPatch {
     fn with_backend_ready(self, backend_ready: bool) -> Self;
     fn with_diagnostic(self, diagnostic: String) -> Self;
     fn with_labels(self, labels: BTreeMap<String, String>) -> Self;
+    fn with_last_restart_at(self, last_restart_at: String) -> Self;
     fn with_node_name(self, node_name: String) -> Self;
     fn with_references(self, references: Vec<ResourceReference>) -> Self;
     fn with_selector(self, selector: BTreeMap<String, String>) -> Self;
@@ -4245,6 +4299,11 @@ impl ResourceSummaryPatch for ResourceSummary {
 
     fn with_labels(mut self, labels: BTreeMap<String, String>) -> Self {
         self.labels = labels;
+        self
+    }
+
+    fn with_last_restart_at(mut self, last_restart_at: String) -> Self {
+        self.last_restart_at = last_restart_at;
         self
     }
 

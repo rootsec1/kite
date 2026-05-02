@@ -96,6 +96,9 @@ function compareResourcesForDebugging(left: ResourceRow, right: ResourceRow) {
   const kindDelta = resourceDebugRank(left.kind) - resourceDebugRank(right.kind);
   if (kindDelta !== 0) return kindDelta;
 
+  const restartDelta = restartRecencyRank(left) - restartRecencyRank(right);
+  if (restartDelta !== 0) return restartDelta;
+
   const namespaceDelta = Number(systemNamespaces.has(left.namespace)) - Number(systemNamespaces.has(right.namespace));
   if (namespaceDelta !== 0) return namespaceDelta;
 
@@ -117,6 +120,19 @@ function resourceDebugRank(kind: string) {
 
 function signalRank(resource: ResourceRow) {
   return Math.max(resource.cpu, resource.memory) + resource.restarts * 12;
+}
+
+function restartRecencyRank(resource: ResourceRow) {
+  if (resource.kind !== "Pod" || resource.restarts <= 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const timestamp = Date.parse(resource.lastRestartAt);
+  if (Number.isNaN(timestamp)) {
+    return Number.MAX_SAFE_INTEGER - Math.min(resource.restarts, 1_000);
+  }
+
+  return -timestamp;
 }
 
 function ageRank(age: string) {
