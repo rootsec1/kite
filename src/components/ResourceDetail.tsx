@@ -20,7 +20,7 @@ type ResourceDetailProps = {
   result: PodActionResult | null;
   resource: ResourceRow;
   onBack: () => void;
-  onOpenResource: (id: string) => void;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
   onRefreshDetails: () => void;
   onRunPodAction: (action: string, confirmed?: boolean) => void;
   onTogglePinned: () => void;
@@ -702,7 +702,7 @@ function WorkloadPodRail({
   resource,
   resources,
 }: {
-  onOpenResource: (id: string) => void;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
   resource: ResourceRow;
   resources: ResourceRow[];
 }) {
@@ -726,13 +726,7 @@ function WorkloadPodRail({
       <div>
         {visiblePods.length ? (
           visiblePods.map((pod) => (
-            <button className={pod.status} key={pod.id} type="button" onClick={() => onOpenResource(pod.id)}>
-              <StatusDot state={pod.status} />
-              <strong title={pod.name}>{pod.name}</strong>
-              <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
-              <small title={pod.nodeName || pod.namespace}>{pod.nodeName || pod.namespace}</small>
-              <small>{pod.restarts}r</small>
-            </button>
+            <LinkedPodTile key={pod.id} meta={pod.nodeName || pod.namespace} pod={pod} onOpenResource={onOpenResource} />
           ))
         ) : (
           <div className="workload-pod-empty">
@@ -750,7 +744,7 @@ function ServiceBackendRail({
   resource,
   resources,
 }: {
-  onOpenResource: (id: string) => void;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
   resource: ResourceRow;
   resources: ResourceRow[];
 }) {
@@ -777,13 +771,12 @@ function ServiceBackendRail({
       <div>
         {visiblePods.length ? (
           visiblePods.map((pod) => (
-            <button className={pod.status} key={pod.id} type="button" onClick={() => onOpenResource(pod.id)}>
-              <StatusDot state={pod.status} />
-              <strong title={pod.name}>{pod.name}</strong>
-              <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
-              <small>{pod.backendReady ? "ready" : "not ready"}</small>
-              <small>{pod.restarts}r</small>
-            </button>
+            <LinkedPodTile
+              key={pod.id}
+              meta={pod.backendReady ? "ready" : "not ready"}
+              pod={pod}
+              onOpenResource={onOpenResource}
+            />
           ))
         ) : (
           <div className="service-backend-empty">
@@ -793,6 +786,37 @@ function ServiceBackendRail({
         )}
       </div>
     </section>
+  );
+}
+
+function LinkedPodTile({
+  meta,
+  onOpenResource,
+  pod,
+}: {
+  meta: string;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  pod: ResourceRow;
+}) {
+  return (
+    <article className={`workload-pod-tile ${pod.status}`}>
+      <button className="workload-pod-open" type="button" onClick={() => onOpenResource(pod.id)}>
+        <StatusDot state={pod.status} />
+        <strong title={pod.name}>{pod.name}</strong>
+        <em title={pod.diagnostic || pod.status}>{pod.diagnostic || pod.status}</em>
+        <small title={meta}>{meta}</small>
+        <small>{pod.restarts}r</small>
+      </button>
+      <button
+        aria-label={`Open logs for ${pod.name}`}
+        className="workload-pod-log"
+        title="Open logs"
+        type="button"
+        onClick={() => onOpenResource(pod.id, "logs")}
+      >
+        <FileText size={13} />
+      </button>
+    </article>
   );
 }
 

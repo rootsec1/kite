@@ -2092,8 +2092,10 @@ summary:focus-visible {
 .workload-pod-rail header span,
 .workload-pod-rail header strong,
 .workload-pod-rail header small,
-.workload-pod-rail button em,
-.workload-pod-rail button small,
+.workload-pod-open em,
+.workload-pod-open small,
+.workload-pod-rail > div > button em,
+.workload-pod-rail > div > button small,
 .workload-pod-empty span {
   color: var(--text-soft);
   font-family: var(--font-mono);
@@ -2117,7 +2119,16 @@ summary:focus-visible {
   min-inline-size: 0;
 }
 
-.workload-pod-rail button {
+.workload-pod-tile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  min-block-size: 78px;
+  min-inline-size: 0;
+  background: var(--surface);
+}
+
+.workload-pod-open,
+.workload-pod-rail > div > button {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) minmax(104px, 0.38fr) 34px;
   gap: 5px 9px;
@@ -2132,53 +2143,83 @@ summary:focus-visible {
   cursor: pointer;
 }
 
-.workload-pod-rail button:hover {
+.workload-pod-open {
+  background: transparent;
+}
+
+.workload-pod-log {
+  display: grid;
+  place-items: center;
+  min-block-size: 100%;
+  inline-size: 34px;
+  border: 0;
+  border-inline-start: 1px solid var(--line);
+  color: var(--green-deep);
+  background: transparent;
+  cursor: pointer;
+}
+
+.workload-pod-open:hover,
+.workload-pod-log:hover,
+.workload-pod-rail > div > button:hover {
   background: var(--surface-soft);
 }
 
-.workload-pod-rail button.warning,
-.workload-pod-rail button.critical {
+.workload-pod-tile.warning,
+.workload-pod-tile.critical,
+.workload-pod-rail > div > button.warning,
+.workload-pod-rail > div > button.critical {
   box-shadow: inset 0 2px 0 color-mix(in srgb, var(--orange) 62%, transparent);
 }
 
-.workload-pod-rail button strong,
-.workload-pod-rail button em,
-.workload-pod-rail button small {
+.workload-pod-open strong,
+.workload-pod-open em,
+.workload-pod-open small,
+.workload-pod-rail > div > button strong,
+.workload-pod-rail > div > button em,
+.workload-pod-rail > div > button small {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workload-pod-rail button strong {
+.workload-pod-open strong,
+.workload-pod-rail > div > button strong {
   grid-column: 2;
   color: var(--text);
   font-weight: 500;
 }
 
-.workload-pod-rail button em {
+.workload-pod-open em,
+.workload-pod-rail > div > button em {
   grid-column: 2;
   font-style: normal;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.workload-pod-rail button.warning em,
-.workload-pod-rail button.critical em {
+.workload-pod-tile.warning .workload-pod-open em,
+.workload-pod-tile.critical .workload-pod-open em,
+.workload-pod-rail > div > button.warning em,
+.workload-pod-rail > div > button.critical em {
   color: #7d5317;
 }
 
-.workload-pod-rail button small {
+.workload-pod-open small,
+.workload-pod-rail > div > button small {
   font-size: 10px;
 }
 
-.workload-pod-rail button small:first-of-type {
+.workload-pod-open small:first-of-type,
+.workload-pod-rail > div > button small:first-of-type {
   grid-column: 3;
   grid-row: 1 / span 2;
   align-self: center;
 }
 
-.workload-pod-rail button small:last-child {
+.workload-pod-open small:last-child,
+.workload-pod-rail > div > button small:last-child {
   grid-column: 4;
   grid-row: 1 / span 2;
   align-self: center;
