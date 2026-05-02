@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { ArrowDownUp, FileText, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
+import { ArrowDownUp, FileText, FilterX, Gauge, RefreshCw, Search, Star, Tag } from "lucide-react";
 import type { KiteData } from "../hooks/useKiteData";
 import { primaryLabels } from "../lib/labels";
 import { resourceIdentity } from "../lib/resourceIdentity";
@@ -12,10 +12,23 @@ import type { NavItem } from "../theme/resourceTheme";
 const resourceRowHeight = 48;
 const resourceRowOverscan = 8;
 
-export function Toolbar({ count, data, scope }: { count: number; data: KiteData; scope: string }) {
+export function Toolbar({
+  activeFilterCount,
+  count,
+  data,
+  onClearFilters,
+  scope,
+}: {
+  activeFilterCount: number;
+  count: number;
+  data: KiteData;
+  onClearFilters: () => void;
+  scope: string;
+}) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const syncState = data.error ? "critical" : data.loading ? "syncing" : "healthy";
   const syncLabel = data.error ? "Stale" : data.loading ? "Syncing" : "Live";
+  const filterLabel = activeFilterCount ? `Clear ${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}` : "No active filters";
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -83,6 +96,16 @@ export function Toolbar({ count, data, scope }: { count: number; data: KiteData;
           ))}
         </select>
       </label>
+      <button
+        aria-label={filterLabel}
+        className={activeFilterCount ? "icon-button filter-active" : "icon-button"}
+        disabled={!activeFilterCount}
+        title={filterLabel}
+        type="button"
+        onClick={onClearFilters}
+      >
+        <FilterX size={16} />
+      </button>
       <span
         aria-label={`${scope}, ${count} visible, ${syncLabel} Kubernetes snapshot`}
         className={`scope-readout ${syncState}`}

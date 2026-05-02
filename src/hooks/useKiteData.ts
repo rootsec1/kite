@@ -280,6 +280,13 @@ export function useKiteData() {
     });
   }, []);
 
+  const clearResourceFilters = useCallback(() => {
+    setQuery("");
+    setNamespaceFilter("all");
+    setStatusFilter("all");
+    setLabelFilter("all");
+  }, []);
+
   async function refreshResourceDetails(resource: ResourceRow, commit = false) {
     const requestId = ++detailsRequestId.current;
     setDetailsLoading(true);
@@ -362,6 +369,7 @@ export function useKiteData() {
     onRefreshLiveSnapshot: () => refreshLiveSnapshot(),
     onRefreshResourceDetails: refreshSelectedResourceDetails,
     onRunPodAction: runPodAction,
+    onClearResourceFilters: clearResourceFilters,
     onTogglePinnedResource: togglePinnedResource,
     isPinnedResource,
     onSetLabelFilter: setLabelFilter,

@@ -59,6 +59,13 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const activeScopeLabel = podTriageBucketId && (!activeItem?.kind || activeItem.kind === "Pod")
     ? `Pods / ${podTriageBucketLabel(podTriageBucketId)}`
     : activeItem?.label ?? "Overview";
+  const activeFilterCount = [
+    data.query.trim(),
+    data.namespaceFilter !== "all",
+    data.statusFilter !== "all",
+    data.labelFilter !== "all",
+    Boolean(podTriageBucketId),
+  ].filter(Boolean).length;
 
   const openResource = useCallback((id: string, intent: "logs" | null = null) => {
     data.onSelectResource(id);
@@ -93,6 +100,11 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
     window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
   }
 
+  function clearWorkspaceFilters() {
+    data.onClearResourceFilters();
+    setPodTriageBucketId(null);
+  }
+
   return (
     <div className="kite-window">
       <div className="control-center">
@@ -106,7 +118,13 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
         />
 
         <main className="workspace">
-          <Toolbar count={scopedResources.length} data={data} scope={activeScopeLabel} />
+          <Toolbar
+            activeFilterCount={activeFilterCount}
+            count={scopedResources.length}
+            data={data}
+            scope={activeScopeLabel}
+            onClearFilters={clearWorkspaceFilters}
+          />
           <section className={inspectorOpen ? "content-grid" : "content-grid inspector-collapsed"}>
             <div className="primary-pane" ref={primaryPaneRef}>
               {detailResource ? (
