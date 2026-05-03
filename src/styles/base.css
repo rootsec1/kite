@@ -2735,6 +2735,37 @@ summary:focus-visible {
   overflow: hidden;
 }
 
+.pod-action-command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-inline-size: 0;
+}
+
+.pod-action-command-header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-block-size: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  background: var(--surface-soft);
+}
+
+.pod-action-command-header button.copied {
+  border-color: color-mix(in srgb, var(--green) 48%, var(--line));
+  color: var(--green-deep);
+  background: color-mix(in srgb, var(--green) 12%, var(--surface));
+}
+
+.pod-action-command-header button.failed {
+  border-color: color-mix(in srgb, var(--orange) 48%, var(--line));
+  color: #7d5317;
+  background: color-mix(in srgb, var(--yellow) 12%, var(--surface));
+}
+
 .pod-action-result code,
 .pod-action-output {
   display: block;

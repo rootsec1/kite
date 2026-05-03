@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, CheckCircle2, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
@@ -27,6 +28,7 @@ type ResourceDetailProps = {
   onRunPodAction: (action: string, confirmed?: boolean) => void;
   onTogglePinned: () => void;
 };
+type CopyStatus = "idle" | "copied" | "failed";
 
 export function ResourceDetail({
   allResources,
@@ -518,6 +520,31 @@ function ActionResult({
 }) {
   const risk = actionRisk(result.action);
   const StatusIcon = result.status === "executed" ? CheckCircle2 : ShieldAlert;
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const CopyIcon = copyStatus === "copied" ? Check : Copy;
+  const copyLabel = copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Blocked" : "Copy";
+
+  async function copyCommand() {
+    if (!result.command) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(result.command);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  useEffect(() => {
+    if (copyStatus === "idle") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setCopyStatus("idle"), 1_600);
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
 
   return (
     <section className={`pod-action-result ${result.status} ${risk}`} aria-label="Pod action clearance">
@@ -539,7 +566,18 @@ function ActionResult({
         </div>
         {result.command ? (
           <div className="pod-action-command">
-            <span>Command</span>
+            <div className="pod-action-command-header">
+              <span>Command</span>
+              <button
+                className={copyStatus === "idle" ? "" : copyStatus}
+                title="Copy command"
+                type="button"
+                onClick={copyCommand}
+              >
+                <CopyIcon size={13} />
+                <span>{copyLabel}</span>
+              </button>
+            </div>
             <code>{result.command}</code>
           </div>
         ) : null}
