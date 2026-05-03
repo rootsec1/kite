@@ -151,7 +151,12 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                   {activeId === "overview" ? (
                     <ControlPlaneMap resources={data.visibleResources} onSelectKind={selectNavigation} />
                   ) : null}
-                  <SummaryStrip counts={counts} warningCount={warningCount} />
+                  <SummaryStrip
+                    counts={counts}
+                    reviewActive={data.statusFilter === "review"}
+                    warningCount={warningCount}
+                    onSelectReview={() => data.onSetStatusFilter(data.statusFilter === "review" ? "all" : "review")}
+                  />
                   {(!activeItem?.kind || activeItem.kind === "Pod") ? (
                     <PodTriageRail
                       activeBucketId={podTriageBucketId}

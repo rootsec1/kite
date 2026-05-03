@@ -606,6 +606,19 @@ summary:focus-visible {
   background: var(--surface-soft);
 }
 
+.summary-metric-button {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.summary-metric-button:hover,
+.summary-metric-button.active {
+  background: #f7fffc;
+}
+
 .summary-metric svg {
   color: var(--green-deep);
 }
@@ -626,6 +639,12 @@ summary:focus-visible {
 
 .summary-metric.risk {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--orange) 72%, transparent);
+}
+
+.summary-metric-button.risk.active {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--orange) 72%, transparent),
+    inset 0 -2px 0 var(--green);
 }
 
 .summary-metric.risk svg,

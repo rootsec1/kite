@@ -80,6 +80,7 @@ export function Toolbar({
       </select>
       <select value={data.statusFilter} onChange={(event) => data.onSetStatusFilter(event.target.value)} aria-label="Status filter">
         <option value="all">All states</option>
+        <option value="review">Review</option>
         <option value="healthy">Ready</option>
         <option value="warning">Warn</option>
         <option value="critical">Fail</option>
@@ -122,7 +123,17 @@ export function Toolbar({
   );
 }
 
-export function SummaryStrip({ counts, warningCount }: { counts: Map<string, number>; warningCount: number }) {
+export function SummaryStrip({
+  counts,
+  onSelectReview,
+  reviewActive,
+  warningCount,
+}: {
+  counts: Map<string, number>;
+  onSelectReview: () => void;
+  reviewActive: boolean;
+  warningCount: number;
+}) {
   return (
     <section className="summary-strip" aria-label="Cluster signals">
       <span className="summary-strip-label">Cluster</span>
@@ -137,11 +148,18 @@ export function SummaryStrip({ counts, warningCount }: { counts: Map<string, num
             </article>
           );
         })}
-        <article className="summary-metric risk" style={{ "--delay": "180ms" } as CSSProperties}>
+        <button
+          aria-pressed={reviewActive}
+          className={reviewActive ? "summary-metric summary-metric-button risk active" : "summary-metric summary-metric-button risk"}
+          style={{ "--delay": "180ms" } as CSSProperties}
+          title={reviewActive ? "Clear review filter" : "Show resources needing review"}
+          type="button"
+          onClick={onSelectReview}
+        >
           <Gauge size={20} />
           <span>Warnings</span>
           <strong>{warningCount}</strong>
-        </article>
+        </button>
       </div>
       <small className={warningCount ? "summary-state warning" : "summary-state"}>{warningCount ? "review" : "clear"}</small>
     </section>

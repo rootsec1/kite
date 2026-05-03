@@ -51,6 +51,9 @@ export function useKiteData() {
       if (namespaceFilter !== "all" && resource.namespace !== namespaceFilter) {
         return false;
       }
+      if (statusFilter === "review") {
+        return resource.status !== "healthy";
+      }
       if (statusFilter !== "all" && resource.status !== statusFilter) {
         return false;
       }
