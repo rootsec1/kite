@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
@@ -224,6 +224,7 @@ export function ResourceDetail({
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -779,6 +780,68 @@ function EventSignalRail({
             <TargetActionIcon size={15} />
             {targetIsPod ? "Open pod logs" : `Open ${target.kind}`}
           </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function HpaScaleRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const target = useMemo(() => referencedResources(resource.references, resources)[0], [resource.references, resources]);
+  const pods = useMemo(() => target ? workloadPodsFor(target, resources).sort(compareRuntimePods) : [], [resources, target]);
+  const readyCount = pods.filter((pod) => pod.status === "healthy").length;
+  const visiblePods = pods.slice(0, target ? 4 : 5);
+
+  if (resource.kind !== "HorizontalPodAutoscaler") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail hpa-scale-rail ${resource.status}`} aria-label="HPA scale target">
+      <header>
+        <span>
+          <Gauge size={15} />
+          Scale target
+        </span>
+        <strong>{target ? `${readyCount}/${pods.length || 0} pods ready` : "Target missing"}</strong>
+        <small title={resource.diagnostic || resource.image || resource.owner}>{resource.diagnostic || resource.image || resource.owner}</small>
+      </header>
+      <div>
+        {target ? (
+          <button className={target.status} type="button" onClick={() => onOpenResource(target.id)}>
+            <StatusDot state={target.status} />
+            <strong title={target.name}>{target.name}</strong>
+            <em title={target.diagnostic || target.status}>{target.kind}</em>
+            <small title={target.namespace}>{target.namespace}</small>
+            <small>{target.diagnostic || target.age}</small>
+          </button>
+        ) : null}
+        {visiblePods.map((pod) => (
+          <LinkedPodTile
+            key={pod.id}
+            meta={pod.nodeName || pod.namespace}
+            pod={pod}
+            onOpenResource={onOpenResource}
+          />
+        ))}
+        {!target ? (
+          <div className="service-backend-empty">
+            <span>No target resolved</span>
+            <strong>Scale target reference is absent from this snapshot.</strong>
+          </div>
+        ) : !visiblePods.length ? (
+          <div className="service-backend-empty">
+            <span>No target pods</span>
+            <strong>Target workload has no live pods in this snapshot.</strong>
+          </div>
         ) : null}
       </div>
     </section>
