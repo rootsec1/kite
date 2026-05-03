@@ -3544,7 +3544,7 @@ fn state_diagnostic(name: &str, reason: Option<&str>, message: Option<&str>) -> 
 }
 
 fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> bool {
-    const CRITICAL_REASONS: &[&str] = &[
+    const CRITICAL_WAITING_REASONS: &[&str] = &[
         "CrashLoopBackOff",
         "CreateContainerConfigError",
         "CreateContainerError",
@@ -3553,14 +3553,28 @@ fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> boo
         "InvalidImageName",
         "RunContainerError",
     ];
+    const CRITICAL_TERMINATED_REASONS: &[&str] = &["ContainerCannotRun", "Error", "OOMKilled"];
 
     statuses.unwrap_or_default().iter().any(|container| {
-        container
+        let waiting_is_critical = container
             .state
             .as_ref()
             .and_then(|state| state.waiting.as_ref())
             .and_then(|waiting| waiting.reason.as_deref())
-            .is_some_and(|reason| CRITICAL_REASONS.contains(&reason))
+            .is_some_and(|reason| CRITICAL_WAITING_REASONS.contains(&reason));
+        let terminated_is_critical = container
+            .state
+            .as_ref()
+            .and_then(|state| state.terminated.as_ref())
+            .is_some_and(|terminated| {
+                terminated.exit_code != 0
+                    || terminated
+                        .reason
+                        .as_deref()
+                        .is_some_and(|reason| CRITICAL_TERMINATED_REASONS.contains(&reason))
+            });
+
+        waiting_is_critical || terminated_is_critical
     })
 }
 
@@ -3570,7 +3584,7 @@ mod tests {
     use k8s_openapi::api::autoscaling::v2::{HorizontalPodAutoscalerCondition, HorizontalPodAutoscalerStatus};
     use k8s_openapi::api::core::v1::{
         ConfigMapEnvSource, ConfigMapKeySelector, ConfigMapVolumeSource, Container, ContainerState,
-        ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, LocalObjectReference, ObjectReference,
+        ContainerStateTerminated, ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, LocalObjectReference, ObjectReference,
         PersistentVolumeClaimVolumeSource, PodSpec, PodStatus, SecretEnvSource, SecretKeySelector, SecretVolumeSource, Volume,
     };
     use k8s_openapi::api::discovery::v1::{Endpoint, EndpointConditions, EndpointSlice};
@@ -3611,6 +3625,27 @@ mod tests {
         );
 
         assert_eq!(pod_status(&pod, 5), HealthState::Critical);
+    }
+
+    #[test]
+    fn running_terminated_failure_pod_is_critical() {
+        let pod = pod_with_status(
+            "Running",
+            vec![terminated_container_status(false, 1, "OOMKilled")],
+        );
+
+        assert_eq!(pod_status(&pod, 1), HealthState::Critical);
+        assert_eq!(pod_diagnostic(&pod), "container OOMKilled");
+    }
+
+    #[test]
+    fn running_terminated_success_pod_is_warning() {
+        let pod = pod_with_status(
+            "Running",
+            vec![terminated_container_status(false, 0, "Completed")],
+        );
+
+        assert_eq!(pod_status(&pod, 0), HealthState::Warning);
     }
 
     #[test]
@@ -4897,6 +4932,21 @@ mod tests {
                 waiting: Some(ContainerStateWaiting {
                     reason: Some(reason.to_string()),
                     ..ContainerStateWaiting::default()
+                }),
+                ..ContainerState::default()
+            }),
+            ..ContainerStatus::default()
+        }
+    }
+
+    fn terminated_container_status(ready: bool, exit_code: i32, reason: &str) -> ContainerStatus {
+        ContainerStatus {
+            ready,
+            state: Some(ContainerState {
+                terminated: Some(ContainerStateTerminated {
+                    exit_code,
+                    reason: Some(reason.to_string()),
+                    ..ContainerStateTerminated::default()
                 }),
                 ..ContainerState::default()
             }),
