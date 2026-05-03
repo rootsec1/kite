@@ -131,7 +131,11 @@ export function ResourceDetail({
 
       {isPod ? (
         <>
-          <PodIssueStrip details={details} resource={resource} onOpenPreviousLogs={() => openLogs("previous")} />
+          <PodIssueStrip
+            details={details}
+            resource={resource}
+            onOpenPreviousLogs={(containerName) => openLogs("previous", containerName)}
+          />
           <PodStatusPanel
             details={details}
             resource={resource}

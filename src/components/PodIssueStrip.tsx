@@ -16,7 +16,7 @@ export function PodIssueStrip({
   resource,
 }: {
   details: ResourceDetails;
-  onOpenPreviousLogs?: () => void;
+  onOpenPreviousLogs?: (containerName?: string) => void;
   resource: ResourceRow;
 }) {
   const signals = podIssueSignals(details, resource, onOpenPreviousLogs);
@@ -66,7 +66,7 @@ function IssueSignal({ signal }: { signal: PodIssueSignal }) {
   return <article className={signal.tone}>{content}</article>;
 }
 
-function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpenPreviousLogs?: () => void): PodIssueSignal[] {
+function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpenPreviousLogs?: (containerName?: string) => void): PodIssueSignal[] {
   const pod = details.pod;
   const containers = pod?.containers ?? [];
   const restartTotal = containers.length
@@ -79,6 +79,7 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
   const warningEventCount = warningEvents.reduce((sum, event) => sum + (Number.isFinite(event.count) && event.count > 0 ? event.count : 1), 0);
   const diagnostic = primaryDiagnostic(details, resource);
   const probeFailure = probeFailureSignal(details.events, containers.flatMap((container) => container.probes ?? []));
+  const hasPreviousLogs = Boolean(details.previousLogs.trim());
   const signals: PodIssueSignal[] = [];
 
   if (notReadyContainers.length) {
@@ -110,6 +111,7 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
       icon: "history",
       label: "Last exit",
       meta: lastExit.name,
+      onSelect: hasPreviousLogs && onOpenPreviousLogs ? () => onOpenPreviousLogs(lastExit.name) : undefined,
       tone: "warning",
       value: containerLastExit(lastExit),
     });
@@ -143,12 +145,12 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
     });
   }
 
-  if (details.previousLogs.trim() && (restartTotal > 0 || lastExit)) {
+  if (hasPreviousLogs && (restartTotal > 0 || lastExit)) {
     signals.push({
       icon: "history",
       label: "Previous logs",
       meta: "live tail switch",
-      onSelect: onOpenPreviousLogs,
+      onSelect: onOpenPreviousLogs ? () => onOpenPreviousLogs() : undefined,
       tone: "healthy",
       value: "captured",
     });
