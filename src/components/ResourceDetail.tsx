@@ -22,6 +22,7 @@ type ResourceDetailProps = {
   isPinned: boolean;
   result: PodActionResult | null;
   resource: ResourceRow;
+  backLabel: string;
   onBack: () => void;
   onOpenResource: (id: string, intent?: "logs" | null) => void;
   onRefreshDetails: () => void;
@@ -33,6 +34,7 @@ const restartableWorkloadKinds = new Set(["Deployment", "StatefulSet", "DaemonSe
 
 export function ResourceDetail({
   allResources,
+  backLabel,
   details,
   detailsError,
   detailsLoading,
@@ -105,7 +107,7 @@ export function ResourceDetail({
       <header className="detail-hero">
         <button className="back-button" type="button" onClick={onBack}>
           <ArrowLeft size={15} />
-          Resources
+          {backLabel}
         </button>
         <div className="detail-title-block">
           <span className="detail-kind">

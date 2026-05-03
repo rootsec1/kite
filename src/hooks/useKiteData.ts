@@ -106,10 +106,13 @@ export function useKiteData() {
   const pinnedCount = useMemo(() => {
     return snapshot.resources.filter((resource) => pinnedResourceKeys.has(resourceIdentity(resource))).length;
   }, [pinnedResourceKeys, snapshot.resources]);
+  const resourcesById = useMemo(() => {
+    return new Map(snapshot.resources.map((resource) => [resource.id, resource]));
+  }, [snapshot.resources]);
 
   const selectedResource = useMemo<ResourceRow | null>(() => {
-    return visibleResources.find((resource) => resource.id === selectedId) ?? visibleResources[0] ?? null;
-  }, [selectedId, visibleResources]);
+    return (selectedId ? resourcesById.get(selectedId) : undefined) ?? visibleResources[0] ?? null;
+  }, [resourcesById, selectedId, visibleResources]);
 
   useEffect(() => {
     void refreshKubeContextsAndSnapshot();

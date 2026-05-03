@@ -16,10 +16,15 @@ type AppShellProps = {
 };
 
 const navItems = navSections.flatMap((section) => section.items);
+type DetailHistoryEntry = {
+  id: string;
+  intent: "logs" | null;
+};
 
 export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   const [activeId, setActiveId] = useState("overview");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailHistory, setDetailHistory] = useState<DetailHistoryEntry[]>([]);
   const [detailIntent, setDetailIntent] = useState<"logs" | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [podTriageBucketId, setPodTriageBucketId] = useState<PodTriageBucketId | null>(null);
@@ -67,21 +72,54 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
     Boolean(podTriageBucketId),
   ].filter(Boolean).length;
 
+  const scrollPrimaryToTop = useCallback(() => {
+    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
+  }, []);
+
   const openResource = useCallback((id: string, intent: "logs" | null = null) => {
     data.onSelectResource(id);
     setDetailIntent(intent);
     setDetailOpen(true);
-    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
-  }, [data.onSelectResource]);
+    setDetailHistory([]);
+    scrollPrimaryToTop();
+  }, [data.onSelectResource, scrollPrimaryToTop]);
+
+  const openLinkedResource = useCallback((id: string, intent: "logs" | null = null) => {
+    const currentResource = data.selectedResource;
+    if (detailOpen && currentResource && currentResource.id !== id) {
+      setDetailHistory((current) => [...current, { id: currentResource.id, intent: detailIntent }].slice(-8));
+    }
+    data.onSelectResource(id);
+    setDetailIntent(intent);
+    setDetailOpen(true);
+    scrollPrimaryToTop();
+  }, [data.onSelectResource, data.selectedResource, detailIntent, detailOpen, scrollPrimaryToTop]);
 
   const openResourceLogs = useCallback((id: string) => openResource(id, "logs"), [openResource]);
+
+  const closeOrPopDetail = useCallback(() => {
+    const previous = [...detailHistory].reverse().find((entry) => data.allResources.some((resource) => resource.id === entry.id));
+    if (!previous) {
+      setDetailIntent(null);
+      setDetailOpen(false);
+      setDetailHistory([]);
+      return;
+    }
+
+    setDetailHistory((current) => current.slice(0, current.lastIndexOf(previous)));
+    data.onSelectResource(previous.id);
+    setDetailIntent(previous.intent);
+    setDetailOpen(true);
+    scrollPrimaryToTop();
+  }, [data.allResources, data.onSelectResource, detailHistory, scrollPrimaryToTop]);
 
   function selectNavigation(id: string) {
     setActiveId(id);
     setPodTriageBucketId(null);
     setDetailIntent(null);
     setDetailOpen(false);
-    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
+    setDetailHistory([]);
+    scrollPrimaryToTop();
   }
 
   function selectPodTriageBucket(id: PodTriageBucketId | null) {
@@ -89,7 +127,8 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
     setPodTriageBucketId(id);
     setDetailIntent(null);
     setDetailOpen(false);
-    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
+    setDetailHistory([]);
+    scrollPrimaryToTop();
   }
 
   function selectPressureNamespace(namespace: string) {
@@ -97,7 +136,8 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
     setPodTriageBucketId(null);
     setDetailIntent(null);
     setDetailOpen(false);
-    window.requestAnimationFrame(() => primaryPaneRef.current?.scrollTo({ top: 0 }));
+    setDetailHistory([]);
+    scrollPrimaryToTop();
   }
 
   function clearWorkspaceFilters() {
@@ -136,12 +176,10 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                   initialFocus={detailIntent}
                   isPinned={data.isPinnedResource(detailResource)}
                   resource={detailResource}
+                  backLabel={detailHistory.length ? "Back" : "Resources"}
                   result={data.podActionResult}
-                  onBack={() => {
-                    setDetailIntent(null);
-                    setDetailOpen(false);
-                  }}
-                  onOpenResource={openResource}
+                  onBack={closeOrPopDetail}
+                  onOpenResource={openLinkedResource}
                   onRefreshDetails={data.onRefreshResourceDetails}
                   onRunPodAction={data.onRunPodAction}
                   onTogglePinned={() => data.onTogglePinnedResource(detailResource)}
