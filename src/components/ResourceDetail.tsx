@@ -233,6 +233,7 @@ export function ResourceDetail({
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <CronJobRunRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <DeploymentReplicaSetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
         </>
@@ -957,6 +958,69 @@ function CronJobRunRail({
   );
 }
 
+function DeploymentReplicaSetRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const replicaSets = useMemo(() => deploymentReplicaSetsFor(resource, resources).sort(compareDeploymentReplicaSets), [resource, resources]);
+  const replicaSetStats = useMemo(() => replicaSets.map((replicaSet) => {
+    const pods = workloadPodsFor(replicaSet, resources);
+    const readyPods = pods.filter((pod) => pod.status === "healthy").length;
+    const restarts = pods.reduce((sum, pod) => sum + pod.restarts, 0);
+    return {
+      podReadout: pods.length ? `${readyPods}/${pods.length} pods` : "No pods",
+      replicaSet,
+      restarts,
+      tone: replicaSetRuntimeTone(replicaSet, pods),
+    };
+  }), [replicaSets, resources]);
+
+  if (resource.kind !== "Deployment") {
+    return null;
+  }
+
+  const readyCount = replicaSets.filter((replicaSet) => replicaSet.status === "healthy").length;
+  const reviewCount = replicaSetStats.filter((item) => item.tone !== "healthy").length;
+  const visibleReplicaSets = replicaSetStats.slice(0, 5);
+  const tone = deploymentReplicaSetTone(resource, replicaSetStats.map((item) => item.tone));
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail rollout-rail ${tone}`} aria-label="Deployment ReplicaSets">
+      <header>
+        <span>
+          <GitCommitHorizontal size={15} />
+          ReplicaSets
+        </span>
+        <strong>{readyCount}/{replicaSets.length || 0} ready</strong>
+        <small>{reviewCount ? `${reviewCount} review` : resource.diagnostic || resource.status}</small>
+      </header>
+      <div>
+        {visibleReplicaSets.length ? (
+          visibleReplicaSets.map(({ podReadout, replicaSet, restarts, tone }) => (
+            <button className={tone} key={replicaSet.id} type="button" onClick={() => onOpenResource(replicaSet.id)}>
+              <StatusDot state={tone} />
+              <strong title={replicaSet.name}>{replicaSet.name}</strong>
+              <em title={replicaSet.diagnostic || podReadout}>{replicaSet.diagnostic || podReadout}</em>
+              <small>{replicaSet.age}</small>
+              <small>{restarts}r</small>
+            </button>
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>No ReplicaSets</span>
+            <strong>This Deployment has no live ReplicaSets in the snapshot.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function NodePodRail({
   onOpenResource,
   resource,
@@ -1465,6 +1529,18 @@ function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
   return resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace && ownsPod(resource, item));
 }
 
+function deploymentReplicaSetsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "Deployment") {
+    return [];
+  }
+
+  return resources.filter((item) =>
+    item.kind === "ReplicaSet" &&
+    item.namespace === resource.namespace &&
+    ownsResource(resource, item)
+  );
+}
+
 function cronJobJobsFor(resource: ResourceRow, resources: ResourceRow[]) {
   if (resource.kind !== "CronJob") {
     return [];
@@ -1621,6 +1697,38 @@ function cronJobRunReadout(jobCount: number, podCount: number, readyPods: number
   return "No runs";
 }
 
+function deploymentReplicaSetTone(resource: ResourceRow, replicaSetTones: HealthState[]): HealthState {
+  if (resource.status !== "healthy") {
+    return resource.status;
+  }
+  if (!replicaSetTones.length) {
+    return "syncing";
+  }
+  if (replicaSetTones.includes("critical")) {
+    return "critical";
+  }
+  if (replicaSetTones.includes("warning")) {
+    return "warning";
+  }
+  if (replicaSetTones.every((tone) => tone === "syncing")) {
+    return "syncing";
+  }
+  return "healthy";
+}
+
+function replicaSetRuntimeTone(replicaSet: ResourceRow, pods: ResourceRow[]): HealthState {
+  if (replicaSet.status !== "healthy") {
+    return replicaSet.status;
+  }
+  if (pods.some((pod) => pod.status === "critical")) {
+    return "critical";
+  }
+  if (pods.some((pod) => pod.status === "warning")) {
+    return "warning";
+  }
+  return "healthy";
+}
+
 function nodePodTone(pods: ResourceRow[]): HealthState {
   if (!pods.length) {
     return "syncing";
@@ -1678,6 +1786,12 @@ function compareRouteBackends(left: ResourceRow, right: ResourceRow) {
 }
 
 function compareCronJobRuns(left: ResourceRow, right: ResourceRow) {
+  return podRuntimeRank(left) - podRuntimeRank(right) ||
+    resourceTimestamp(right) - resourceTimestamp(left) ||
+    left.name.localeCompare(right.name);
+}
+
+function compareDeploymentReplicaSets(left: ResourceRow, right: ResourceRow) {
   return podRuntimeRank(left) - podRuntimeRank(right) ||
     resourceTimestamp(right) - resourceTimestamp(left) ||
     left.name.localeCompare(right.name);
