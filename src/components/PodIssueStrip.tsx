@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CheckCircle2, History, RotateCw, ShieldAlert } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, History, ImageOff, RotateCw, ShieldAlert } from "lucide-react";
 import type { ContainerDetails, ContainerProbe, HealthState, ResourceDetails, ResourceEvent, ResourceRow } from "../types/kube";
 
 type PodIssueSignal = {
@@ -6,7 +6,7 @@ type PodIssueSignal = {
   value: string;
   meta: string;
   tone: Exclude<HealthState, "syncing">;
-  icon: "condition" | "event" | "history" | "probe" | "ready" | "restart";
+  icon: "condition" | "event" | "history" | "image" | "probe" | "ready" | "restart";
   onSelect?: () => void;
 };
 
@@ -78,6 +78,7 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
   const warningEvents = details.events.filter((event) => event.type.toLowerCase() === "warning");
   const warningEventCount = warningEvents.reduce((sum, event) => sum + (Number.isFinite(event.count) && event.count > 0 ? event.count : 1), 0);
   const diagnostic = primaryDiagnostic(details, resource);
+  const imagePullFailure = imagePullFailureSignal(containers);
   const probeFailure = probeFailureSignal(details.events, containers.flatMap((container) => container.probes ?? []));
   const hasPreviousLogs = Boolean(details.previousLogs.trim());
   const signals: PodIssueSignal[] = [];
@@ -90,6 +91,10 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
       tone: "critical",
       value: `${Math.max(containers.length - notReadyContainers.length, 0)}/${containers.length || "?"}`,
     });
+  }
+
+  if (imagePullFailure) {
+    signals.push(imagePullFailure);
   }
 
   if (probeFailure) {
@@ -157,6 +162,35 @@ function podIssueSignals(details: ResourceDetails, resource: ResourceRow, onOpen
   }
 
   return signals.slice(0, 4);
+}
+
+function imagePullFailureSignal(containers: ContainerDetails[]): PodIssueSignal | null {
+  const container = containers.find(isImagePullFailure);
+  if (!container) {
+    return null;
+  }
+
+  return {
+    icon: "image",
+    label: "Image pull",
+    meta: container.name,
+    tone: "critical",
+    value: container.reason || "pull failed",
+  };
+}
+
+function isImagePullFailure(container: ContainerDetails) {
+  const state = container.state.toLowerCase();
+  const reason = container.reason.toLowerCase();
+  const message = container.message.toLowerCase();
+
+  return state === "waiting" && (
+    reason === "errimagepull" ||
+    reason === "imagepullbackoff" ||
+    reason === "invalidimagename" ||
+    message.includes("pull image") ||
+    message.includes("failed to pull")
+  );
 }
 
 function probeFailureSignal(events: ResourceEvent[], probes: ContainerProbe[]): PodIssueSignal | null {
@@ -228,6 +262,8 @@ function IssueIcon({ icon }: { icon: PodIssueSignal["icon"] }) {
       return <AlertTriangle size={15} />;
     case "history":
       return <History size={15} />;
+    case "image":
+      return <ImageOff size={15} />;
     case "probe":
       return <Activity size={15} />;
     case "ready":
