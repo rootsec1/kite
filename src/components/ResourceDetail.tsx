@@ -49,7 +49,7 @@ export function ResourceDetail({
   const hierarchyGroups = useMemo(() => hierarchyFor(resource, allResources), [allResources, resource]);
   const forwardedPorts = useMemo(() => podPorts(details), [details]);
   const terminalRef = useRef<HTMLElement>(null);
-  const [terminalModeRequest, setTerminalModeRequest] = useState({ id: 0, mode: "current" as LogMode });
+  const [terminalRequest, setTerminalRequest] = useState({ id: 0, mode: "current" as LogMode, source: "" });
 
   useEffect(() => {
     if (!isPod) {
@@ -63,15 +63,29 @@ export function ResourceDetail({
 
   function scrollToTerminal() {
     window.requestAnimationFrame(() => {
-      terminalRef.current?.scrollIntoView({
-        block: "start",
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      });
+      const terminal = terminalRef.current;
+      if (!terminal) {
+        return;
+      }
+
+      const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      const scrollPane = terminal.closest(".primary-pane");
+      if (scrollPane instanceof HTMLElement) {
+        const paneRect = scrollPane.getBoundingClientRect();
+        const terminalRect = terminal.getBoundingClientRect();
+        scrollPane.scrollTo({
+          top: scrollPane.scrollTop + terminalRect.top - paneRect.top - 12,
+          behavior,
+        });
+        return;
+      }
+
+      terminal.scrollIntoView({ block: "start", behavior });
     });
   }
 
-  function openLogs(mode: LogMode = "current") {
-    setTerminalModeRequest((current) => ({ id: current.id + 1, mode }));
+  function openLogs(mode: LogMode = "current", source = "") {
+    setTerminalRequest((current) => ({ id: current.id + 1, mode, source }));
     onRefreshDetails();
     scrollToTerminal();
   }
@@ -81,7 +95,7 @@ export function ResourceDetail({
       return;
     }
 
-    setTerminalModeRequest((current) => ({ id: current.id + 1, mode: "current" }));
+    setTerminalRequest((current) => ({ id: current.id + 1, mode: "current", source: "" }));
     scrollToTerminal();
   }, [initialFocus, isPod, resource.id]);
 
@@ -118,7 +132,11 @@ export function ResourceDetail({
       {isPod ? (
         <>
           <PodIssueStrip details={details} resource={resource} onOpenPreviousLogs={() => openLogs("previous")} />
-          <PodStatusPanel details={details} resource={resource} />
+          <PodStatusPanel
+            details={details}
+            resource={resource}
+            onOpenContainerLogs={(containerName) => openLogs("current", containerName)}
+          />
           <PodLifecycleRail details={details} />
           <PodPlacementStrip pod={details.pod} />
           <PodLinkStrip
@@ -169,9 +187,10 @@ export function ResourceDetail({
             details={details}
             detailsError={detailsError}
             detailsLoading={detailsLoading}
-            modeRequestId={terminalModeRequest.id}
+            modeRequestId={terminalRequest.id}
             panelRef={terminalRef}
-            preferredMode={terminalModeRequest.mode}
+            preferredMode={terminalRequest.mode}
+            preferredSource={terminalRequest.source}
           />
         </>
       ) : (
@@ -199,7 +218,15 @@ export function ResourceDetail({
   );
 }
 
-function PodStatusPanel({ details, resource }: { details: ResourceDetails; resource: ResourceRow }) {
+function PodStatusPanel({
+  details,
+  onOpenContainerLogs,
+  resource,
+}: {
+  details: ResourceDetails;
+  onOpenContainerLogs: (containerName: string) => void;
+  resource: ResourceRow;
+}) {
   const pod = details.pod;
   const containers = pod?.containers ?? [];
   const ready = pod ? `${pod.readyContainers}/${pod.totalContainers || containers.length}` : "syncing";
@@ -245,7 +272,13 @@ function PodStatusPanel({ details, resource }: { details: ResourceDetails; resou
 
       <div className="container-strip">
         {containers.length ? (
-          containers.map((container) => <ContainerCard container={container} key={container.name} />)
+          containers.map((container) => (
+            <ContainerCard
+              container={container}
+              key={container.name}
+              onOpenLogs={() => onOpenContainerLogs(container.name)}
+            />
+          ))
         ) : (
           <div className="container-card muted">
             <Box size={15} />
@@ -374,7 +407,7 @@ function RuntimeTile({
   );
 }
 
-function ContainerCard({ container }: { container: ContainerDetails }) {
+function ContainerCard({ container, onOpenLogs }: { container: ContainerDetails; onOpenLogs: () => void }) {
   const currentState = containerCurrentState(container);
   const lastState = containerLastState(container);
 
@@ -383,6 +416,15 @@ function ContainerCard({ container }: { container: ContainerDetails }) {
       <div>
         <StatusDot state={container.ready ? "healthy" : "warning"} />
         <strong>{container.name}</strong>
+        <button
+          aria-label={`Open ${container.name} logs`}
+          className="container-log-button"
+          title="Open container logs"
+          type="button"
+          onClick={onOpenLogs}
+        >
+          <FileText size={13} />
+        </button>
         <small className="container-role">{container.role}</small>
       </div>
       <div className="container-state-grid">

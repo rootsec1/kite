@@ -39,6 +39,7 @@ export function PodTerminal({
   modeRequestId = 0,
   panelRef,
   preferredMode = "current",
+  preferredSource,
 }: {
   details: ResourceDetails;
   detailsError: string;
@@ -46,6 +47,7 @@ export function PodTerminal({
   modeRequestId?: number;
   panelRef?: Ref<HTMLElement>;
   preferredMode?: LogMode;
+  preferredSource?: string;
 }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>("all");
   const [logMode, setLogMode] = useState<LogMode>("current");
@@ -78,6 +80,14 @@ export function PodTerminal({
     }
   }, [hasPreviousLogs, modeRequestId, preferredMode]);
 
+  useEffect(() => {
+    if (preferredSource === undefined) {
+      return;
+    }
+
+    setSourceFilter(preferredSource || allSourceFilter);
+  }, [modeRequestId, preferredSource]);
+
   const logView = useMemo(() => {
     const selectedLogs = activeLogMode === "previous" ? details.previousLogs : details.logs;
     const lines = parseLogLines(terminalOutput(selectedLogs, activeLogMode, detailsLoading, detailsError));
@@ -90,7 +100,7 @@ export function PodTerminal({
     const sourceOptions = Array.from(sourceCounts.entries())
       .map(([source, count]) => ({ source, count }))
       .sort((left, right) => right.count - left.count || left.source.localeCompare(right.source));
-    const activeSource = sourceFilter === allSourceFilter || !sourceCounts.has(sourceFilter) ? allSourceFilter : sourceFilter;
+    const activeSource = resolveLogSourceFilter(sourceCounts, sourceFilter);
     const sourceScopedLines = activeSource === allSourceFilter ? lines : lines.filter((line) => line.source === activeSource);
     const counts = new Map<LogLevel, number>(logLevels.map((level) => [level, 0]));
     const visibleLines: ParsedLogLine[] = [];
@@ -408,6 +418,24 @@ function parseLogLines(output: string): ParsedLogLine[] {
 function matchesLogQuery(line: ParsedLogLine, terms: string[]) {
   const haystack = `${line.time} ${line.source} ${line.level} ${line.message}`.toLowerCase();
   return terms.every((term) => haystack.includes(term));
+}
+
+function resolveLogSourceFilter(sourceCounts: Map<string, number>, sourceFilter: string) {
+  if (sourceFilter === allSourceFilter) {
+    return allSourceFilter;
+  }
+  if (sourceCounts.has(sourceFilter)) {
+    return sourceFilter;
+  }
+
+  const requestedContainer = sourceFilter.trim();
+  if (!requestedContainer) {
+    return allSourceFilter;
+  }
+
+  return Array.from(sourceCounts.keys()).find((source) =>
+    source === requestedContainer || source.endsWith(`/${requestedContainer}`)
+  ) ?? allSourceFilter;
 }
 
 function logInsights(lines: ParsedLogLine[], sourceOptions: { source: string; count: number }[], activeSource: string): LogInsight[] {
