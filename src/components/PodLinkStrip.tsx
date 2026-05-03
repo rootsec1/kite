@@ -1,4 +1,4 @@
-import { AlertTriangle, GitBranch, HardDrive, Layers3, Network, Server, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Database, FileSliders, GitBranch, KeyRound, Layers3, Network, Server, UserRound, type LucideIcon } from "lucide-react";
 import { matchesSelector, ownsPod, workloadKinds } from "../lib/resourceRelationships";
 import type { ResourceReference, ResourceRow } from "../types/kube";
 import { StatusDot } from "./status";
@@ -8,6 +8,12 @@ type PodLinkGroup = {
   icon: LucideIcon;
   resources: ResourceRow[];
   missing?: ResourceReference[];
+};
+
+type InputReferenceGroup = {
+  title: string;
+  icon: LucideIcon;
+  kinds: Set<string>;
 };
 
 export function PodLinkStrip({
@@ -30,7 +36,7 @@ export function PodLinkStrip({
   return (
     <section className="pod-link-strip" aria-label="Pod relationships">
       {visibleLinks.map(({ icon: Icon, missing = [], resources, title }) => (
-        <article className={missing.length && !resources.length ? "warning" : ""} key={title}>
+        <article className={missing.length ? "warning" : ""} key={title}>
           <header>
             <Icon size={15} />
             <span>{title}</span>
@@ -65,8 +71,7 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""):
     ...namespaceResources.filter((item) => workloadKinds.has(item.kind) && ownsPod(item, pod)),
   ]);
   const serviceResources = namespaceResources.filter((item) => item.kind === "Service" && matchesSelector(pod, item.selector));
-  const inputResources = resources.filter((item) => pod.references.some((reference) => matchesReference(item, reference)));
-  const missingInputs = missingReferences(pod.references, resources);
+  const inputGroups = podInputGroups(pod.references, resources);
   const node = nodeName ? resources.filter((item) => item.kind === "Node" && item.name === nodeName) : [];
   const namespace = resources.filter((item) => item.kind === "Namespace" && item.name === pod.namespace);
 
@@ -74,11 +79,29 @@ function podLinksFor(pod: ResourceRow, resources: ResourceRow[], nodeName = ""):
     { title: "Owner", icon: GitBranch, resources: ownerResources },
     { title: "Node", icon: Server, resources: node },
     { title: "Services", icon: Network, resources: serviceResources },
-    { title: "Inputs", icon: HardDrive, resources: inputResources },
-    { title: "Missing inputs", icon: AlertTriangle, resources: [], missing: missingInputs },
+    ...inputGroups,
     { title: "Namespace", icon: Layers3, resources: namespace },
   ];
 }
+
+function podInputGroups(references: ResourceReference[], resources: ResourceRow[]): PodLinkGroup[] {
+  return inputReferenceGroups.map((group) => {
+    const groupReferences = references.filter((reference) => group.kinds.has(reference.kind));
+
+    return {
+      ...group,
+      resources: resources.filter((item) => groupReferences.some((reference) => matchesReference(item, reference))),
+      missing: missingReferences(groupReferences, resources),
+    };
+  });
+}
+
+const inputReferenceGroups: InputReferenceGroup[] = [
+  { title: "Config", icon: FileSliders, kinds: new Set(["ConfigMap"]) },
+  { title: "Secrets", icon: KeyRound, kinds: new Set(["Secret"]) },
+  { title: "Storage", icon: Database, kinds: new Set(["PersistentVolumeClaim"]) },
+  { title: "Identity", icon: UserRound, kinds: new Set(["ServiceAccount"]) },
+];
 
 function directOwnerResources(pod: ResourceRow, resources: ResourceRow[]) {
   const [kind, name] = pod.owner.split("/", 2);

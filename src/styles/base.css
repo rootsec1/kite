@@ -412,7 +412,9 @@ summary:focus-visible {
 }
 
 .primary-pane {
+  min-inline-size: 0;
   min-block-size: 0;
+  contain: inline-size;
   overflow: auto;
   padding: 20px 22px 24px;
   border-inline-end: 1px solid var(--line);
@@ -1315,6 +1317,10 @@ summary:focus-visible {
 .detail-workspace {
   display: grid;
   gap: 16px;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-x: hidden;
 }
 
 .detail-hero {
@@ -2306,14 +2312,17 @@ summary:focus-visible {
 
 .pod-link-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 1px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   border: 1px solid var(--line);
   background: var(--line);
 }
 
 .pod-link-strip article {
   min-inline-size: 0;
+  overflow: hidden;
   background: var(--surface);
 }
 
@@ -2356,7 +2365,7 @@ summary:focus-visible {
 
 .pod-link-strip button {
   display: grid;
-  grid-template-columns: 10px 76px minmax(0, 1fr);
+  grid-template-columns: 10px 54px minmax(0, 1fr);
   gap: 9px;
   align-items: center;
   min-block-size: 40px;
@@ -2378,7 +2387,7 @@ summary:focus-visible {
 
 .pod-link-missing {
   display: grid;
-  grid-template-columns: 13px 76px minmax(0, 1fr);
+  grid-template-columns: 13px 54px minmax(0, 1fr);
   gap: 9px;
   align-items: center;
   min-block-size: 40px;
@@ -2402,6 +2411,14 @@ summary:focus-visible {
   overflow: hidden;
   color: var(--text);
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-link-strip button span,
+.pod-link-missing span {
+  min-inline-size: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
