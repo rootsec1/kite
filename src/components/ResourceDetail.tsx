@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
@@ -154,6 +154,7 @@ export function ResourceDetail({
             pod={resource}
             onOpenResource={onOpenResource}
           />
+          <PodNetworkPolicyRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <div className="pod-actions" aria-label="Pod actions">
             <button type="button" onClick={() => openLogs()}>
               <FileText size={15} />
@@ -226,6 +227,7 @@ export function ResourceDetail({
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <NetworkPolicyPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -1074,6 +1076,110 @@ function EndpointSliceTargetRail({
   );
 }
 
+function PodNetworkPolicyRail({
+  onOpenResource,
+  pod,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  pod: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const namespacePolicies = useMemo(() => networkPoliciesInNamespace(pod.namespace, resources), [pod.namespace, resources]);
+  const policies = useMemo(() => namespacePolicies.filter((policy) => networkPolicySelectsPod(policy, pod)), [namespacePolicies, pod]);
+  const visiblePolicies = policies.slice(0, 5);
+
+  if (!namespacePolicies.length) {
+    return null;
+  }
+
+  return (
+    <section className="workload-pod-rail service-backend-rail network-policy-rail syncing" aria-label="Pod network policies">
+      <header>
+        <span>
+          <Shield size={15} />
+          Policies
+        </span>
+        <strong>{policies.length}/{namespacePolicies.length} select</strong>
+        <small>{pod.namespace}</small>
+      </header>
+      <div>
+        {visiblePolicies.length ? (
+          visiblePolicies.map((policy) => (
+            <LinkedPolicyTile key={policy.id} policy={policy} onOpenResource={onOpenResource} />
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>No policy match</span>
+            <strong>Namespace has policies, but none select this pod.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function NetworkPolicyPodRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const pods = useMemo(() => networkPolicyPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const readyCount = pods.filter((pod) => pod.status === "healthy").length;
+  const visiblePods = pods.slice(0, 5);
+
+  if (resource.kind !== "NetworkPolicy") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail network-policy-rail ${nodePodTone(pods)}`} aria-label="NetworkPolicy selected pods">
+      <header>
+        <span>
+          <Shield size={15} />
+          Selected pods
+        </span>
+        <strong>{readyCount}/{pods.length || 0} ready</strong>
+        <small>{resource.diagnostic || "all pods"}</small>
+      </header>
+      <div>
+        {visiblePods.length ? (
+          visiblePods.map((pod) => (
+            <LinkedPodTile key={pod.id} meta={pod.nodeName || pod.namespace} pod={pod} onOpenResource={onOpenResource} />
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>No selected pods</span>
+            <strong>Policy selector has no live pod match.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LinkedPolicyTile({
+  onOpenResource,
+  policy,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  policy: ResourceRow;
+}) {
+  return (
+    <button className={policy.status} type="button" onClick={() => onOpenResource(policy.id)}>
+      <StatusDot state={policy.status} />
+      <strong title={policy.name}>{policy.name}</strong>
+      <em title={policy.image || policy.diagnostic}>{policy.image || policy.diagnostic || "network policy"}</em>
+      <small title={policy.diagnostic || "all pods"}>{policy.diagnostic || "all pods"}</small>
+      <small>{policy.owner || "Ingress"}</small>
+    </button>
+  );
+}
+
 function LinkedServiceTile({
   onOpenResource,
   service,
@@ -1500,7 +1606,7 @@ function HierarchyGroups({
   );
 }
 
-const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", "HTTPRoute"]);
+const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", "HTTPRoute", "NetworkPolicy"]);
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
 const autoscalingKinds = new Set(["HorizontalPodAutoscaler"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "PersistentVolumeClaim"]);
@@ -1610,6 +1716,13 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     ];
   }
 
+  if (resource.kind === "NetworkPolicy") {
+    return [
+      { title: "Selected pods", resources: networkPolicyPodsFor(resource, resources) },
+      { title: "Policies in namespace", resources: networkPoliciesInNamespace(resource.namespace, resources).filter((item) => item.id !== resource.id) },
+    ];
+  }
+
   if (resource.kind === "Gateway") {
     return [
       { title: "Routes", resources: resources.filter((item) => item.kind === "HTTPRoute" && routeParents(item).includes(resource.name)) },
@@ -1620,6 +1733,30 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     { title: "Pods in namespace", resources: resources.filter((item) => item.kind === "Pod" && item.namespace === resource.namespace) },
     { title: "Workloads in namespace", resources: resources.filter((item) => item.namespace === resource.namespace && workloadKinds.has(item.kind)) },
   ];
+}
+
+function networkPoliciesInNamespace(namespace: string, resources: ResourceRow[]) {
+  return resources.filter((item) => item.kind === "NetworkPolicy" && item.namespace === namespace);
+}
+
+function networkPolicyPodsFor(policy: ResourceRow, resources: ResourceRow[]) {
+  if (policy.kind !== "NetworkPolicy") {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "Pod" && networkPolicySelectsPod(policy, item));
+}
+
+function networkPolicySelectsPod(policy: ResourceRow, pod: ResourceRow) {
+  if (policy.kind !== "NetworkPolicy" || pod.kind !== "Pod" || policy.namespace !== pod.namespace) {
+    return false;
+  }
+  if (policy.diagnostic === "selector expression") {
+    return false;
+  }
+
+  const selector = Object.entries(policy.selector);
+  return (!selector.length && policy.diagnostic === "all pods") || selector.every(([key, value]) => pod.labels[key] === value);
 }
 
 function accessHierarchyFor(resource: ResourceRow, resources: ResourceRow[]): HierarchyGroup[] {

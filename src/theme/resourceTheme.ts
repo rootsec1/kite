@@ -69,6 +69,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
       { id: "Gateway", label: "Gateways", icon: Network, kind: "Gateway" },
       { id: "HTTPRoute", label: "HTTPRoutes", icon: Network, kind: "HTTPRoute" },
       { id: "Ingress", label: "Ingresses", icon: Network, kind: "Ingress" },
+      { id: "NetworkPolicy", label: "NetPolicies", icon: Shield, kind: "NetworkPolicy" },
     ],
   },
   {
@@ -130,6 +131,7 @@ export const kindThemes: Record<string, KindTheme> = {
   Gateway: { label: "Gateways", icon: Network, accent: "blue", actions: ["Routes", "Events", "YAML"] },
   HTTPRoute: { label: "HTTPRoutes", icon: Network, accent: "blue", actions: ["Parents", "Refs", "YAML"] },
   Ingress: { label: "Ingresses", icon: Network, accent: "blue", actions: ["Rules", "TLS", "YAML"] },
+  NetworkPolicy: { label: "NetworkPolicies", icon: Shield, accent: "orange", actions: ["Pods", "Ingress", "Egress"] },
   PersistentVolumeClaim: { label: "PVCs", icon: HardDrive, accent: "orange", actions: ["Volume", "Events", "YAML"] },
   PersistentVolume: { label: "PVs", icon: Database, accent: "orange", actions: ["Claim", "Reclaim", "YAML"] },
   StorageClass: { label: "StorageClasses", icon: Database, accent: "orange", actions: ["Provisioner", "YAML"] },

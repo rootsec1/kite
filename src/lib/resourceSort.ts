@@ -16,7 +16,7 @@ export const defaultResourceSort: ResourceSort = {
 
 const signalSortKeys = new Set<ResourceSortKey>(["age", "signals"]);
 const systemNamespaces = new Set(["cluster", "default", "kube-system", "kube-public", "kube-node-lease"]);
-const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
+const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute", "NetworkPolicy"]);
 const autoscalingKinds = new Set(["HorizontalPodAutoscaler"]);
 const foundationKinds = new Set(["Node", "Namespace"]);
 const supportKinds = new Set([

@@ -2632,6 +2632,10 @@ summary:focus-visible {
   color: var(--orange);
 }
 
+.network-policy-rail header svg {
+  color: var(--orange);
+}
+
 .storage-binding-rail.healthy header svg {
   color: var(--green-deep);
 }

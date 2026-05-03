@@ -9,7 +9,7 @@ use k8s_openapi::api::{
         PersistentVolumeClaim, Pod, Secret, Service, ServiceAccount,
     },
     discovery::v1::{Endpoint, EndpointSlice},
-    networking::v1::Ingress,
+    networking::v1::{Ingress, NetworkPolicy},
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding, Subject},
     storage::v1::StorageClass,
 };
@@ -153,6 +153,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         role_bindings,
         cluster_roles,
         cluster_role_bindings,
+        network_policies,
         events,
         nodes,
         namespaces,
@@ -168,6 +169,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_role_bindings(client.clone(), context),
         list_cluster_roles(client.clone(), context),
         list_cluster_role_bindings(client.clone(), context),
+        list_network_policies(client.clone(), context),
         list_events(client.clone(), context),
         list_nodes(client.clone(), context),
         list_namespaces(client.clone(), context),
@@ -196,6 +198,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(role_bindings.unwrap_or_default());
     resources.extend(cluster_roles.unwrap_or_default());
     resources.extend(cluster_role_bindings.unwrap_or_default());
+    resources.extend(network_policies.unwrap_or_default());
     resources.extend(events.unwrap_or_default());
     resources.extend(nodes.unwrap_or_default());
     resources.extend(namespaces.unwrap_or_default());
@@ -2232,6 +2235,116 @@ async fn list_ingresses(client: Client, cluster: &str) -> Result<Vec<ResourceSum
         .collect())
 }
 
+async fn list_network_policies(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let policies = Api::<NetworkPolicy>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list NetworkPolicies: {error}"))?;
+
+    Ok(policies
+        .items
+        .into_iter()
+        .map(|policy| {
+            let age = resource_age(&policy.metadata);
+            let labels = policy.metadata.labels.clone().unwrap_or_default();
+            let namespace = policy.namespace().unwrap_or_else(|| "default".to_string());
+            let selector = network_policy_selector(&policy);
+            let ingress_rules = network_policy_ingress_rule_count(&policy);
+            let egress_rules = network_policy_egress_rule_count(&policy);
+
+            resource_summary(
+                "NetworkPolicy",
+                policy.name_any(),
+                namespace,
+                cluster,
+                HealthState::Healthy,
+                0,
+                format!("{ingress_rules} ingress / {egress_rules} egress"),
+            )
+            .with_age(age)
+            .with_owner(network_policy_types(&policy).join("/"))
+            .with_diagnostic(network_policy_selector_summary(&policy, &selector))
+            .with_labels(labels)
+            .with_selector(selector)
+        })
+        .collect())
+}
+
+fn network_policy_selector(policy: &NetworkPolicy) -> BTreeMap<String, String> {
+    policy
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.pod_selector.as_ref())
+        .and_then(|selector| selector.match_labels.clone())
+        .unwrap_or_default()
+}
+
+fn network_policy_ingress_rule_count(policy: &NetworkPolicy) -> usize {
+    policy
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.ingress.as_ref())
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
+fn network_policy_egress_rule_count(policy: &NetworkPolicy) -> usize {
+    policy
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.egress.as_ref())
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
+fn network_policy_types(policy: &NetworkPolicy) -> Vec<String> {
+    if let Some(types) = policy
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.policy_types.as_ref())
+        .filter(|types| !types.is_empty())
+    {
+        return types.clone();
+    }
+
+    if policy.spec.as_ref().and_then(|spec| spec.egress.as_ref()).is_some() {
+        vec!["Ingress".to_string(), "Egress".to_string()]
+    } else {
+        vec!["Ingress".to_string()]
+    }
+}
+
+fn network_policy_selector_summary(policy: &NetworkPolicy, selector: &BTreeMap<String, String>) -> String {
+    if network_policy_has_selector_expressions(policy) {
+        return "selector expression".to_string();
+    }
+    if selector.is_empty() {
+        return "all pods".to_string();
+    }
+
+    let visible = selector
+        .iter()
+        .take(2)
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if selector.len() > 2 {
+        format!("{visible} +{}", selector.len() - 2)
+    } else {
+        visible
+    }
+}
+
+fn network_policy_has_selector_expressions(policy: &NetworkPolicy) -> bool {
+    policy
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.pod_selector.as_ref())
+        .and_then(|selector| selector.match_expressions.as_ref())
+        .map(|expressions| !expressions.is_empty())
+        .unwrap_or(false)
+}
+
 async fn list_gateway_api_resources(client: Client, cluster: &str) -> Vec<ResourceSummary> {
     let mut resources = Vec::new();
     resources.extend(
@@ -3463,9 +3576,9 @@ mod tests {
     use k8s_openapi::api::discovery::v1::{Endpoint, EndpointConditions, EndpointSlice};
     use k8s_openapi::api::networking::v1::{
         HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
-        IngressSpec, ServiceBackendPort,
+        IngressSpec, NetworkPolicySpec, ServiceBackendPort,
     };
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, LabelSelectorRequirement, OwnerReference};
 
     #[test]
     fn running_ready_pod_without_restarts_is_healthy() {
@@ -4033,6 +4146,77 @@ mod tests {
         assert_eq!(
             namespace_names_for(&resources),
             vec!["kube-system".to_string(), "prosights-local".to_string()]
+        );
+    }
+
+    #[test]
+    fn network_policy_summary_uses_selector_and_default_policy_type() {
+        let policy = NetworkPolicy {
+            metadata: ObjectMeta {
+                name: Some("default-deny".to_string()),
+                namespace: Some("payments".to_string()),
+                ..ObjectMeta::default()
+            },
+            spec: Some(NetworkPolicySpec {
+                pod_selector: Some(LabelSelector {
+                    match_labels: Some(BTreeMap::from([("app".to_string(), "api".to_string())])),
+                    ..LabelSelector::default()
+                }),
+                ..NetworkPolicySpec::default()
+            }),
+        };
+
+        assert_eq!(
+            network_policy_selector(&policy),
+            BTreeMap::from([("app".to_string(), "api".to_string())])
+        );
+        assert_eq!(network_policy_types(&policy), vec!["Ingress".to_string()]);
+        assert_eq!(
+            network_policy_selector_summary(&policy, &network_policy_selector(&policy)),
+            "app=api"
+        );
+    }
+
+    #[test]
+    fn network_policy_empty_selector_summarizes_all_pods() {
+        let policy = NetworkPolicy {
+            metadata: ObjectMeta::default(),
+            spec: Some(NetworkPolicySpec {
+                pod_selector: Some(LabelSelector::default()),
+                egress: Some(Vec::new()),
+                ..NetworkPolicySpec::default()
+            }),
+        };
+
+        assert!(network_policy_selector(&policy).is_empty());
+        assert_eq!(network_policy_types(&policy), vec!["Ingress".to_string(), "Egress".to_string()]);
+        assert_eq!(
+            network_policy_selector_summary(&policy, &network_policy_selector(&policy)),
+            "all pods"
+        );
+    }
+
+    #[test]
+    fn network_policy_expression_selector_does_not_claim_all_pods() {
+        let policy = NetworkPolicy {
+            metadata: ObjectMeta::default(),
+            spec: Some(NetworkPolicySpec {
+                pod_selector: Some(LabelSelector {
+                    match_expressions: Some(vec![LabelSelectorRequirement {
+                        key: "app".to_string(),
+                        operator: "In".to_string(),
+                        values: Some(vec!["api".to_string(), "worker".to_string()]),
+                    }]),
+                    ..LabelSelector::default()
+                }),
+                ..NetworkPolicySpec::default()
+            }),
+        };
+
+        assert!(network_policy_selector(&policy).is_empty());
+        assert_eq!(
+            network_policy_selector_summary(&policy, &network_policy_selector(&policy)),
+            "selector expression"
         );
     }
 

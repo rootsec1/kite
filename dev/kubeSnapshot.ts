@@ -29,6 +29,8 @@ type KubeItem = {
   subjects?: KubeSubject[];
   spec?: {
     affinity?: Record<string, unknown>;
+    egress?: unknown[];
+    ingress?: unknown[];
     nodeSelector?: Record<string, string | number | boolean>;
     providerID?: string;
     storageClassName?: string;
@@ -42,10 +44,14 @@ type KubeItem = {
     schedulerName?: string;
     schedulingGates?: Array<{ name?: string }>;
     imagePullSecrets?: Array<{ name?: string }>;
-    selector?: Record<string, string> | { matchLabels?: Record<string, string> };
+    selector?: Record<string, string> | {
+      matchExpressions?: unknown[];
+      matchLabels?: Record<string, string>;
+    };
     serviceAccountName?: string;
     maxReplicas?: number;
     minReplicas?: number;
+    policyTypes?: string[];
     scaleTargetRef?: {
       kind?: string;
       name?: string;
@@ -233,6 +239,7 @@ const resourceQueries = [
   { name: "endpointslices.discovery.k8s.io", namespaced: true },
   { name: "events", namespaced: true },
   { name: "ingresses.networking.k8s.io", namespaced: true },
+  { name: "networkpolicies.networking.k8s.io", namespaced: true },
   { name: "gateways.gateway.networking.k8s.io", namespaced: true },
   { name: "httproutes.gateway.networking.k8s.io", namespaced: true },
   { name: "configmaps", namespaced: true },
@@ -1012,6 +1019,10 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return `${item.spec.scaleTargetRef.kind}/${item.spec.scaleTargetRef.name}`;
   }
 
+  if (item.kind === "NetworkPolicy") {
+    return networkPolicyTypes(item).join("/") || "Ingress";
+  }
+
   if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
     return `${item.roleRef.kind}/${item.roleRef.name}`;
   }
@@ -1036,6 +1047,11 @@ function resourceImage(item: KubeItem) {
   if (item.kind === "HorizontalPodAutoscaler") {
     const min = item.spec?.minReplicas ?? 1;
     return item.spec?.maxReplicas ? `${min}-${item.spec.maxReplicas} replicas` : "";
+  }
+  if (item.kind === "NetworkPolicy") {
+    const ingress = item.spec?.ingress?.length ?? 0;
+    const egress = item.spec?.egress?.length ?? 0;
+    return `${ingress} ingress / ${egress} egress`;
   }
   return item.status?.containerStatuses?.[0]?.image ??
     item.spec?.containers?.[0]?.image ??
@@ -1285,6 +1301,10 @@ function resourceDiagnostic(item: KubeItem) {
     return hpaDiagnostic(item);
   }
 
+  if (item.kind === "NetworkPolicy") {
+    return networkPolicySelectorSummary(item);
+  }
+
   if (item.kind !== "Pod") return "";
   return podDiagnostic(item);
 }
@@ -1306,6 +1326,26 @@ function hpaDiagnostic(item: KubeItem) {
   const current = item.status?.currentReplicas ?? 0;
   const desired = item.status?.desiredReplicas ?? 0;
   return current === desired ? "" : `${current}/${desired} replicas`;
+}
+
+function networkPolicyTypes(item: KubeItem) {
+  const types = item.spec?.policyTypes?.filter(Boolean) ?? [];
+  if (types.length) return types;
+  return item.spec?.egress ? ["Ingress", "Egress"] : ["Ingress"];
+}
+
+function networkPolicySelectorSummary(item: KubeItem) {
+  const rawSelector = item.spec?.selector;
+  if (rawSelector && "matchExpressions" in rawSelector && rawSelector.matchExpressions?.length) {
+    return "selector expression";
+  }
+
+  const selector = selectorLabels(item.spec?.selector);
+  const entries = Object.entries(selector);
+  if (!entries.length) return "all pods";
+
+  const visible = entries.slice(0, 2).map(([key, value]) => `${key}=${value}`).join(", ");
+  return entries.length > 2 ? `${visible} +${entries.length - 2}` : visible;
 }
 
 function endpointSliceServiceName(item: KubeItem) {
