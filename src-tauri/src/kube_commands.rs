@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, env, path::PathBuf};
 
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
+    autoscaling::v2::HorizontalPodAutoscaler,
     batch::v1::{CronJob, Job},
     core::v1::{
         ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
@@ -128,7 +129,7 @@ pub async fn live_snapshot(context: Option<String>) -> Result<LiveSnapshot, Stri
 }
 
 async fn required_snapshot_resources(client: Client, context: &str) -> Result<(Vec<ResourceSummary>, Vec<String>), String> {
-    let (pods, deployments, replicasets, statefulsets, daemonsets, jobs, cronjobs, services, endpoint_slices, ingresses) = tokio::try_join!(
+    let (pods, deployments, replicasets, statefulsets, daemonsets, jobs, cronjobs, hpas, services, endpoint_slices, ingresses) = tokio::try_join!(
         list_pods(client.clone(), context),
         list_deployments(client.clone(), context),
         list_replicasets(client.clone(), context),
@@ -136,6 +137,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_daemonsets(client.clone(), context),
         list_jobs(client.clone(), context),
         list_cronjobs(client.clone(), context),
+        list_horizontal_pod_autoscalers(client.clone(), context),
         list_services(client.clone(), context),
         list_endpoint_slices(client.clone(), context),
         list_ingresses(client.clone(), context),
@@ -180,6 +182,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(daemonsets);
     resources.extend(jobs);
     resources.extend(cronjobs);
+    resources.extend(hpas);
     resources.extend(services);
     resources.extend(endpoint_slices);
     resources.extend(ingresses);
@@ -2010,6 +2013,44 @@ async fn list_cronjobs(client: Client, cluster: &str) -> Result<Vec<ResourceSumm
         .collect())
 }
 
+async fn list_horizontal_pod_autoscalers(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let hpas = Api::<HorizontalPodAutoscaler>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list HorizontalPodAutoscalers: {error}"))?;
+
+    Ok(hpas
+        .items
+        .into_iter()
+        .map(|hpa| {
+            let age = resource_age(&hpa.metadata);
+            let namespace = hpa.namespace().unwrap_or_else(|| "default".to_string());
+            let labels = hpa.metadata.labels.clone().unwrap_or_default();
+            let (current, desired) = hpa_replica_counts(&hpa);
+            let target = hpa.spec.as_ref().map(|spec| &spec.scale_target_ref);
+            let owner = target.map(|target| format!("{}/{}", target.kind, target.name)).unwrap_or_else(|| namespace.clone());
+            let references = target
+                .map(|target| vec![resource_reference(&target.kind, &namespace, &target.name)])
+                .unwrap_or_default();
+
+            resource_summary(
+                "HorizontalPodAutoscaler",
+                hpa.name_any(),
+                namespace,
+                cluster,
+                hpa_status(&hpa),
+                0,
+                hpa_scale_range(&hpa),
+            )
+            .with_age(age)
+            .with_diagnostic(hpa_diagnostic(&hpa, current, desired))
+            .with_labels(labels)
+            .with_owner(owner)
+            .with_references(references)
+        })
+        .collect())
+}
+
 async fn list_services(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let services = Api::<Service>::all(client)
         .list(&ListParams::default())
@@ -3145,6 +3186,66 @@ fn workload_diagnostic(ready: i32, desired: i32) -> String {
     format!("{}/{} ready", ready.max(0), desired.max(0))
 }
 
+fn hpa_status(hpa: &HorizontalPodAutoscaler) -> HealthState {
+    let conditions = hpa.status.as_ref().and_then(|status| status.conditions.as_deref()).unwrap_or_default();
+    if conditions.iter().any(|condition| matches!(condition.type_.as_str(), "AbleToScale" | "ScalingActive") && condition.status == "False") {
+        return HealthState::Critical;
+    }
+    if conditions.iter().any(|condition| condition.type_ == "ScalingLimited" && condition.status == "True") {
+        return HealthState::Warning;
+    }
+
+    let (current, desired) = hpa_replica_counts(hpa);
+    if current != desired {
+        HealthState::Warning
+    } else {
+        HealthState::Healthy
+    }
+}
+
+fn hpa_diagnostic(hpa: &HorizontalPodAutoscaler, current: i32, desired: i32) -> String {
+    let conditions = hpa.status.as_ref().and_then(|status| status.conditions.as_deref()).unwrap_or_default();
+
+    if let Some(condition) = conditions.iter().find(|condition| matches!(condition.type_.as_str(), "AbleToScale" | "ScalingActive") && condition.status == "False") {
+        return condition
+            .message
+            .clone()
+            .filter(|message| !message.is_empty())
+            .unwrap_or_else(|| condition.reason.clone().unwrap_or_else(|| format!("{} false", condition.type_)));
+    }
+
+    if let Some(condition) = conditions.iter().find(|condition| condition.type_ == "ScalingLimited" && condition.status == "True") {
+        return condition
+            .message
+            .clone()
+            .filter(|message| !message.is_empty())
+            .unwrap_or_else(|| condition.reason.clone().unwrap_or_else(|| "Scaling limited".to_string()));
+    }
+
+    if current != desired {
+        return format!("{current}/{desired} replicas");
+    }
+
+    String::new()
+}
+
+fn hpa_replica_counts(hpa: &HorizontalPodAutoscaler) -> (i32, i32) {
+    hpa.status
+        .as_ref()
+        .map(|status| (status.current_replicas.unwrap_or(0), status.desired_replicas))
+        .unwrap_or((0, 0))
+}
+
+fn hpa_scale_range(hpa: &HorizontalPodAutoscaler) -> String {
+    hpa.spec
+        .as_ref()
+        .map(|spec| {
+            let min = spec.min_replicas.unwrap_or(1);
+            format!("{min}-{} replicas", spec.max_replicas)
+        })
+        .unwrap_or_default()
+}
+
 fn volume_phase_status(phase: &str) -> HealthState {
     match phase {
         "Available" | "Bound" => HealthState::Healthy,
@@ -3353,6 +3454,7 @@ fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k8s_openapi::api::autoscaling::v2::{HorizontalPodAutoscalerCondition, HorizontalPodAutoscalerStatus};
     use k8s_openapi::api::core::v1::{
         ConfigMapEnvSource, ConfigMapKeySelector, ConfigMapVolumeSource, Container, ContainerState,
         ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, LocalObjectReference, ObjectReference,
@@ -3440,6 +3542,32 @@ mod tests {
         assert_eq!(workload_diagnostic(3, 3), "");
         assert_eq!(workload_status(0, 0), HealthState::Healthy);
         assert_eq!(workload_diagnostic(0, 0), "");
+    }
+
+    #[test]
+    fn hpa_status_reports_blocked_scaling_target() {
+        let hpa = hpa_with_status(
+            2,
+            2,
+            vec![HorizontalPodAutoscalerCondition {
+                type_: "ScalingActive".to_string(),
+                status: "False".to_string(),
+                reason: Some("FailedGetScale".to_string()),
+                message: Some("target missing".to_string()),
+                ..HorizontalPodAutoscalerCondition::default()
+            }],
+        );
+
+        assert_eq!(hpa_status(&hpa), HealthState::Critical);
+        assert_eq!(hpa_diagnostic(&hpa, 2, 2), "target missing");
+    }
+
+    #[test]
+    fn hpa_status_reports_replica_drift() {
+        let hpa = hpa_with_status(1, 3, Vec::new());
+
+        assert_eq!(hpa_status(&hpa), HealthState::Warning);
+        assert_eq!(hpa_diagnostic(&hpa, 1, 3), "1/3 replicas");
     }
 
     #[test]
@@ -4562,6 +4690,18 @@ mod tests {
                 ..PodStatus::default()
             }),
             ..Pod::default()
+        }
+    }
+
+    fn hpa_with_status(current_replicas: i32, desired_replicas: i32, conditions: Vec<HorizontalPodAutoscalerCondition>) -> HorizontalPodAutoscaler {
+        HorizontalPodAutoscaler {
+            status: Some(HorizontalPodAutoscalerStatus {
+                current_replicas: Some(current_replicas),
+                desired_replicas,
+                conditions: Some(conditions),
+                ..HorizontalPodAutoscalerStatus::default()
+            }),
+            ..HorizontalPodAutoscaler::default()
         }
     }
 

@@ -17,6 +17,7 @@ export const defaultResourceSort: ResourceSort = {
 const signalSortKeys = new Set<ResourceSortKey>(["age", "signals"]);
 const systemNamespaces = new Set(["cluster", "default", "kube-system", "kube-public", "kube-node-lease"]);
 const trafficKinds = new Set(["Service", "Ingress", "Gateway", "HTTPRoute"]);
+const autoscalingKinds = new Set(["HorizontalPodAutoscaler"]);
 const foundationKinds = new Set(["Node", "Namespace"]);
 const supportKinds = new Set([
   "ConfigMap",
@@ -111,11 +112,12 @@ function compareResourcesForDebugging(left: ResourceRow, right: ResourceRow) {
 function resourceDebugRank(kind: string) {
   if (kind === "Pod") return 0;
   if (workloadKinds.has(kind)) return 1;
-  if (trafficKinds.has(kind)) return 2;
-  if (foundationKinds.has(kind)) return 3;
-  if (supportKinds.has(kind)) return 4;
+  if (autoscalingKinds.has(kind)) return 2;
+  if (trafficKinds.has(kind)) return 3;
+  if (foundationKinds.has(kind)) return 4;
+  if (supportKinds.has(kind)) return 5;
   if (kind === "Event") return 8;
-  return 5;
+  return 6;
 }
 
 function signalRank(resource: ResourceRow) {

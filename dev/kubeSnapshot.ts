@@ -44,6 +44,12 @@ type KubeItem = {
     imagePullSecrets?: Array<{ name?: string }>;
     selector?: Record<string, string> | { matchLabels?: Record<string, string> };
     serviceAccountName?: string;
+    maxReplicas?: number;
+    minReplicas?: number;
+    scaleTargetRef?: {
+      kind?: string;
+      name?: string;
+    };
     tolerations?: KubeToleration[];
     type?: string;
     volumes?: KubeVolume[];
@@ -70,6 +76,8 @@ type KubeItem = {
     startTime?: string;
     replicas?: number;
     availableReplicas?: number;
+    currentReplicas?: number;
+    desiredReplicas?: number;
     readyReplicas?: number;
     unavailableReplicas?: number;
     conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>;
@@ -220,6 +228,7 @@ const resourceQueries = [
   { name: "daemonsets.apps", namespaced: true },
   { name: "jobs.batch", namespaced: true },
   { name: "cronjobs.batch", namespaced: true },
+  { name: "horizontalpodautoscalers.autoscaling", namespaced: true },
   { name: "services", namespaced: true },
   { name: "endpointslices.discovery.k8s.io", namespaced: true },
   { name: "events", namespaced: true },
@@ -819,6 +828,9 @@ function resourceReferences(item: KubeItem, namespace: string) {
   if (item.kind === "Ingress") {
     return ingressBackendReferences(item, namespace);
   }
+  if (item.kind === "HorizontalPodAutoscaler") {
+    return scaleTargetReference(item, namespace);
+  }
   if (item.kind === "Pod") {
     return uniqueReferences([
       ...volumeReferences(item, namespace),
@@ -831,6 +843,11 @@ function resourceReferences(item: KubeItem, namespace: string) {
     return bindingSubjectReferences(item, namespace);
   }
   return volumeReferences(item, namespace);
+}
+
+function scaleTargetReference(item: KubeItem, namespace: string) {
+  const target = item.spec?.scaleTargetRef;
+  return target?.kind && target.name ? [{ kind: target.kind, namespace, name: target.name }] : [];
 }
 
 function httpRouteBackendReferences(item: KubeItem, namespace: string) {
@@ -991,6 +1008,10 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return `${item.secrets?.length ?? 0} secrets / ${item.imagePullSecrets?.length ?? 0} pulls`;
   }
 
+  if (item.kind === "HorizontalPodAutoscaler" && item.spec?.scaleTargetRef?.kind && item.spec.scaleTargetRef.name) {
+    return `${item.spec.scaleTargetRef.kind}/${item.spec.scaleTargetRef.name}`;
+  }
+
   if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
     return `${item.roleRef.kind}/${item.roleRef.name}`;
   }
@@ -1011,6 +1032,10 @@ function resourceImage(item: KubeItem) {
   }
   if (item.kind === "ServiceAccount") {
     return item.automountServiceAccountToken === false ? "manual token" : "automount token";
+  }
+  if (item.kind === "HorizontalPodAutoscaler") {
+    const min = item.spec?.minReplicas ?? 1;
+    return item.spec?.maxReplicas ? `${min}-${item.spec.maxReplicas} replicas` : "";
   }
   return item.status?.containerStatuses?.[0]?.image ??
     item.spec?.containers?.[0]?.image ??
@@ -1221,6 +1246,10 @@ function resourceStatus(item: KubeItem) {
     return workloadStatus(item.status?.readyReplicas ?? 0, item.spec?.replicas ?? 1);
   }
 
+  if (item.kind === "HorizontalPodAutoscaler") {
+    return hpaStatus(item);
+  }
+
   return "healthy";
 }
 
@@ -1228,6 +1257,19 @@ function workloadStatus(ready: number, desired: number) {
   if (desired === 0 || ready >= desired) return "healthy";
   if (ready === 0) return "critical";
   return "warning";
+}
+
+function hpaStatus(item: KubeItem) {
+  const conditions = item.status?.conditions ?? [];
+  if (conditions.some((condition) =>
+    ["AbleToScale", "ScalingActive"].includes(condition.type ?? "") && condition.status === "False"
+  )) {
+    return "critical";
+  }
+  if (conditions.some((condition) => condition.type === "ScalingLimited" && condition.status === "True")) {
+    return "warning";
+  }
+  return (item.status?.currentReplicas ?? 0) === (item.status?.desiredReplicas ?? 0) ? "healthy" : "warning";
 }
 
 function resourceDiagnostic(item: KubeItem) {
@@ -1239,8 +1281,31 @@ function resourceDiagnostic(item: KubeItem) {
     return endpointSliceDiagnostic(item);
   }
 
+  if (item.kind === "HorizontalPodAutoscaler") {
+    return hpaDiagnostic(item);
+  }
+
   if (item.kind !== "Pod") return "";
   return podDiagnostic(item);
+}
+
+function hpaDiagnostic(item: KubeItem) {
+  const conditions = item.status?.conditions ?? [];
+  const blocked = conditions.find((condition) =>
+    ["AbleToScale", "ScalingActive"].includes(condition.type ?? "") && condition.status === "False"
+  );
+  if (blocked) {
+    return blocked.message || blocked.reason || `${blocked.type} false`;
+  }
+
+  const limited = conditions.find((condition) => condition.type === "ScalingLimited" && condition.status === "True");
+  if (limited) {
+    return limited.message || limited.reason || "Scaling limited";
+  }
+
+  const current = item.status?.currentReplicas ?? 0;
+  const desired = item.status?.desiredReplicas ?? 0;
+  return current === desired ? "" : `${current}/${desired} replicas`;
 }
 
 function endpointSliceServiceName(item: KubeItem) {

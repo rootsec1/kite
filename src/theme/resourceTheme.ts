@@ -6,6 +6,7 @@ import {
   Database,
   GalleryVerticalEnd,
   FileKey2,
+  Gauge,
   GitCommitHorizontal,
   GitBranch,
   HardDrive,
@@ -57,6 +58,7 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
       { id: "DaemonSet", label: "DaemonSets", icon: CircleDot, kind: "DaemonSet" },
       { id: "Job", label: "Jobs", icon: Clock3, kind: "Job" },
       { id: "CronJob", label: "CronJobs", icon: Clock3, kind: "CronJob" },
+      { id: "HorizontalPodAutoscaler", label: "HPAs", icon: Gauge, kind: "HorizontalPodAutoscaler" },
     ],
   },
   {
@@ -122,6 +124,7 @@ export const kindThemes: Record<string, KindTheme> = {
   DaemonSet: { label: "DaemonSets", icon: CircleDot, accent: "green", actions: ["Restart", "Events", "YAML"] },
   Job: { label: "Jobs", icon: Clock3, accent: "orange", actions: ["Rerun", "Logs", "YAML"] },
   CronJob: { label: "CronJobs", icon: Clock3, accent: "orange", actions: ["Trigger", "Suspend", "YAML"] },
+  HorizontalPodAutoscaler: { label: "HPAs", icon: Gauge, accent: "orange", actions: ["Target", "Scale", "YAML"] },
   Service: { label: "Services", icon: Network, accent: "blue", actions: ["Port", "Endpoints", "YAML"] },
   EndpointSlice: { label: "EndpointSlices", icon: Network, accent: "blue", actions: ["Service", "Pods", "YAML"] },
   Gateway: { label: "Gateways", icon: Network, accent: "blue", actions: ["Routes", "Events", "YAML"] },

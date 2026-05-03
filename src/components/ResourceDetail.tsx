@@ -1437,6 +1437,7 @@ function HierarchyGroups({
 
 const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", "HTTPRoute"]);
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
+const autoscalingKinds = new Set(["HorizontalPodAutoscaler"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "PersistentVolumeClaim"]);
 const configKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
@@ -1453,7 +1454,7 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
   if (resource.kind === "Namespace") {
     const scoped = resources.filter((item) => item.namespace === resource.name && item.id !== resource.id);
     return [
-      { title: "Workloads", resources: scoped.filter((item) => workloadKinds.has(item.kind)) },
+      { title: "Workloads", resources: scoped.filter((item) => workloadKinds.has(item.kind) || autoscalingKinds.has(item.kind)) },
       { title: "Services and routes", resources: scoped.filter((item) => trafficKinds.has(item.kind)) },
       { title: "Pods", resources: scoped.filter((item) => item.kind === "Pod") },
       { title: "Config and access", resources: scoped.filter((item) => configKinds.has(item.kind)) },
@@ -1507,6 +1508,15 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
       { title: "Pods", resources: pods },
       { title: "Services", resources: services },
       { title: "Config nearby", resources: resources.filter((item) => item.namespace === resource.namespace && ["ConfigMap", "Secret"].includes(item.kind)) },
+    ];
+  }
+
+  if (resource.kind === "HorizontalPodAutoscaler") {
+    const targets = referencedResources(resource.references, resources);
+    const pods = targets.flatMap((target) => workloadPodsFor(target, resources));
+    return [
+      { title: "Scale target", resources: targets },
+      ...(pods.length ? [{ title: "Target pods", resources: pods }] : []),
     ];
   }
 
