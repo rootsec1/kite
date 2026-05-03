@@ -80,6 +80,7 @@ pub struct ResourceReference {
 #[serde(rename_all = "camelCase")]
 pub struct ResourceDetails {
     pub yaml: String,
+    pub describe: String,
     pub events: Vec<ResourceEvent>,
     pub logs: String,
     pub previous_logs: String,

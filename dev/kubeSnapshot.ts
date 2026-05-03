@@ -308,13 +308,16 @@ export async function readResourceDetails(target: { kind: string; name: string; 
     return readEventDetails(target);
   }
 
-  const yaml = await readResourceYaml(target).catch((error) => errorMessage(error));
-  const events = await readResourceEvents(target).catch(() => []);
-  const pod = target.kind === "Pod" ? await readPodDetails(target).catch(() => undefined) : undefined;
-  const logs = target.kind === "Pod" ? await readPodLogs(target).catch((error) => errorMessage(error)) : "";
-  const previousLogs = target.kind === "Pod" ? await readPodLogs(target, true).catch(() => "") : "";
+  const [yaml, describe, events, pod, logs, previousLogs] = await Promise.all([
+    readResourceYaml(target).catch((error) => errorMessage(error)),
+    readResourceDescribe(target).catch((error) => errorMessage(error)),
+    readResourceEvents(target).catch(() => []),
+    target.kind === "Pod" ? readPodDetails(target).catch(() => undefined) : undefined,
+    target.kind === "Pod" ? readPodLogs(target).catch((error) => errorMessage(error)) : "",
+    target.kind === "Pod" ? readPodLogs(target, true).catch(() => "") : "",
+  ]);
 
-  return { yaml, events, logs, previousLogs, pod };
+  return { yaml, describe, events, logs, previousLogs, pod };
 }
 
 export async function runPodAction(input: {
@@ -449,10 +452,19 @@ async function readHelmDetails(target: { name: string; namespace: string; cluste
 
   return {
     yaml: [manifest, values ? `\n---\n# values\n${values}` : ""].join(""),
+    describe: status,
     events: status ? [{ type: "Normal", reason: "HelmStatus", message: status, age: "live", count: 1 }] : [],
     logs: "",
     previousLogs: "",
   };
+}
+
+async function readResourceDescribe(target: { kind: string; name: string; namespace: string; cluster: string }) {
+  const args = ["describe", target.kind, target.name];
+  if (target.namespace && target.namespace !== "cluster") {
+    args.splice(3, 0, "-n", target.namespace);
+  }
+  return kubectlText(args, target.cluster);
 }
 
 async function readResourceYaml(target: { kind: string; name: string; namespace: string; cluster: string }) {
@@ -472,13 +484,15 @@ async function readResourceJson<T>(target: { kind: string; name: string; namespa
 }
 
 async function readEventDetails(target: { kind: string; name: string; namespace: string; cluster: string }) {
-  const [yaml, event] = await Promise.all([
+  const [yaml, describe, event] = await Promise.all([
     readResourceYaml(target).catch((error) => errorMessage(error)),
+    readResourceDescribe(target).catch((error) => errorMessage(error)),
     readResourceJson<KubeEvent>(target).catch(() => undefined),
   ]);
 
   return {
     yaml,
+    describe,
     events: event ? [toResourceEvent(event)] : [],
     logs: "",
     previousLogs: "",

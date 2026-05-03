@@ -12,6 +12,7 @@ const selectedContextStorageKey = "kite:selected-context:v1";
 const liveSnapshotIntervalMs = 15_000;
 const emptyResourceDetails = (): ResourceDetails => ({
   yaml: "",
+  describe: "",
   events: [],
   logs: "",
   previousLogs: "",

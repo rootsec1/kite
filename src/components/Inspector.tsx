@@ -49,6 +49,7 @@ export function Inspector({
           <h2>{resource.name}</h2>
           <p>{resource.kind} / {resource.namespace}</p>
           <EventList details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+          <DescribeObject details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
           <LiveObject details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
         </>
       ) : (
@@ -94,34 +95,102 @@ function LiveObject({
   detailsError: string;
   detailsLoading: boolean;
 }) {
+  return (
+    <SearchableDetailText
+      ariaLabel="Live object YAML"
+      copyText={details.yaml}
+      copyTitle="Copy full YAML"
+      emptyMessage="No matching YAML lines"
+      loadingText="Loading YAML..."
+      placeholder="Find YAML..."
+      searchLabel="Find YAML"
+      text={details.yaml || detailsError}
+      title="Live object"
+      unavailableText="No YAML returned."
+      detailsLoading={detailsLoading}
+    />
+  );
+}
+
+function DescribeObject({
+  details,
+  detailsError,
+  detailsLoading,
+}: {
+  details: ResourceDetails;
+  detailsError: string;
+  detailsLoading: boolean;
+}) {
+  return (
+    <SearchableDetailText
+      ariaLabel="Resource describe output"
+      copyText={details.describe}
+      copyTitle="Copy describe output"
+      emptyMessage="No matching describe lines"
+      loadingText="Loading describe..."
+      placeholder="Find describe..."
+      searchLabel="Find describe"
+      text={details.describe || detailsError}
+      title="Describe"
+      unavailableText="No describe output returned."
+      detailsLoading={detailsLoading}
+    />
+  );
+}
+
+function SearchableDetailText({
+  ariaLabel,
+  copyText,
+  copyTitle,
+  detailsLoading,
+  emptyMessage,
+  loadingText,
+  placeholder,
+  searchLabel,
+  text,
+  title,
+  unavailableText,
+}: {
+  ariaLabel: string;
+  copyText: string;
+  copyTitle: string;
+  detailsLoading: boolean;
+  emptyMessage: string;
+  loadingText: string;
+  placeholder: string;
+  searchLabel: string;
+  text: string;
+  title: string;
+  unavailableText: string;
+}) {
   const [query, setQuery] = useState("");
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const yamlText = detailsLoading ? "Loading YAML..." : details.yaml || detailsError || "No YAML returned.";
-  const yamlLines = useMemo(() => yamlText.split(/\r?\n/), [yamlText]);
+  const panelText = detailsLoading ? loadingText : text || unavailableText;
+  const panelLines = useMemo(() => panelText.split(/\r?\n/), [panelText]);
   const queryTerms = useMemo(() => (deferredQuery ? deferredQuery.split(/\s+/) : []), [deferredQuery]);
   const visibleLines = useMemo(() => {
     if (!queryTerms.length) {
-      return yamlLines.map((line, index) => ({ line, number: index + 1 }));
+      return panelLines.map((line, index) => ({ line, number: index + 1 }));
     }
 
-    return yamlLines
+    return panelLines
       .map((line, index) => ({ line, number: index + 1 }))
       .filter(({ line }) => {
         const haystack = line.toLowerCase();
         return queryTerms.every((term) => haystack.includes(term));
       });
-  }, [queryTerms, yamlLines]);
+  }, [panelLines, queryTerms]);
   const CopyIcon = copyStatus === "copied" ? Check : Copy;
   const copyLabel = copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Blocked" : "Copy";
 
-  async function copyYaml() {
-    if (!details.yaml) {
+  async function copyPanelText() {
+    if (!copyText) {
       return;
     }
 
     try {
-      await copyTextToClipboard(details.yaml);
+      await copyTextToClipboard(copyText);
       setCopyStatus("copied");
     } catch {
       setCopyStatus("failed");
@@ -140,31 +209,31 @@ function LiveObject({
   return (
     <details className="inspector-yaml">
       <summary>
-        <span>Live object</span>
-        <small>{queryTerms.length ? `${visibleLines.length}/${yamlLines.length} lines` : `${yamlLines.length} lines`}</small>
+        <span>{title}</span>
+        <small>{queryTerms.length ? `${visibleLines.length}/${panelLines.length} lines` : `${panelLines.length} lines`}</small>
       </summary>
       <div className="inspector-yaml-toolbar">
         <label>
           <Search size={13} />
           <input
-            aria-label="Find YAML"
+            aria-label={searchLabel}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find YAML..."
+            placeholder={placeholder}
           />
         </label>
         <button
           className={copyStatus === "idle" ? "" : copyStatus}
-          disabled={!details.yaml}
-          title="Copy full YAML"
+          disabled={!copyText}
+          title={copyTitle}
           type="button"
-          onClick={copyYaml}
+          onClick={copyPanelText}
         >
           <CopyIcon size={13} />
           <span>{copyLabel}</span>
         </button>
       </div>
-      <div aria-label="Live object YAML" className="inspector-yaml-code">
+      <div aria-label={ariaLabel} className="inspector-yaml-code">
         {visibleLines.length ? (
           visibleLines.map(({ line, number }) => (
             <span className="yaml-line" key={number}>
@@ -173,7 +242,7 @@ function LiveObject({
             </span>
           ))
         ) : (
-          <span className="yaml-empty">No matching YAML lines</span>
+          <span className="yaml-empty">{emptyMessage}</span>
         )}
       </div>
     </details>

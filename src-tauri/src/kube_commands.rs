@@ -258,9 +258,8 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         return event_details(target).await;
     }
 
-    let yaml = kubectl(resource_yaml_args(&target))
-        .await
-        .unwrap_or_else(|error| error);
+    let yaml = kubectl(resource_yaml_args(&target)).await.unwrap_or_else(|error| error);
+    let describe = kubectl(resource_describe_args(&target)).await.unwrap_or_else(|error| error);
     let events = resource_events(&target).await.unwrap_or_default();
     let pod = if target.kind == "Pod" {
         pod_details(&target).await.ok()
@@ -278,19 +277,22 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         String::new()
     };
 
-    ResourceDetails { yaml, events, logs, previous_logs, pod }
+    ResourceDetails { yaml, describe, events, logs, previous_logs, pod }
 }
 
 async fn event_details(target: ActionTarget) -> ResourceDetails {
     let yaml = kubectl(resource_yaml_args(&target))
         .await
         .unwrap_or_else(|error| error);
+    let describe = kubectl(resource_describe_args(&target))
+        .await
+        .unwrap_or_else(|error| error);
     let json = kubectl(resource_json_args(&target)).await.unwrap_or_default();
 
-    event_resource_details(yaml, &json)
+    event_resource_details(yaml, describe, &json)
 }
 
-fn event_resource_details(yaml: String, json: &str) -> ResourceDetails {
+fn event_resource_details(yaml: String, describe: String, json: &str) -> ResourceDetails {
     let events = serde_json::from_str::<serde_json::Value>(json)
         .ok()
         .map(|event| vec![resource_event(&event)])
@@ -298,6 +300,7 @@ fn event_resource_details(yaml: String, json: &str) -> ResourceDetails {
 
     ResourceDetails {
         yaml,
+        describe,
         events,
         logs: String::new(),
         previous_logs: String::new(),
@@ -469,6 +472,7 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
 
     ResourceDetails {
         yaml: format!("{manifest}\n---\n# values\n{values}"),
+        describe: status.clone(),
         events: if status.is_empty() {
             Vec::new()
         } else {
@@ -1305,6 +1309,18 @@ fn event_timestamp(event: &serde_json::Value) -> String {
 
 fn resource_yaml_args(target: &ActionTarget) -> Vec<String> {
     resource_output_args(target, "yaml")
+}
+
+fn resource_describe_args(target: &ActionTarget) -> Vec<String> {
+    let mut args = vec!["describe".to_string(), target.kind.clone(), target.name.clone()];
+
+    if target.namespace != "cluster" {
+        args.insert(3, target.namespace.clone());
+        args.insert(3, "-n".to_string());
+    }
+
+    add_context_args(&mut args, &target.cluster);
+    args
 }
 
 fn resource_json_args(target: &ActionTarget) -> Vec<String> {
@@ -3716,9 +3732,10 @@ mod tests {
             "lastTimestamp": "2026-04-28T21:12:00Z"
         });
 
-        let details = event_resource_details("kind: Event".to_string(), &json.to_string());
+        let details = event_resource_details("kind: Event".to_string(), "Name: event".to_string(), &json.to_string());
 
         assert_eq!(details.yaml, "kind: Event");
+        assert_eq!(details.describe, "Name: event");
         assert_eq!(details.events.len(), 1);
         assert_eq!(details.events[0].type_, "Warning");
         assert_eq!(details.events[0].reason, "FailedScheduling");

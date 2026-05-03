@@ -66,6 +66,7 @@ export type ResourceEvent = {
 
 export type ResourceDetails = {
   yaml: string;
+  describe: string;
   events: ResourceEvent[];
   logs: string;
   previousLogs: string;
