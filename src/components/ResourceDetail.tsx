@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare, UserRound } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
@@ -155,6 +155,7 @@ export function ResourceDetail({
             onOpenResource={onOpenResource}
           />
           <PodNetworkPolicyRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <PodIdentityAccessRail details={details} pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <div className="pod-actions" aria-label="Pod actions">
             <button type="button" onClick={() => openLogs()}>
               <FileText size={15} />
@@ -1119,6 +1120,84 @@ function PodNetworkPolicyRail({
   );
 }
 
+function PodIdentityAccessRail({
+  details,
+  onOpenResource,
+  pod,
+  resources,
+}: {
+  details: ResourceDetails;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  pod: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const serviceAccountName = podServiceAccountName(pod, details);
+  const serviceAccount = useMemo(
+    () => serviceAccountName
+      ? resources.find((item) => item.kind === "ServiceAccount" && item.namespace === pod.namespace && item.name === serviceAccountName)
+      : undefined,
+    [pod.namespace, resources, serviceAccountName],
+  );
+  const bindings = useMemo(
+    () => serviceAccountName
+      ? accessBindingsForServiceAccount(serviceAccountName, pod.namespace, resources).sort(compareAccessBindings)
+      : [],
+    [pod.namespace, resources, serviceAccountName],
+  );
+  const visibleBindings = bindings.slice(0, serviceAccount ? 4 : 5);
+  const tone = identityAccessTone(serviceAccountName, Boolean(serviceAccount), bindings);
+
+  if (!serviceAccountName && !bindings.length) {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail identity-access-rail ${tone}`} aria-label="Pod RBAC access">
+      <header>
+        <span>
+          <UserRound size={15} />
+          Access
+        </span>
+        <strong>{bindings.length ? `${bindings.length} bindings` : "No bindings"}</strong>
+        <small title={serviceAccountName}>{serviceAccountName || "service account"}</small>
+      </header>
+      <div>
+        {serviceAccount ? (
+          <button className={serviceAccount.status} type="button" onClick={() => onOpenResource(serviceAccount.id)}>
+            <StatusDot state={serviceAccount.status} />
+            <strong title={serviceAccount.name}>{serviceAccount.name}</strong>
+            <em>{accessKindLabel(serviceAccount.kind)}</em>
+            <small title={serviceAccount.owner || serviceAccount.image}>{serviceAccount.image || serviceAccount.owner || pod.namespace}</small>
+            <small>sa</small>
+          </button>
+        ) : serviceAccountName ? (
+          <div className="service-backend-empty">
+            <span>ServiceAccount missing</span>
+            <strong>{pod.namespace}/{serviceAccountName} is not in this snapshot.</strong>
+          </div>
+        ) : null}
+
+        {visibleBindings.map((binding) => (
+          <button className={binding.status} key={binding.id} type="button" onClick={() => onOpenResource(binding.id)}>
+            <StatusDot state={binding.status} />
+            <strong title={binding.name}>{binding.name}</strong>
+            <em title={binding.owner || binding.kind}>{accessRoleLabel(binding.owner) || accessKindLabel(binding.kind)}</em>
+            <small title={binding.kind}>{accessKindLabel(binding.kind)}</small>
+            <small>{binding.namespace}</small>
+          </button>
+        ))}
+
+        {serviceAccount && !visibleBindings.length ? (
+          <div className="service-backend-empty">
+            <span>No access bindings</span>
+            <strong>Snapshot has no RoleBinding for this pod identity.</strong>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function NetworkPolicyPodRail({
   onOpenResource,
   resource,
@@ -1737,6 +1816,66 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
 
 function networkPoliciesInNamespace(namespace: string, resources: ResourceRow[]) {
   return resources.filter((item) => item.kind === "NetworkPolicy" && item.namespace === namespace);
+}
+
+function podServiceAccountName(pod: ResourceRow, details: ResourceDetails) {
+  return details.pod?.scheduling.serviceAccountName ||
+    pod.references.find((reference) => reference.kind === "ServiceAccount")?.name ||
+    "";
+}
+
+function accessBindingsForServiceAccount(name: string, namespace: string, resources: ResourceRow[]) {
+  return resources.filter((item) => {
+    if (item.kind !== "RoleBinding" && item.kind !== "ClusterRoleBinding") {
+      return false;
+    }
+
+    return item.references.some((reference) =>
+      reference.kind === "ServiceAccount" &&
+      reference.namespace === namespace &&
+      reference.name === name
+    );
+  });
+}
+
+function identityAccessTone(serviceAccountName: string, hasServiceAccount: boolean, bindings: ResourceRow[]): HealthState {
+  if (serviceAccountName && !hasServiceAccount) {
+    return "warning";
+  }
+  if (bindings.some((binding) => binding.status === "critical")) {
+    return "critical";
+  }
+  if (bindings.some((binding) => binding.status === "warning")) {
+    return "warning";
+  }
+  return bindings.length ? "healthy" : "syncing";
+}
+
+function compareAccessBindings(left: ResourceRow, right: ResourceRow) {
+  return accessBindingRank(left) - accessBindingRank(right) ||
+    left.namespace.localeCompare(right.namespace) ||
+    left.name.localeCompare(right.name);
+}
+
+function accessBindingRank(resource: ResourceRow) {
+  return resource.kind === "ClusterRoleBinding" ? 0 : 1;
+}
+
+function accessKindLabel(kind: string) {
+  switch (kind) {
+    case "ClusterRoleBinding":
+      return "CRB";
+    case "RoleBinding":
+      return "RB";
+    case "ServiceAccount":
+      return "SA";
+    default:
+      return kind;
+  }
+}
+
+function accessRoleLabel(owner: string) {
+  return owner.split("/", 2)[1] ?? owner;
 }
 
 function networkPolicyPodsFor(policy: ResourceRow, resources: ResourceRow[]) {
