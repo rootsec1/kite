@@ -29,6 +29,7 @@ type ResourceDetailProps = {
   onTogglePinned: () => void;
 };
 type CopyStatus = "idle" | "copied" | "failed";
+const restartableWorkloadKinds = new Set(["Deployment", "StatefulSet", "DaemonSet"]);
 
 export function ResourceDetail({
   allResources,
@@ -181,6 +182,15 @@ export function ResourceDetail({
             </button>
           </div>
         </>
+      ) : null}
+
+      {!isPod && restartableWorkloadKinds.has(resource.kind) ? (
+        <div className="pod-actions" aria-label={`${resource.kind} actions`}>
+          <button type="button" onClick={() => onRunPodAction("restart")}>
+            <RotateCw size={15} />
+            Restart
+          </button>
+        </div>
       ) : null}
 
       {result ? <ActionResult resource={resource} result={result} onConfirm={() => onRunPodAction(result.action, true)} /> : null}
@@ -623,7 +633,7 @@ function ActionResult({
   }, [copyStatus]);
 
   return (
-    <section className={`pod-action-result ${result.status} ${risk}`} aria-label="Pod action clearance">
+    <section className={`pod-action-result ${result.status} ${risk}`} aria-label="Resource action clearance">
       <div className="pod-action-status">
         <StatusIcon size={17} />
         <div>
@@ -634,10 +644,10 @@ function ActionResult({
       </div>
       <div className="pod-action-body">
         <p>{actionMessage(result)}</p>
-        <div className="pod-action-target" aria-label="Pod action target">
+        <div className="pod-action-target" aria-label="Resource action target">
           <ActionFact label="Context" value={resource.cluster || "current"} />
           <ActionFact label="Namespace" value={resource.namespace} />
-          <ActionFact label="Pod" value={resource.name} />
+          <ActionFact label={resource.kind} value={resource.name} />
           <ActionFact label="Gate" value={result.requiresConfirmation ? "Confirm required" : statusTitle(result.status)} />
         </div>
         {result.command ? (

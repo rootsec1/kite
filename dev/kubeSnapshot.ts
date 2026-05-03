@@ -330,7 +330,23 @@ export async function runPodAction(input: {
   const { target } = input;
 
   if (target.kind !== "Pod") {
-    return podActionResult(action, "blocked", "Pod actions only run against pods.");
+    if (actionName === "restart" && isRestartableWorkloadKind(target.kind)) {
+      if (!isLocalContext(target.cluster)) {
+        return podActionResult(action, "blocked", `${target.cluster} is not recognized as a local context.`);
+      }
+
+      const args = rolloutRestartArgs(target.kind, target.name, target.namespace);
+      const command = displayKubectlCommand(args, target.cluster);
+      if (!input.confirmed) {
+        return podActionResult(action, "blocked", `Confirm to restart ${target.namespace}/${target.name}.`, "", command, true);
+      }
+
+      return kubectlText(args, target.cluster)
+        .then((output) => podActionResult(action, "executed", "Action completed.", output, command))
+        .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
+    }
+
+    return podActionResult(action, "blocked", "This action only runs against pods.");
   }
 
   if (actionName === "logs") {
@@ -1049,6 +1065,14 @@ async function restartArgs(target: { name: string; namespace: string; cluster: s
     return ["rollout", "restart", `${kind.toLowerCase()}/${name}`, "-n", target.namespace];
   }
   throw new Error(`Restart is not available for pods owned by ${kind}.`);
+}
+
+function isRestartableWorkloadKind(kind: string) {
+  return ["Deployment", "StatefulSet", "DaemonSet"].includes(kind);
+}
+
+function rolloutRestartArgs(kind: string, name: string, namespace: string) {
+  return ["rollout", "restart", `${kind.toLowerCase()}/${name}`, "-n", namespace];
 }
 
 async function firstPodPort(target: { name: string; namespace: string; cluster: string }) {

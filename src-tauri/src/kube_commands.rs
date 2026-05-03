@@ -313,10 +313,15 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
     let normalized = action.to_lowercase();
     let action_name = normalized.split_once(':').map(|(name, _)| name.to_string()).unwrap_or_else(|| normalized.clone());
     if target.kind != "Pod" {
+        if action_name == "restart" && is_restartable_workload_kind(&target.kind) {
+            let is_local = is_local_context(&target.cluster);
+            return guarded_workload_restart(normalized, target, confirmed, is_local).await;
+        }
+
         return pod_action_result(
             normalized,
             PodActionStatus::Blocked,
-            "Pod actions only run against pods.".to_string(),
+            "This action only runs against pods.".to_string(),
             String::new(),
             String::new(),
             false,
@@ -887,6 +892,38 @@ async fn guarded_pod_write(action: String, target: ActionTarget, confirmed: bool
     }
 }
 
+async fn guarded_workload_restart(action: String, target: ActionTarget, confirmed: bool, is_local: bool) -> PodActionResult {
+    if !is_local {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("{} is blocked because {} is not recognized as a local context.", target.name, target.cluster),
+            String::new(),
+            String::new(),
+            false,
+        );
+    }
+
+    let command = rollout_restart_args(&target.kind, &target.name, &target.namespace);
+    let display_command = display_kubectl_command(&target, &command);
+
+    if !confirmed {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("Confirm to restart {}/{} on {}.", target.namespace, target.name, target.cluster),
+            String::new(),
+            display_command,
+            true,
+        );
+    }
+
+    match kubectl(kubectl_target_args(&target, command)).await {
+        Ok(output) => pod_action_result(action, PodActionStatus::Executed, "Action completed.".to_string(), output, display_command, false),
+        Err(error) => pod_action_result(action, PodActionStatus::Failed, error, String::new(), display_command, false),
+    }
+}
+
 async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
     let owner = kubectl(kubectl_target_args(target, vec![
         "get".to_string(),
@@ -952,6 +989,10 @@ fn owner_ref(value: &str) -> Option<OwnerRef> {
         kind: kind.to_string(),
         name: name.to_string(),
     })
+}
+
+fn is_restartable_workload_kind(kind: &str) -> bool {
+    matches!(kind, "Deployment" | "StatefulSet" | "DaemonSet")
 }
 
 fn rollout_restart_args_for_owner(owner: &OwnerRef, namespace: &str) -> Result<Vec<String>, String> {
@@ -3601,6 +3642,25 @@ mod tests {
                 "-n".to_string(),
                 "default".to_string(),
             ])
+        );
+    }
+
+    #[test]
+    fn rollout_restart_args_support_direct_workload_restart() {
+        assert!(is_restartable_workload_kind("Deployment"));
+        assert!(is_restartable_workload_kind("StatefulSet"));
+        assert!(is_restartable_workload_kind("DaemonSet"));
+        assert!(!is_restartable_workload_kind("ReplicaSet"));
+
+        assert_eq!(
+            rollout_restart_args("DaemonSet", "node-agent", "kube-system"),
+            vec![
+                "rollout".to_string(),
+                "restart".to_string(),
+                "daemonset/node-agent".to_string(),
+                "-n".to_string(),
+                "kube-system".to_string(),
+            ]
         );
     }
 
