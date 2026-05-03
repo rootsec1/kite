@@ -2081,11 +2081,19 @@ summary:focus-visible {
   background: var(--surface);
 }
 
-.container-card > div {
+.container-card-header {
   display: flex;
   align-items: center;
   gap: 8px;
   min-inline-size: 0;
+}
+
+.container-log-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
+  margin-inline-start: auto;
 }
 
 .container-log-button {
@@ -2099,6 +2107,10 @@ summary:focus-visible {
   color: var(--green-deep);
   background: var(--surface-soft);
   cursor: pointer;
+}
+
+.container-log-button.previous {
+  color: #7d5317;
 }
 
 .container-log-button:hover {

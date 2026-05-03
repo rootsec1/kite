@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, GitCommitHorizontal, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
+import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, ShieldAlert, Skull, Star, TerminalSquare } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
@@ -140,6 +140,7 @@ export function ResourceDetail({
             details={details}
             resource={resource}
             onOpenContainerLogs={(containerName) => openLogs("current", containerName)}
+            onOpenContainerPreviousLogs={(containerName) => openLogs("previous", containerName)}
           />
           <PodLifecycleRail details={details} />
           <PodPlacementStrip pod={details.pod} />
@@ -225,14 +226,17 @@ export function ResourceDetail({
 function PodStatusPanel({
   details,
   onOpenContainerLogs,
+  onOpenContainerPreviousLogs,
   resource,
 }: {
   details: ResourceDetails;
   onOpenContainerLogs: (containerName: string) => void;
+  onOpenContainerPreviousLogs: (containerName: string) => void;
   resource: ResourceRow;
 }) {
   const pod = details.pod;
   const containers = pod?.containers ?? [];
+  const hasPreviousLogs = Boolean(details.previousLogs.trim());
   const ready = pod ? `${pod.readyContainers}/${pod.totalContainers || containers.length}` : "syncing";
   const readyTone = !pod || pod.totalContainers === 0
     ? "syncing"
@@ -279,8 +283,10 @@ function PodStatusPanel({
           containers.map((container) => (
             <ContainerCard
               container={container}
+              hasPreviousLogs={hasPreviousLogs}
               key={container.name}
               onOpenLogs={() => onOpenContainerLogs(container.name)}
+              onOpenPreviousLogs={() => onOpenContainerPreviousLogs(container.name)}
             />
           ))
         ) : (
@@ -411,25 +417,49 @@ function RuntimeTile({
   );
 }
 
-function ContainerCard({ container, onOpenLogs }: { container: ContainerDetails; onOpenLogs: () => void }) {
+function ContainerCard({
+  container,
+  hasPreviousLogs,
+  onOpenLogs,
+  onOpenPreviousLogs,
+}: {
+  container: ContainerDetails;
+  hasPreviousLogs: boolean;
+  onOpenLogs: () => void;
+  onOpenPreviousLogs: () => void;
+}) {
   const currentState = containerCurrentState(container);
   const lastState = containerLastState(container);
+  const canOpenPreviousLogs = hasPreviousLogs && Boolean(lastState || container.restartCount > 0);
 
   return (
     <article className={container.ready ? "container-card ready" : "container-card warn"}>
-      <div>
+      <div className="container-card-header">
         <StatusDot state={container.ready ? "healthy" : "warning"} />
         <strong>{container.name}</strong>
-        <button
-          aria-label={`Open ${container.name} logs`}
-          className="container-log-button"
-          title="Open container logs"
-          type="button"
-          onClick={onOpenLogs}
-        >
-          <FileText size={13} />
-        </button>
         <small className="container-role">{container.role}</small>
+        <span className="container-log-actions">
+          <button
+            aria-label={`Open current logs for ${container.name}`}
+            className="container-log-button"
+            title="Open current logs"
+            type="button"
+            onClick={onOpenLogs}
+          >
+            <FileText size={13} />
+          </button>
+          {canOpenPreviousLogs ? (
+            <button
+              aria-label={`Open previous logs for ${container.name}`}
+              className="container-log-button previous"
+              title="Open previous logs"
+              type="button"
+              onClick={onOpenPreviousLogs}
+            >
+              <History size={13} />
+            </button>
+          ) : null}
+        </span>
       </div>
       <div className="container-state-grid">
         <ContainerStateFact
