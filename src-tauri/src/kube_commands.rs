@@ -272,7 +272,7 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         String::new()
     };
     let previous_logs = if target.kind == "Pod" {
-        pod_logs(&target, true).await.unwrap_or_default()
+        pod_previous_logs(&target, pod.as_ref()).await.unwrap_or_default()
     } else {
         String::new()
     };
@@ -511,6 +511,72 @@ async fn pod_logs(target: &ActionTarget, previous: bool) -> Result<String, Strin
     }
 
     kubectl(kubectl_target_args(target, args)).await
+}
+
+async fn pod_previous_logs(target: &ActionTarget, pod: Option<&PodDetails>) -> Result<String, String> {
+    let Some(pod) = pod else {
+        return Ok(String::new());
+    };
+
+    let mut outputs = Vec::new();
+    for container in previous_log_container_names(pod) {
+        let Ok(output) = pod_container_previous_logs(target, &container).await else {
+            continue;
+        };
+
+        if output.trim().is_empty() {
+            continue;
+        }
+
+        outputs.push(prefix_container_log_lines(target, &container, &output));
+    }
+
+    Ok(outputs.join("\n"))
+}
+
+async fn pod_container_previous_logs(target: &ActionTarget, container: &str) -> Result<String, String> {
+    kubectl(kubectl_target_args(
+        target,
+        vec![
+            "logs".to_string(),
+            target.name.clone(),
+            "-n".to_string(),
+            target.namespace.clone(),
+            "-c".to_string(),
+            container.to_string(),
+            "--previous=true".to_string(),
+            "--tail=240".to_string(),
+            "--timestamps".to_string(),
+        ],
+    ))
+    .await
+}
+
+fn previous_log_container_names(pod: &PodDetails) -> Vec<String> {
+    let mut names = Vec::new();
+    for container in &pod.containers {
+        if container_has_previous_instance(container) && !names.contains(&container.name) {
+            names.push(container.name.clone());
+        }
+    }
+    names
+}
+
+fn container_has_previous_instance(container: &ContainerDetails) -> bool {
+    container.restart_count > 0
+        || container.last_exit_code.is_some()
+        || !container.last_reason.is_empty()
+        || !container.last_started_at.is_empty()
+        || !container.last_finished_at.is_empty()
+}
+
+fn prefix_container_log_lines(target: &ActionTarget, container: &str, output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| format!("[{}/{}] {line}", target.name, container))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 async fn pod_details(target: &ActionTarget) -> Result<PodDetails, String> {
@@ -3528,6 +3594,74 @@ mod tests {
         assert_eq!(containers[0].finished_at, "");
         assert_eq!(containers[0].last_started_at, "2026-04-30T11:58:00Z");
         assert_eq!(containers[0].last_finished_at, "2026-04-30T12:00:00Z");
+    }
+
+    #[test]
+    fn previous_log_container_names_only_targets_restarted_containers() {
+        let status = serde_json::json!({
+            "phase": "Running",
+            "containerStatuses": [
+                {
+                    "name": "api",
+                    "image": "registry.example/api:ready",
+                    "ready": false,
+                    "restartCount": 2,
+                    "state": { "waiting": { "reason": "CrashLoopBackOff" } },
+                    "lastState": {
+                        "terminated": {
+                            "reason": "Error",
+                            "exitCode": 1,
+                            "startedAt": "2026-04-30T11:58:00Z",
+                            "finishedAt": "2026-04-30T12:00:00Z"
+                        }
+                    }
+                },
+                {
+                    "name": "worker",
+                    "image": "registry.example/worker:ready",
+                    "ready": true,
+                    "restartCount": 0,
+                    "state": { "running": {} }
+                }
+            ]
+        });
+        let spec = serde_json::json!({
+            "containers": [{ "name": "api" }, { "name": "worker" }]
+        });
+        let containers =
+            container_status_details(&status, &spec, "containerStatuses", "containers", "app");
+        let pod = PodDetails {
+            phase: "Running".to_string(),
+            reason: String::new(),
+            message: String::new(),
+            node_name: "kind-worker".to_string(),
+            pod_ip: "10.0.0.12".to_string(),
+            host_ip: "172.18.0.2".to_string(),
+            qos_class: "Burstable".to_string(),
+            start_time: "2026-04-30T11:57:00Z".to_string(),
+            ready_containers: 1,
+            total_containers: 2,
+            conditions: Vec::new(),
+            containers,
+            scheduling: pod_scheduling(&serde_json::json!({})),
+        };
+
+        assert_eq!(previous_log_container_names(&pod), vec!["api".to_string()]);
+    }
+
+    #[test]
+    fn previous_log_prefix_preserves_terminal_source_shape() {
+        let target = ActionTarget {
+            kind: "Pod".to_string(),
+            name: "api-7f57c9".to_string(),
+            namespace: "payments".to_string(),
+            cluster: "kind-kite".to_string(),
+        };
+
+        assert_eq!(
+            prefix_container_log_lines(&target, "api", "2026-04-30T12:00:00Z failed\nretrying\n"),
+            "[api-7f57c9/api] 2026-04-30T12:00:00Z failed\n[api-7f57c9/api] retrying"
+        );
     }
 
     #[test]
