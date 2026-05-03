@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare, UserRound } from "lucide-react";
+import { Activity, ArrowLeft, Box, CalendarClock, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare, UserRound } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
@@ -232,6 +232,7 @@ export function ResourceDetail({
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <CronJobRunRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <WorkloadPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HierarchyGroups groups={hierarchyGroups} onOpenResource={onOpenResource} />
         </>
@@ -869,7 +870,7 @@ function WorkloadPodRail({
 }) {
   const pods = useMemo(() => workloadPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
 
-  if (!workloadKinds.has(resource.kind)) {
+  if (!workloadKinds.has(resource.kind) || resource.kind === "CronJob") {
     return null;
   }
 
@@ -895,6 +896,62 @@ function WorkloadPodRail({
             <strong>Selectors have no live pod match.</strong>
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+function CronJobRunRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const jobs = useMemo(() => cronJobJobsFor(resource, resources).sort(compareCronJobRuns), [resource, resources]);
+  const pods = useMemo(() => workloadPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+
+  if (resource.kind !== "CronJob") {
+    return null;
+  }
+
+  const failedJobs = jobs.filter((job) => job.status === "critical").length;
+  const readyPods = pods.filter((pod) => pod.status === "healthy").length;
+  const visibleJobs = jobs.slice(0, 3);
+  const visiblePods = pods.slice(0, Math.max(0, 5 - visibleJobs.length));
+  const tone = cronJobRunTone(resource, jobs, pods);
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail cronjob-run-rail ${tone}`} aria-label="CronJob runs">
+      <header>
+        <span>
+          <CalendarClock size={15} />
+          Runs
+        </span>
+        <strong>{cronJobRunReadout(jobs.length, pods.length, readyPods)}</strong>
+        <small>{failedJobs ? `${failedJobs} failed` : resource.image || resource.status}</small>
+      </header>
+      <div>
+        {visibleJobs.map((job) => (
+          <button className={job.status} key={job.id} type="button" onClick={() => onOpenResource(job.id)}>
+            <StatusDot state={job.status} />
+            <strong title={job.name}>{job.name}</strong>
+            <em title={job.diagnostic || job.status}>{job.diagnostic || job.status}</em>
+            <small>{job.age}</small>
+            <small>job</small>
+          </button>
+        ))}
+        {visiblePods.map((pod) => (
+          <LinkedPodTile key={pod.id} meta={pod.nodeName || pod.namespace} pod={pod} onOpenResource={onOpenResource} />
+        ))}
+        {!visibleJobs.length && !visiblePods.length ? (
+          <div className="service-backend-empty">
+            <span>No runs found</span>
+            <strong>This CronJob has no live Jobs or pods in the snapshot.</strong>
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -1538,6 +1595,32 @@ function routeBackendTone(referenceCount: number, tones: HealthState[]): HealthS
   return "healthy";
 }
 
+function cronJobRunTone(resource: ResourceRow, jobs: ResourceRow[], pods: ResourceRow[]): HealthState {
+  if (resource.status !== "healthy") {
+    return resource.status;
+  }
+  if (!jobs.length && !pods.length) {
+    return "syncing";
+  }
+  if (jobs.some((job) => job.status === "critical") || pods.some((pod) => pod.status === "critical")) {
+    return "critical";
+  }
+  if (jobs.some((job) => job.status === "warning") || pods.some((pod) => pod.status === "warning")) {
+    return "warning";
+  }
+  return "healthy";
+}
+
+function cronJobRunReadout(jobCount: number, podCount: number, readyPods: number) {
+  if (podCount) {
+    return `${readyPods}/${podCount} pods`;
+  }
+  if (jobCount) {
+    return `${jobCount} jobs`;
+  }
+  return "No runs";
+}
+
 function nodePodTone(pods: ResourceRow[]): HealthState {
   if (!pods.length) {
     return "syncing";
@@ -1592,6 +1675,17 @@ function compareRouteBackends(left: ResourceRow, right: ResourceRow) {
   return podRuntimeRank(left) - podRuntimeRank(right) ||
     left.namespace.localeCompare(right.namespace) ||
     left.name.localeCompare(right.name);
+}
+
+function compareCronJobRuns(left: ResourceRow, right: ResourceRow) {
+  return podRuntimeRank(left) - podRuntimeRank(right) ||
+    resourceTimestamp(right) - resourceTimestamp(left) ||
+    left.name.localeCompare(right.name);
+}
+
+function resourceTimestamp(resource: ResourceRow) {
+  const timestamp = Date.parse(resource.age);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function podRuntimeRank(pod: ResourceRow) {
