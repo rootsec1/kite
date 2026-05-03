@@ -366,9 +366,14 @@ export async function runPodAction(input: {
   }
 
   if (actionName === "exec") {
-    const command = podExecCommand(target);
+    const container = requestedContainerForExecAction(action);
+    if (container === null) {
+      return podActionResult(action, "blocked", `Invalid container name for ${action}.`);
+    }
+
+    const command = podExecCommand(target, container);
     return openTerminal(command)
-      .then(() => podActionResult(action, "executed", "Opened Terminal with an interactive pod shell.", "", command))
+      .then(() => podActionResult(action, "executed", execOpenedMessage(container), "", command))
       .catch((error) => podActionResult(action, "ready", `${errorMessage(error)} Run this command manually.`, "", command));
   }
 
@@ -425,6 +430,22 @@ function requestedPortForAction(action: string) {
   const port = action.slice(delimiter + 1);
   const parsed = Number(port);
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65_535 ? parsed : null;
+}
+
+function requestedContainerForExecAction(action: string) {
+  const delimiter = action.indexOf(":");
+  if (delimiter === -1) {
+    return undefined;
+  }
+
+  const container = action.slice(delimiter + 1).trim();
+  return container ? container : null;
+}
+
+function execOpenedMessage(container: string | undefined) {
+  return container
+    ? `Opened Terminal with an interactive shell in container ${container}.`
+    : "Opened Terminal with an interactive pod shell.";
 }
 
 async function readHelmReleases(cluster: string) {
@@ -1107,8 +1128,8 @@ function podActionResult(
   return { action, status, message, output, command, requiresConfirmation };
 }
 
-function podExecCommand(target: { name: string; namespace: string; cluster: string }) {
-  return [
+function podExecCommand(target: { name: string; namespace: string; cluster: string }, container?: string) {
+  const args = [
     "kubectl",
     "--context",
     target.cluster,
@@ -1117,9 +1138,13 @@ function podExecCommand(target: { name: string; namespace: string; cluster: stri
     target.namespace,
     "-it",
     target.name,
-    "--",
-    "/bin/sh",
-  ].map(shellQuote).join(" ");
+  ];
+  if (container) {
+    args.push("-c", container);
+  }
+  args.push("--", "/bin/sh");
+
+  return args.map(shellQuote).join(" ");
 }
 
 function kubectlArgs(args: string[], context: string) {

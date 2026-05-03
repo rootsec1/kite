@@ -2113,6 +2113,10 @@ summary:focus-visible {
   color: #7d5317;
 }
 
+.container-log-button.exec {
+  color: var(--text-soft);
+}
+
 .container-log-button:hover {
   color: var(--text);
   background: #f7fffc;

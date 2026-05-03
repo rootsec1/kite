@@ -142,6 +142,7 @@ export function ResourceDetail({
             resource={resource}
             onOpenContainerLogs={(containerName) => openLogs("current", containerName)}
             onOpenContainerPreviousLogs={(containerName) => openLogs("previous", containerName)}
+            onExecContainer={(containerName) => onRunPodAction(`exec:${containerName}`)}
           />
           <PodLifecycleRail details={details} />
           <PodPlacementStrip pod={details.pod} />
@@ -235,11 +236,13 @@ export function ResourceDetail({
 
 function PodStatusPanel({
   details,
+  onExecContainer,
   onOpenContainerLogs,
   onOpenContainerPreviousLogs,
   resource,
 }: {
   details: ResourceDetails;
+  onExecContainer: (containerName: string) => void;
   onOpenContainerLogs: (containerName: string) => void;
   onOpenContainerPreviousLogs: (containerName: string) => void;
   resource: ResourceRow;
@@ -295,6 +298,7 @@ function PodStatusPanel({
               container={container}
               hasPreviousLogs={hasPreviousLogs}
               key={container.name}
+              onExec={() => onExecContainer(container.name)}
               onOpenLogs={() => onOpenContainerLogs(container.name)}
               onOpenPreviousLogs={() => onOpenContainerPreviousLogs(container.name)}
             />
@@ -430,11 +434,13 @@ function RuntimeTile({
 function ContainerCard({
   container,
   hasPreviousLogs,
+  onExec,
   onOpenLogs,
   onOpenPreviousLogs,
 }: {
   container: ContainerDetails;
   hasPreviousLogs: boolean;
+  onExec: () => void;
   onOpenLogs: () => void;
   onOpenPreviousLogs: () => void;
 }) {
@@ -449,6 +455,15 @@ function ContainerCard({
         <strong>{container.name}</strong>
         <small className="container-role">{container.role}</small>
         <span className="container-log-actions">
+          <button
+            aria-label={`Exec into ${container.name}`}
+            className="container-log-button"
+            title="Exec into container"
+            type="button"
+            onClick={onExec}
+          >
+            <TerminalSquare size={13} />
+          </button>
           <button
             aria-label={`Open current logs for ${container.name}`}
             className="container-log-button"

@@ -347,12 +347,18 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
             }
         }
         "exec" => {
-            let command = pod_exec_command(&target);
+            let container = match requested_container_for_exec_action(&normalized) {
+                Ok(container) => container,
+                Err(error) => {
+                    return pod_action_result(normalized, PodActionStatus::Blocked, error, String::new(), String::new(), false);
+                }
+            };
+            let command = pod_exec_command(&target, container.as_deref());
             match open_terminal(&command).await {
                 Ok(()) => pod_action_result(
                     normalized,
                     PodActionStatus::Executed,
-                    "Opened Terminal with an interactive pod shell.".to_string(),
+                    exec_opened_message(container.as_deref()),
                     String::new(),
                     command,
                     false,
@@ -425,6 +431,28 @@ fn requested_port_for_action(action: &str) -> Result<Option<u16>, String> {
         .filter(|port| *port > 0)
         .map(Some)
         .ok_or_else(|| format!("Invalid pod port for {action}."))
+}
+
+fn requested_container_for_exec_action(action: &str) -> Result<Option<String>, String> {
+    let Some((name, container)) = action.split_once(':') else {
+        return Ok(None);
+    };
+    if name != "exec" {
+        return Ok(None);
+    }
+
+    let container = container.trim();
+    if container.is_empty() {
+        return Err("Exec requires a non-empty container name.".to_string());
+    }
+
+    Ok(Some(container.to_string()))
+}
+
+fn exec_opened_message(container: Option<&str>) -> String {
+    container
+        .map(|container| format!("Opened Terminal with an interactive shell in container {container}."))
+        .unwrap_or_else(|| "Opened Terminal with an interactive pod shell.".to_string())
 }
 
 async fn helm_details(target: ActionTarget) -> ResourceDetails {
@@ -1549,7 +1577,7 @@ fn helm_target_args(target: &ActionTarget, args: impl IntoIterator<Item = String
     args
 }
 
-fn pod_exec_command(target: &ActionTarget) -> String {
+fn pod_exec_command(target: &ActionTarget, container: Option<&str>) -> String {
     let mut args = Vec::new();
     if !target.cluster.is_empty() {
         args.push("--context".to_string());
@@ -1561,9 +1589,12 @@ fn pod_exec_command(target: &ActionTarget) -> String {
         target.namespace.clone(),
         "-it".to_string(),
         target.name.clone(),
-        "--".to_string(),
-        "/bin/sh".to_string(),
     ]);
+    if let Some(container) = container {
+        args.push("-c".to_string());
+        args.push(container.to_string());
+    }
+    args.extend(["--".to_string(), "/bin/sh".to_string()]);
 
     terminal_kubectl_command(args)
 }
@@ -3748,12 +3779,34 @@ mod tests {
     }
 
     #[test]
+    fn pod_exec_command_targets_container_when_requested() {
+        let target = ActionTarget {
+            kind: "Pod".to_string(),
+            name: "api".to_string(),
+            namespace: "default".to_string(),
+            cluster: "kind-kite".to_string(),
+        };
+
+        let command = pod_exec_command(&target, Some("sidecar"));
+
+        assert!(command.contains("kubectl --context kind-kite exec -n default -it api -c sidecar -- /bin/sh"));
+    }
+
+    #[test]
     fn requested_port_for_action_reads_explicit_port() {
         assert_eq!(requested_port_for_action("port-forward:9090"), Ok(Some(9090)));
         assert_eq!(requested_port_for_action("port-forward"), Ok(None));
         assert_eq!(requested_port_for_action("exec:9090"), Ok(None));
         assert!(requested_port_for_action("port-forward:0").is_err());
         assert!(requested_port_for_action("port-forward:http").is_err());
+    }
+
+    #[test]
+    fn requested_container_for_exec_action_reads_container_name() {
+        assert_eq!(requested_container_for_exec_action("exec:sidecar"), Ok(Some("sidecar".to_string())));
+        assert_eq!(requested_container_for_exec_action("exec"), Ok(None));
+        assert_eq!(requested_container_for_exec_action("port-forward:8080"), Ok(None));
+        assert!(requested_container_for_exec_action("exec:").is_err());
     }
 
     #[test]
