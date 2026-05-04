@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Box, CalendarClock, Check, CheckCircle2, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare, UserRound } from "lucide-react";
+import { Activity, ArrowLeft, Box, CalendarClock, Check, CheckCircle2, Container as ContainerIcon, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare, UserRound } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
@@ -243,6 +243,7 @@ export function ResourceDetail({
           <ControllerOwnerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <NamespacePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <CronJobRunRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <DeploymentReplicaSetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -1241,6 +1242,56 @@ function NodePodRail({
   );
 }
 
+function NamespacePodRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const pods = useMemo(() => namespacePodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const readyCount = pods.filter((pod) => pod.status === "healthy").length;
+  const restartCount = pods.reduce((sum, pod) => sum + pod.restarts, 0);
+  const visiblePods = pods.slice(0, 5);
+  const tone = nodePodTone(pods);
+
+  if (resource.kind !== "Namespace") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail namespace-pod-rail ${tone}`} aria-label="Namespace pods">
+      <header>
+        <span>
+          <ContainerIcon size={15} />
+          Pods
+        </span>
+        <strong>{readyCount}/{pods.length || 0} ready</strong>
+        <small>{restartCount ? `${restartCount} restarts` : "steady"}</small>
+      </header>
+      <div>
+        {visiblePods.length ? (
+          visiblePods.map((pod) => (
+            <LinkedPodTile
+              key={pod.id}
+              meta={pod.nodeName || "pending"}
+              pod={pod}
+              onOpenResource={onOpenResource}
+            />
+          ))
+        ) : (
+          <div className="workload-pod-empty">
+            <span>No namespace pods</span>
+            <strong>This namespace has no pods in the live snapshot.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ServiceBackendRail({
   onOpenResource,
   resource,
@@ -1901,6 +1952,14 @@ function nodePodsFor(resource: ResourceRow, resources: ResourceRow[]) {
   }
 
   return resources.filter((item) => item.kind === "Pod" && item.nodeName === resource.name);
+}
+
+function namespacePodsFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "Namespace") {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "Pod" && item.namespace === resource.name);
 }
 
 function serviceBackendPodsFor(resource: ResourceRow, resources: ResourceRow[]) {

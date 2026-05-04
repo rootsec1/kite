@@ -2654,6 +2654,10 @@ summary:focus-visible {
   color: var(--orange);
 }
 
+.namespace-pod-rail header svg {
+  color: var(--green-deep);
+}
+
 .network-policy-rail header svg {
   color: var(--orange);
 }
