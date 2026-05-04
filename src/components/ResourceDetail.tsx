@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowLeft, Box, CalendarClock, Check, CheckCircle2, Container as ContainerIcon, Copy, FileText, Gauge, GitCommitHorizontal, History, ImageIcon, Network, RotateCw, Server, Shield, ShieldAlert, Skull, Star, TerminalSquare, UserRound } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
-import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
+import { containerCurrentState, containerLastState, containerLifecycleTone, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
 import { DependencyConsumerRail } from "./DependencyConsumerRail";
@@ -292,14 +292,15 @@ function PodStatusPanel({
     ? containers.reduce((sum, container) => sum + container.restartCount, 0)
     : resource.restarts;
   const diagnostic = podDiagnostic(pod);
+  const headline = podHeadline(details, resource);
 
   return (
     <section className="pod-debug-panel" aria-label="Pod runtime status">
       <div className="pod-status-line">
         <div>
-          <StatusDot state={resource.status} />
-          <strong>{pod?.phase ?? resource.status}</strong>
-          <span>{ready} containers ready</span>
+          <StatusDot state={headline.tone} />
+          <strong title={headline.label}>{headline.label}</strong>
+          <span>{headline.meta}</span>
         </div>
         <small>{resource.owner || "standalone pod"}</small>
       </div>
@@ -354,6 +355,45 @@ function podDiagnostic(pod: ResourceDetails["pod"]) {
   return [pod.reason, pod.message]
     .filter((part, index, parts) => part && part !== pod.phase && parts.indexOf(part) === index)
     .join(" / ");
+}
+
+function podHeadline(details: ResourceDetails, resource: ResourceRow) {
+  const pod = details.pod;
+  const containers = pod?.containers ?? [];
+  const ready = pod ? `${pod.readyContainers}/${pod.totalContainers || containers.length}` : "syncing";
+  const blockedContainer = containers.find((container) => !container.ready && containerFailureLabel(container));
+
+  if (blockedContainer) {
+    return {
+      label: containerFailureLabel(blockedContainer),
+      meta: `${blockedContainer.name} / ${ready} ready`,
+      tone: containerLifecycleTone(blockedContainer),
+    };
+  }
+
+  const diagnostic = podDiagnostic(pod) || resource.diagnostic;
+  if (diagnostic && resource.status !== "healthy") {
+    return {
+      label: firstDiagnosticPart(diagnostic),
+      meta: pod ? `${pod.phase} / ${ready} ready` : "status syncing",
+      tone: resource.status,
+    };
+  }
+
+  return {
+    label: pod?.phase ?? resource.status,
+    meta: `${ready} containers ready`,
+    tone: resource.status,
+  };
+}
+
+function containerFailureLabel(container: ContainerDetails) {
+  const state = container.state && container.state !== "unknown" ? container.state : "";
+  return container.reason || state || container.message || "";
+}
+
+function firstDiagnosticPart(diagnostic: string) {
+  return diagnostic.split(" / ")[0]?.trim() || diagnostic;
 }
 
 function podPorts(details: ResourceDetails) {
