@@ -147,7 +147,7 @@ export function ResourceDetail({
             onExecContainer={(containerName) => onRunPodAction(`exec:${containerName}`)}
           />
           <PodLifecycleRail details={details} />
-          <PodPlacementStrip pod={details.pod} />
+          <PodPlacementStrip allResources={allResources} pod={details.pod} onOpenResource={onOpenResource} />
           <PodLinkStrip
             allResources={allResources}
             nodeName={details.pod?.nodeName || resource.nodeName}

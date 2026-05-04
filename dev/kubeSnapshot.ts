@@ -5,11 +5,20 @@ const exec = promisify(execFile);
 
 type KubeItem = {
   addressType?: string;
+  description?: string;
   endpoints?: KubeEndpoint[];
+  globalDefault?: boolean;
+  handler?: string;
   kind?: string;
   message?: string;
+  preemptionPolicy?: string;
   reason?: string;
+  scheduling?: {
+    nodeSelector?: Record<string, string | number | boolean>;
+    tolerations?: KubeToleration[];
+  };
   type?: string;
+  value?: number;
   involvedObject?: {
     kind?: string;
     name?: string;
@@ -272,6 +281,8 @@ const resourceQueries = [
   { name: "namespaces", namespaced: false },
   { name: "persistentvolumes", namespaced: false },
   { name: "storageclasses.storage.k8s.io", namespaced: false },
+  { name: "priorityclasses.scheduling.k8s.io", namespaced: false },
+  { name: "runtimeclasses.node.k8s.io", namespaced: false },
   { name: "clusterroles.rbac.authorization.k8s.io", namespaced: false },
   { name: "clusterrolebindings.rbac.authorization.k8s.io", namespaced: false },
   { name: "customresourcedefinitions.apiextensions.k8s.io", namespaced: false },
@@ -864,6 +875,7 @@ function resourceReferences(item: KubeItem, namespace: string) {
       ...serviceAccountReferences(item, namespace),
       ...imagePullSecretReferences(item, namespace),
       ...envReferences(item, namespace),
+      ...schedulingClassReferences(item),
     ]);
   }
   if (item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") {
@@ -984,6 +996,13 @@ function envReferences(item: KubeItem, namespace: string) {
   return references;
 }
 
+function schedulingClassReferences(item: KubeItem) {
+  return [
+    item.spec?.priorityClassName ? { kind: "PriorityClass", namespace: "cluster", name: item.spec.priorityClassName } : null,
+    item.spec?.runtimeClassName ? { kind: "RuntimeClass", namespace: "cluster", name: item.spec.runtimeClassName } : null,
+  ].filter((reference): reference is { kind: string; namespace: string; name: string } => Boolean(reference));
+}
+
 function uniqueReferences(references: Array<{ kind: string; namespace: string; name: string }>) {
   const seen = new Set<string>();
   return references.filter((reference) => {
@@ -1044,6 +1063,14 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return `${limitCount} ${pluralize(limitCount, "rule")}`;
   }
 
+  if (item.kind === "PriorityClass") {
+    return item.globalDefault ? "global default" : item.preemptionPolicy ?? "PreemptLowerPriority";
+  }
+
+  if (item.kind === "RuntimeClass") {
+    return "runtime";
+  }
+
   if (item.kind === "HorizontalPodAutoscaler" && item.spec?.scaleTargetRef?.kind && item.spec.scaleTargetRef.name) {
     return `${item.spec.scaleTargetRef.kind}/${item.spec.scaleTargetRef.name}`;
   }
@@ -1082,6 +1109,12 @@ function resourceImage(item: KubeItem) {
   }
   if (item.kind === "LimitRange") {
     return limitRangeSummary(item);
+  }
+  if (item.kind === "PriorityClass") {
+    return String(item.value ?? "");
+  }
+  if (item.kind === "RuntimeClass") {
+    return item.handler ?? "";
   }
   if (item.kind === "HorizontalPodAutoscaler") {
     const min = item.spec?.minReplicas ?? 1;
@@ -1365,6 +1398,18 @@ function resourceDiagnostic(item: KubeItem) {
 
   if (item.kind === "ResourceQuota") {
     return resourceQuotaDiagnostic(item);
+  }
+
+  if (item.kind === "PriorityClass") {
+    return item.description || `value ${item.value ?? 0}`;
+  }
+
+  if (item.kind === "RuntimeClass") {
+    const nodeSelectorCount = Object.keys(item.scheduling?.nodeSelector ?? {}).length;
+    const tolerationCount = item.scheduling?.tolerations?.length ?? 0;
+    return nodeSelectorCount || tolerationCount
+      ? `${nodeSelectorCount} selectors / ${tolerationCount} tolerations`
+      : "all nodes";
   }
 
   if (item.kind !== "Pod") return "";

@@ -1882,7 +1882,8 @@ summary:focus-visible {
   min-inline-size: 0;
 }
 
-.pod-placement-strip article {
+.pod-placement-strip article,
+.pod-placement-strip button {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   gap: 5px 9px;
@@ -1890,15 +1891,30 @@ summary:focus-visible {
   min-inline-size: 0;
   min-block-size: 74px;
   padding: 10px 12px;
+  border: 0;
   background: var(--surface);
+  color: inherit;
+  text-align: start;
 }
 
-.pod-placement-strip article svg {
+.pod-placement-strip button {
+  cursor: pointer;
+}
+
+.pod-placement-strip button:hover {
+  background: #f7fffc;
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+
+.pod-placement-strip article svg,
+.pod-placement-strip button svg {
   color: var(--green-deep);
 }
 
 .pod-placement-strip article strong,
-.pod-placement-strip article small {
+.pod-placement-strip article small,
+.pod-placement-strip button strong,
+.pod-placement-strip button small {
   grid-column: 2;
   min-inline-size: 0;
   overflow: hidden;
@@ -1906,14 +1922,16 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
-.pod-placement-strip article strong {
+.pod-placement-strip article strong,
+.pod-placement-strip button strong {
   color: var(--text);
   font-size: 13px;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.pod-placement-strip article small {
+.pod-placement-strip article small,
+.pod-placement-strip button small {
   color: var(--muted);
   font-size: 10px;
 }

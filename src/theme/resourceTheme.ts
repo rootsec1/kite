@@ -17,7 +17,9 @@ import {
   Server,
   Settings2,
   Shield,
+  SlidersHorizontal,
   Star,
+  TimerReset,
   type LucideIcon,
 } from "lucide-react";
 
@@ -82,6 +84,13 @@ export const navSections: Array<{ title: string; items: NavItem[] }> = [
     ],
   },
   {
+    title: "Scheduling",
+    items: [
+      { id: "PriorityClass", label: "PriorityClasses", icon: TimerReset, kind: "PriorityClass" },
+      { id: "RuntimeClass", label: "RuntimeClasses", icon: SlidersHorizontal, kind: "RuntimeClass" },
+    ],
+  },
+  {
     title: "Packages",
     items: [
       { id: "HelmRelease", label: "Helm", icon: GalleryVerticalEnd, kind: "HelmRelease" },
@@ -143,6 +152,8 @@ export const kindThemes: Record<string, KindTheme> = {
   Secret: { label: "Secrets", icon: FileKey2, accent: "orange", actions: ["Keys", "YAML"] },
   ResourceQuota: { label: "Quotas", icon: Gauge, accent: "orange", actions: ["Usage", "Namespace", "YAML"] },
   LimitRange: { label: "LimitRanges", icon: Gauge, accent: "orange", actions: ["Defaults", "Bounds", "YAML"] },
+  PriorityClass: { label: "PriorityClasses", icon: TimerReset, accent: "orange", actions: ["Value", "Preemption", "YAML"] },
+  RuntimeClass: { label: "RuntimeClasses", icon: SlidersHorizontal, accent: "blue", actions: ["Handler", "Scheduling", "YAML"] },
   ServiceAccount: { label: "ServiceAccounts", icon: Shield, accent: "orange", actions: ["Pods", "Tokens", "YAML"] },
   Role: { label: "Roles", icon: Shield, accent: "orange", actions: ["Rules", "Bindings", "YAML"] },
   RoleBinding: { label: "Bindings", icon: Link2, accent: "orange", actions: ["Role", "Subjects", "YAML"] },

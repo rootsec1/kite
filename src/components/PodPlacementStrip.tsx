@@ -1,14 +1,23 @@
 import { GitFork, KeyRound, Route, Shield, SlidersHorizontal, TimerReset } from "lucide-react";
-import type { PodDetails } from "../types/kube";
+import type { PodDetails, ResourceRow } from "../types/kube";
 
 type PlacementItem = {
   icon: typeof Route;
+  kind?: string;
   label: string;
   value: string;
   meta: string;
 };
 
-export function PodPlacementStrip({ pod }: { pod?: PodDetails }) {
+export function PodPlacementStrip({
+  allResources,
+  onOpenResource,
+  pod,
+}: {
+  allResources: ResourceRow[];
+  onOpenResource: (id: string) => void;
+  pod?: PodDetails;
+}) {
   if (!pod?.scheduling) {
     return null;
   }
@@ -25,17 +34,54 @@ export function PodPlacementStrip({ pod }: { pod?: PodDetails }) {
         <strong>{pod.nodeName || "unscheduled"}</strong>
       </header>
       <div>
-        {items.map(({ icon: Icon, label, meta, value }) => (
-          <article key={label}>
-            <Icon size={15} />
-            <span>{label}</span>
-            <strong title={value}>{value}</strong>
-            <small title={meta}>{meta}</small>
-          </article>
+        {items.map((item) => (
+          <PlacementCard
+            item={item}
+            key={item.label}
+            resource={placementResource(item, allResources)}
+            onOpenResource={onOpenResource}
+          />
         ))}
       </div>
     </section>
   );
+}
+
+function PlacementCard({
+  item,
+  onOpenResource,
+  resource,
+}: {
+  item: PlacementItem;
+  onOpenResource: (id: string) => void;
+  resource?: ResourceRow;
+}) {
+  const Icon = item.icon;
+  const content = (
+    <>
+      <Icon size={15} />
+      <span>{item.label}</span>
+      <strong title={item.value}>{item.value}</strong>
+      <small title={resource?.diagnostic || item.meta}>{resource?.diagnostic || item.meta}</small>
+    </>
+  );
+
+  if (resource) {
+    return (
+      <button title={`Open ${resource.kind} ${resource.name}`} type="button" onClick={() => onOpenResource(resource.id)}>
+        {content}
+      </button>
+    );
+  }
+
+  return <article>{content}</article>;
+}
+
+function placementResource(item: PlacementItem, resources: ResourceRow[]) {
+  if (!item.kind || !item.value) {
+    return undefined;
+  }
+  return resources.find((resource) => resource.kind === item.kind && resource.namespace === "cluster" && resource.name === item.value);
 }
 
 function placementItems(pod: PodDetails): PlacementItem[] {
@@ -68,6 +114,7 @@ function placementItems(pod: PodDetails): PlacementItem[] {
     scheduling.priorityClassName
       ? {
           icon: TimerReset,
+          kind: "PriorityClass",
           label: "Priority",
           value: scheduling.priorityClassName,
           meta: "preemption class",
@@ -76,6 +123,7 @@ function placementItems(pod: PodDetails): PlacementItem[] {
     scheduling.runtimeClassName
       ? {
           icon: SlidersHorizontal,
+          kind: "RuntimeClass",
           label: "Runtime",
           value: scheduling.runtimeClassName,
           meta: "runtime class",

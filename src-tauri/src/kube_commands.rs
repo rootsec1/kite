@@ -10,8 +10,10 @@ use k8s_openapi::api::{
     },
     discovery::v1::{Endpoint, EndpointSlice},
     networking::v1::{Ingress, NetworkPolicy},
+    node::v1::RuntimeClass,
     policy::v1::PodDisruptionBudget,
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding, Subject},
+    scheduling::v1::PriorityClass,
     storage::v1::StorageClass,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -158,6 +160,8 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         pod_disruption_budgets,
         resource_quotas,
         limit_ranges,
+        priority_classes,
+        runtime_classes,
         events,
         nodes,
         namespaces,
@@ -177,6 +181,8 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_pod_disruption_budgets(client.clone(), context),
         list_resource_quotas(client.clone(), context),
         list_limit_ranges(client.clone(), context),
+        list_priority_classes(client.clone(), context),
+        list_runtime_classes(client.clone(), context),
         list_events(client.clone(), context),
         list_nodes(client.clone(), context),
         list_namespaces(client.clone(), context),
@@ -209,6 +215,8 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(pod_disruption_budgets.unwrap_or_default());
     resources.extend(resource_quotas.unwrap_or_default());
     resources.extend(limit_ranges.unwrap_or_default());
+    resources.extend(priority_classes.unwrap_or_default());
+    resources.extend(runtime_classes.unwrap_or_default());
     resources.extend(events.unwrap_or_default());
     resources.extend(nodes.unwrap_or_default());
     resources.extend(namespaces.unwrap_or_default());
@@ -2888,6 +2896,90 @@ async fn list_limit_ranges(client: Client, cluster: &str) -> Result<Vec<Resource
         .collect())
 }
 
+async fn list_priority_classes(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let classes = Api::<PriorityClass>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list PriorityClasses: {error}"))?;
+
+    Ok(classes
+        .items
+        .into_iter()
+        .map(|class| {
+            let age = resource_age(&class.metadata);
+            let labels = class.metadata.labels.clone().unwrap_or_default();
+            let name = class.name_any();
+            let value = class.value.to_string();
+            let owner = if class.global_default.unwrap_or(false) {
+                "global default".to_string()
+            } else {
+                class.preemption_policy.clone().unwrap_or_else(|| "PreemptLowerPriority".to_string())
+            };
+            let diagnostic = class.description.clone().unwrap_or_else(|| format!("value {value}"));
+
+            resource_summary(
+                "PriorityClass",
+                name,
+                "cluster".to_string(),
+                cluster,
+                HealthState::Healthy,
+                0,
+                value,
+            )
+            .with_age(age)
+            .with_labels(labels)
+            .with_owner(owner)
+            .with_diagnostic(diagnostic)
+        })
+        .collect())
+}
+
+async fn list_runtime_classes(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let classes = Api::<RuntimeClass>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list RuntimeClasses: {error}"))?;
+
+    Ok(classes
+        .items
+        .into_iter()
+        .map(|class| {
+            let age = resource_age(&class.metadata);
+            let labels = class.metadata.labels.clone().unwrap_or_default();
+            let name = class.name_any();
+            let handler = class.handler.clone();
+            let scheduling = class.scheduling.as_ref();
+            let node_selector_count = scheduling
+                .and_then(|item| item.node_selector.as_ref())
+                .map(BTreeMap::len)
+                .unwrap_or(0);
+            let toleration_count = scheduling
+                .and_then(|item| item.tolerations.as_ref())
+                .map(Vec::len)
+                .unwrap_or(0);
+            let diagnostic = if node_selector_count > 0 || toleration_count > 0 {
+                format!("{node_selector_count} selectors / {toleration_count} tolerations")
+            } else {
+                "all nodes".to_string()
+            };
+
+            resource_summary(
+                "RuntimeClass",
+                name,
+                "cluster".to_string(),
+                cluster,
+                HealthState::Healthy,
+                0,
+                handler,
+            )
+            .with_age(age)
+            .with_labels(labels)
+            .with_owner("runtime".to_string())
+            .with_diagnostic(diagnostic)
+        })
+        .collect())
+}
+
 async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let claims = Api::<PersistentVolumeClaim>::all(client)
         .list(&ListParams::default())
@@ -3328,6 +3420,9 @@ fn pod_dependency_references(pod: &Pod, namespace: &str) -> Vec<ResourceReferenc
     for reference in pod_env_references(pod, namespace) {
         push_unique_reference(&mut references, reference);
     }
+    for reference in pod_scheduling_class_references(pod) {
+        push_unique_reference(&mut references, reference);
+    }
     references
 }
 
@@ -3391,6 +3486,24 @@ fn pod_env_references(pod: &Pod, namespace: &str) -> Vec<ResourceReference> {
         collect_env_references(container.env.as_ref(), container.env_from.as_ref(), namespace, &mut references);
     }
     references
+}
+
+fn pod_scheduling_class_references(pod: &Pod) -> Vec<ResourceReference> {
+    let Some(spec) = pod.spec.as_ref() else {
+        return Vec::new();
+    };
+
+    [
+        spec.priority_class_name
+            .as_deref()
+            .map(|name| resource_reference("PriorityClass", "cluster", name)),
+        spec.runtime_class_name
+            .as_deref()
+            .map(|name| resource_reference("RuntimeClass", "cluster", name)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn collect_env_references(
@@ -5139,6 +5252,8 @@ mod tests {
         let mut pod = Pod::default();
         pod.spec = Some(PodSpec {
             service_account_name: Some("api-sa".to_string()),
+            priority_class_name: Some("critical".to_string()),
+            runtime_class_name: Some("gvisor".to_string()),
             image_pull_secrets: Some(vec![LocalObjectReference {
                 name: "registry-creds".to_string(),
             }]),
@@ -5216,7 +5331,7 @@ mod tests {
 
         let references = pod_dependency_references(&pod, "default");
 
-        assert_eq!(references.len(), 7);
+        assert_eq!(references.len(), 9);
         assert_eq!(references[0].kind, "ConfigMap");
         assert_eq!(references[0].name, "app-config");
         assert_eq!(references[1].kind, "Secret");
@@ -5231,6 +5346,12 @@ mod tests {
         assert_eq!(references[5].name, "env-secret");
         assert_eq!(references[6].kind, "ConfigMap");
         assert_eq!(references[6].name, "feature-config");
+        assert_eq!(references[7].kind, "PriorityClass");
+        assert_eq!(references[7].namespace, "cluster");
+        assert_eq!(references[7].name, "critical");
+        assert_eq!(references[8].kind, "RuntimeClass");
+        assert_eq!(references[8].namespace, "cluster");
+        assert_eq!(references[8].name, "gvisor");
     }
 
     #[test]
