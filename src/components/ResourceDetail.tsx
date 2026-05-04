@@ -4,6 +4,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
+import { compareReleaseMembers, HelmReleaseRail, helmReleaseForResource, helmReleaseMembers } from "./HelmReleaseRail";
 import { NamespaceConstraintRail } from "./NamespaceConstraintRail";
 import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
@@ -155,6 +156,7 @@ export function ResourceDetail({
             pod={resource}
             onOpenResource={onOpenResource}
           />
+          <HelmReleaseRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <PodNetworkPolicyRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <PodDisruptionBudgetRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <PodIdentityAccessRail details={details} pod={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -234,6 +236,7 @@ export function ResourceDetail({
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NetworkPolicyPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <PdbSelectedPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <HelmReleaseRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ControllerOwnerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -2241,9 +2244,11 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
         item.namespace === resource.namespace &&
         (matchesSelector(resource, item.selector) || pods.some((pod) => matchesSelector(pod, item.selector))),
     );
+    const release = helmReleaseForResource(resource, resources);
     return [
       { title: "Pods", resources: pods },
       { title: "Services", resources: services },
+      ...(release ? [{ title: "Package", resources: [release] }] : []),
       { title: "Config nearby", resources: resources.filter((item) => item.namespace === resource.namespace && ["ConfigMap", "Secret"].includes(item.kind)) },
     ];
   }
@@ -2299,6 +2304,17 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
   if (resource.kind === "Gateway") {
     return [
       { title: "Routes", resources: gatewayRoutesFor(resource, resources) },
+    ];
+  }
+
+  if (resource.kind === "HelmRelease") {
+    const members = helmReleaseMembers(resource, resources).sort(compareReleaseMembers);
+    return [
+      { title: "Release objects", resources: members },
+      { title: "Pods", resources: members.filter((item) => item.kind === "Pod") },
+      { title: "Workloads", resources: members.filter((item) => workloadKinds.has(item.kind)) },
+      { title: "Traffic", resources: members.filter((item) => trafficKinds.has(item.kind)) },
+      { title: "Config", resources: members.filter((item) => configKinds.has(item.kind)) },
     ];
   }
 
