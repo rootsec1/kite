@@ -5,7 +5,7 @@ use k8s_openapi::api::{
     autoscaling::v2::HorizontalPodAutoscaler,
     batch::v1::{CronJob, Job},
     core::v1::{
-        ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
+        ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, LimitRange, LimitRangeItem, LimitRangeSpec, Namespace, Node, PersistentVolume,
         PersistentVolumeClaim, Pod, ResourceQuota, Secret, Service, ServiceAccount,
     },
     discovery::v1::{Endpoint, EndpointSlice},
@@ -157,6 +157,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         network_policies,
         pod_disruption_budgets,
         resource_quotas,
+        limit_ranges,
         events,
         nodes,
         namespaces,
@@ -175,6 +176,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_network_policies(client.clone(), context),
         list_pod_disruption_budgets(client.clone(), context),
         list_resource_quotas(client.clone(), context),
+        list_limit_ranges(client.clone(), context),
         list_events(client.clone(), context),
         list_nodes(client.clone(), context),
         list_namespaces(client.clone(), context),
@@ -206,6 +208,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(network_policies.unwrap_or_default());
     resources.extend(pod_disruption_budgets.unwrap_or_default());
     resources.extend(resource_quotas.unwrap_or_default());
+    resources.extend(limit_ranges.unwrap_or_default());
     resources.extend(events.unwrap_or_default());
     resources.extend(nodes.unwrap_or_default());
     resources.extend(namespaces.unwrap_or_default());
@@ -2851,6 +2854,40 @@ async fn list_resource_quotas(client: Client, cluster: &str) -> Result<Vec<Resou
         .collect())
 }
 
+async fn list_limit_ranges(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let ranges = Api::<LimitRange>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list LimitRanges: {error}"))?;
+
+    Ok(ranges
+        .items
+        .into_iter()
+        .map(|range| {
+            let age = resource_age(&range.metadata);
+            let labels = range.metadata.labels.clone().unwrap_or_default();
+            let limit_count = range.spec.as_ref().map(|spec| spec.limits.len()).unwrap_or(0);
+
+            resource_summary(
+                "LimitRange",
+                range.name_any(),
+                range.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                HealthState::Healthy,
+                0,
+                range
+                    .spec
+                    .as_ref()
+                    .map(limit_range_summary)
+                    .unwrap_or_else(|| "No constraints".to_string()),
+            )
+            .with_age(age)
+            .with_labels(labels)
+            .with_owner(format!("{limit_count} {}", pluralize(limit_count, "rule")))
+        })
+        .collect())
+}
+
 async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let claims = Api::<PersistentVolumeClaim>::all(client)
         .list(&ListParams::default())
@@ -3550,6 +3587,58 @@ fn resource_quota_diagnostic(hard: Option<&QuantityMap>, used: Option<&QuantityM
         .unwrap_or_default()
 }
 
+fn limit_range_summary(spec: &LimitRangeSpec) -> String {
+    let Some(first_limit) = spec.limits.first() else {
+        return "No constraints".to_string();
+    };
+
+    let resources = limit_range_resource_names(first_limit);
+    let target = if first_limit.type_.is_empty() {
+        "Resource"
+    } else {
+        first_limit.type_.as_str()
+    };
+    let mode = if first_limit.default.is_some() || first_limit.default_request.is_some() {
+        "defaults"
+    } else if first_limit.min.is_some() || first_limit.max.is_some() {
+        "bounds"
+    } else if first_limit.max_limit_request_ratio.is_some() {
+        "ratio"
+    } else {
+        "constraints"
+    };
+
+    if resources.is_empty() {
+        format!("{target} {mode}")
+    } else {
+        format!("{target} {} {mode}", resources.join("/"))
+    }
+}
+
+fn limit_range_resource_names(limit: &LimitRangeItem) -> Vec<String> {
+    let mut names = Vec::new();
+    for map in [
+        limit.default_request.as_ref(),
+        limit.default.as_ref(),
+        limit.min.as_ref(),
+        limit.max.as_ref(),
+        limit.max_limit_request_ratio.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for name in map.keys() {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+            if names.len() == 3 {
+                return names;
+            }
+        }
+    }
+    names
+}
+
 fn quota_peak_usage<'a>(hard: &'a QuantityMap, used: Option<&'a QuantityMap>) -> Option<(&'a str, &'a str, &'a str, f64)> {
     let used = used?;
 
@@ -3595,6 +3684,14 @@ fn parse_kube_quantity(value: &str) -> Option<f64> {
         .unwrap_or((trimmed, 1.0));
 
     number.parse::<f64>().ok().map(|number| number * multiplier)
+}
+
+fn pluralize(count: usize, word: &str) -> String {
+    if count == 1 {
+        word.to_string()
+    } else {
+        format!("{word}s")
+    }
 }
 
 fn ingress_status(host_count: usize, has_default_backend: bool) -> HealthState {
@@ -5212,6 +5309,35 @@ mod tests {
             resource_quota_diagnostic(Some(&hard), Some(&used)),
             "limits.memory quota 1024Mi/1Gi",
         );
+    }
+
+    #[test]
+    fn limit_range_summary_prefers_defaulted_resources() {
+        let spec = LimitRangeSpec {
+            limits: vec![LimitRangeItem {
+                type_: "Container".to_string(),
+                default_request: Some(BTreeMap::from([
+                    ("cpu".to_string(), Quantity("100m".to_string())),
+                    ("memory".to_string(), Quantity("128Mi".to_string())),
+                ])),
+                ..LimitRangeItem::default()
+            }],
+        };
+
+        assert_eq!(limit_range_summary(&spec), "Container cpu/memory defaults");
+    }
+
+    #[test]
+    fn limit_range_summary_reports_bounds_without_defaults() {
+        let spec = LimitRangeSpec {
+            limits: vec![LimitRangeItem {
+                type_: "PersistentVolumeClaim".to_string(),
+                max: Some(BTreeMap::from([("storage".to_string(), Quantity("10Gi".to_string()))])),
+                ..LimitRangeItem::default()
+            }],
+        };
+
+        assert_eq!(limit_range_summary(&spec), "PersistentVolumeClaim storage bounds");
     }
 
     fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {

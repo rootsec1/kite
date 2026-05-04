@@ -32,6 +32,7 @@ type KubeItem = {
     egress?: unknown[];
     hard?: Record<string, string | number>;
     ingress?: unknown[];
+    limits?: KubeLimitRangeItem[];
     nodeSelector?: Record<string, string | number | boolean>;
     providerID?: string;
     storageClassName?: string;
@@ -171,6 +172,15 @@ type KubeToleration = {
   value?: string;
 };
 
+type KubeLimitRangeItem = {
+  default?: Record<string, string | number>;
+  defaultRequest?: Record<string, string | number>;
+  max?: Record<string, string | number>;
+  maxLimitRequestRatio?: Record<string, string | number>;
+  min?: Record<string, string | number>;
+  type?: string;
+};
+
 type ContainerStateDetails = {
   reason?: string;
   message?: string;
@@ -254,6 +264,7 @@ const resourceQueries = [
   { name: "secrets", namespaced: true },
   { name: "serviceaccounts", namespaced: true },
   { name: "resourcequotas", namespaced: true },
+  { name: "limitranges", namespaced: true },
   { name: "persistentvolumeclaims", namespaced: true },
   { name: "roles.rbac.authorization.k8s.io", namespaced: true },
   { name: "rolebindings.rbac.authorization.k8s.io", namespaced: true },
@@ -1028,6 +1039,11 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return `${Object.keys(resourceQuotaHard(item)).length} limits`;
   }
 
+  if (item.kind === "LimitRange") {
+    const limitCount = item.spec?.limits?.length ?? 0;
+    return `${limitCount} ${pluralize(limitCount, "rule")}`;
+  }
+
   if (item.kind === "HorizontalPodAutoscaler" && item.spec?.scaleTargetRef?.kind && item.spec.scaleTargetRef.name) {
     return `${item.spec.scaleTargetRef.kind}/${item.spec.scaleTargetRef.name}`;
   }
@@ -1063,6 +1079,9 @@ function resourceImage(item: KubeItem) {
   }
   if (item.kind === "ResourceQuota") {
     return resourceQuotaSummary(item);
+  }
+  if (item.kind === "LimitRange") {
+    return limitRangeSummary(item);
   }
   if (item.kind === "HorizontalPodAutoscaler") {
     const min = item.spec?.minReplicas ?? 1;
@@ -1367,6 +1386,40 @@ function resourceQuotaDiagnostic(item: KubeItem) {
   return peak && peak.ratio >= 1 ? `${peak.name} quota ${peak.used}/${peak.hard}` : "";
 }
 
+function limitRangeSummary(item: KubeItem) {
+  const firstLimit = item.spec?.limits?.[0];
+  if (!firstLimit) {
+    return "No constraints";
+  }
+
+  const resources = limitRangeResourceNames(firstLimit);
+  const target = firstLimit.type || "Resource";
+  const mode = firstLimit.default || firstLimit.defaultRequest
+    ? "defaults"
+    : firstLimit.min || firstLimit.max
+      ? "bounds"
+      : firstLimit.maxLimitRequestRatio
+        ? "ratio"
+        : "constraints";
+
+  return resources.length ? `${target} ${resources.join("/")} ${mode}` : `${target} ${mode}`;
+}
+
+function limitRangeResourceNames(limit: KubeLimitRangeItem) {
+  const names: string[] = [];
+  for (const map of [limit.defaultRequest, limit.default, limit.min, limit.max, limit.maxLimitRequestRatio]) {
+    for (const name of Object.keys(map ?? {})) {
+      if (!names.includes(name)) {
+        names.push(name);
+      }
+      if (names.length === 3) {
+        return names;
+      }
+    }
+  }
+  return names;
+}
+
 function quotaPeakUsage(hard: Record<string, string | number>, used: Record<string, string | number> | undefined) {
   if (!used) {
     return null;
@@ -1388,6 +1441,10 @@ function quotaPeakUsage(hard: Record<string, string | number>, used: Record<stri
     };
     return !peak || next.ratio > peak.ratio ? next : peak;
   }, null);
+}
+
+function pluralize(count: number, word: string) {
+  return count === 1 ? word : `${word}s`;
 }
 
 function parseKubeQuantity(value: string | number | undefined) {

@@ -2174,7 +2174,7 @@ const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", 
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
 const autoscalingKinds = new Set(["HorizontalPodAutoscaler", "PodDisruptionBudget"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "PersistentVolumeClaim"]);
-const configKinds = new Set(["ConfigMap", "Secret", "ResourceQuota", "PodDisruptionBudget", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
+const configKinds = new Set(["ConfigMap", "Secret", "ResourceQuota", "LimitRange", "PodDisruptionBudget", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
 
