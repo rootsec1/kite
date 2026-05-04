@@ -225,6 +225,7 @@ export function ResourceDetail({
               onOpenResource={onOpenResource}
             />
           ) : null}
+          <GatewayRouteRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -1501,6 +1502,64 @@ function LinkedPodTile({
   );
 }
 
+function GatewayRouteRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const routes = useMemo(() => gatewayRoutesFor(resource, resources).sort(compareRouteBackends), [resource, resources]);
+  const routeStats = useMemo(() => routes.map((route) => {
+    const backends = routeBackendsFor(route, resources);
+    return {
+      route,
+      serviceCount: backends.length,
+      tone: gatewayRouteTone(route, backends.map((backend) => backend.tone)),
+    };
+  }), [resources, routes]);
+  const visibleRoutes = routeStats.slice(0, 5);
+  const readyCount = routeStats.filter((item) => item.tone === "healthy").length;
+  const tone = gatewayRouteRailTone(resource, routeStats.map((item) => item.tone));
+
+  if (resource.kind !== "Gateway") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail gateway-route-rail ${tone}`} aria-label="Gateway attached routes">
+      <header>
+        <span>
+          <Network size={15} />
+          Routes
+        </span>
+        <strong>{readyCount}/{routes.length || 0} ready</strong>
+        <small title={resource.diagnostic || resource.owner}>{resource.diagnostic || resource.owner || "gateway"}</small>
+      </header>
+      <div>
+        {visibleRoutes.length ? (
+          visibleRoutes.map(({ route, serviceCount, tone }) => (
+            <button className={tone} key={route.id} type="button" onClick={() => onOpenResource(route.id)}>
+              <StatusDot state={tone} />
+              <strong title={route.name}>{route.name}</strong>
+              <em title={route.diagnostic || route.image || route.status}>{route.diagnostic || route.image || route.status}</em>
+              <small title={route.namespace}>{route.namespace}</small>
+              <small>{serviceCount ? `${serviceCount} svc` : "no svc"}</small>
+            </button>
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>No routes attached</span>
+            <strong>No HTTPRoutes name this Gateway in the live snapshot.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function RouteBackendRail({
   onOpenResource,
   resource,
@@ -1582,6 +1641,18 @@ function routeBackendsFor(resource: ResourceRow, resources: ResourceRow[]) {
         tone,
       };
     });
+}
+
+function gatewayRoutesFor(resource: ResourceRow, resources: ResourceRow[]) {
+  if (resource.kind !== "Gateway") {
+    return [];
+  }
+
+  return resources.filter((item) =>
+    item.kind === "HTTPRoute" &&
+    item.namespace === resource.namespace &&
+    routeParents(item).includes(resource.name)
+  );
 }
 
 function workloadPodsFor(resource: ResourceRow, resources: ResourceRow[]) {
@@ -1732,6 +1803,32 @@ function routeBackendTone(referenceCount: number, tones: HealthState[]): HealthS
     return "syncing";
   }
   if (!tones.length || tones.includes("critical")) {
+    return "critical";
+  }
+  if (tones.includes("warning")) {
+    return "warning";
+  }
+  if (tones.every((tone) => tone === "syncing")) {
+    return "syncing";
+  }
+  return "healthy";
+}
+
+function gatewayRouteTone(route: ResourceRow, backendTones: HealthState[]): HealthState {
+  if (route.status !== "healthy") {
+    return route.status;
+  }
+  return routeBackendTone(route.references.filter((reference) => reference.kind === "Service").length, backendTones);
+}
+
+function gatewayRouteRailTone(gateway: ResourceRow, tones: HealthState[]): HealthState {
+  if (gateway.status !== "healthy") {
+    return gateway.status;
+  }
+  if (!tones.length) {
+    return "syncing";
+  }
+  if (tones.includes("critical")) {
     return "critical";
   }
   if (tones.includes("warning")) {
@@ -2084,7 +2181,7 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
 
   if (resource.kind === "Gateway") {
     return [
-      { title: "Routes", resources: resources.filter((item) => item.kind === "HTTPRoute" && routeParents(item).includes(resource.name)) },
+      { title: "Routes", resources: gatewayRoutesFor(resource, resources) },
     ];
   }
 
