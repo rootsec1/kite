@@ -229,6 +229,7 @@ export function ResourceDetail({
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NetworkPolicyPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <ControllerOwnerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -859,6 +860,77 @@ type HierarchyGroup = {
   title: string;
   resources: ResourceRow[];
 };
+
+function ControllerOwnerRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const ownerRef = useMemo(() => controllerOwnerRef(resource), [resource]);
+  const owner = useMemo(
+    () => ownerRef
+      ? resources.find((item) => item.kind === ownerRef.kind && item.namespace === resource.namespace && item.name === ownerRef.name)
+      : undefined,
+    [ownerRef, resource.namespace, resources],
+  );
+  const siblings = useMemo(
+    () => owner ? resources.filter((item) => item.id !== resource.id && ownsResource(owner, item)) : [],
+    [owner, resource.id, resources],
+  );
+  const tone = owner ? owner.status : "warning";
+
+  if (!ownerRef) {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail owner-rail ${tone}`} aria-label="Controller owner">
+      <header>
+        <span>
+          <GitCommitHorizontal size={15} />
+          Owner
+        </span>
+        <strong>{owner ? owner.kind : "Missing"}</strong>
+        <small>{siblings.length ? `${siblings.length} siblings` : resource.owner}</small>
+      </header>
+      <div>
+        {owner ? (
+          <button className={owner.status} type="button" onClick={() => onOpenResource(owner.id)}>
+            <StatusDot state={owner.status} />
+            <strong title={owner.name}>{owner.name}</strong>
+            <em title={owner.diagnostic || owner.status}>{owner.diagnostic || owner.status}</em>
+            <small title={owner.namespace}>{owner.namespace}</small>
+            <small>{owner.kind}</small>
+          </button>
+        ) : (
+          <div className="service-backend-empty">
+            <span>Owner missing</span>
+            <strong>{resource.owner} is not in this snapshot.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const ownerRailKinds = new Set(["ReplicaSet", "Job"]);
+
+function controllerOwnerRef(resource: ResourceRow) {
+  if (!ownerRailKinds.has(resource.kind)) {
+    return null;
+  }
+
+  const [kind, name] = resource.owner.split("/", 2);
+  if (!kind || !name) {
+    return null;
+  }
+
+  return { kind, name };
+}
 
 function WorkloadPodRail({
   onOpenResource,
