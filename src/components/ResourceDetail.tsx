@@ -155,6 +155,7 @@ export function ResourceDetail({
             onOpenResource={onOpenResource}
           />
           <PodNetworkPolicyRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <PodDisruptionBudgetRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <PodIdentityAccessRail details={details} pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <div className="pod-actions" aria-label="Pod actions">
             <button type="button" onClick={() => openLogs()}>
@@ -230,6 +231,7 @@ export function ResourceDetail({
           <ServiceBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <EndpointSliceTargetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NetworkPolicyPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <PdbSelectedPodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <ControllerOwnerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -1314,6 +1316,112 @@ function PodNetworkPolicyRail({
   );
 }
 
+function PodDisruptionBudgetRail({
+  onOpenResource,
+  pod,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  pod: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const namespaceBudgets = useMemo(() => podDisruptionBudgetsInNamespace(pod.namespace, resources), [pod.namespace, resources]);
+  const budgets = useMemo(() => namespaceBudgets.filter((budget) => pdbSelectsPod(budget, pod)), [namespaceBudgets, pod]);
+  const visibleBudgets = budgets.slice(0, 5);
+  const tone = disruptionBudgetTone(budgets);
+
+  if (!namespaceBudgets.length) {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail disruption-budget-rail ${tone}`} aria-label="Pod disruption budgets">
+      <header>
+        <span>
+          <Shield size={15} />
+          Disruption
+        </span>
+        <strong>{budgets.length}/{namespaceBudgets.length} cover</strong>
+        <small>{pod.namespace}</small>
+      </header>
+      <div>
+        {visibleBudgets.length ? (
+          visibleBudgets.map((budget) => (
+            <LinkedDisruptionBudgetTile budget={budget} key={budget.id} onOpenResource={onOpenResource} />
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>No budget match</span>
+            <strong>Namespace has PDBs, but none select this pod.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PdbSelectedPodRail({
+  onOpenResource,
+  resource,
+  resources,
+}: {
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+  resource: ResourceRow;
+  resources: ResourceRow[];
+}) {
+  const pods = useMemo(() => pdbPodsFor(resource, resources).sort(compareRuntimePods), [resource, resources]);
+  const readyCount = pods.filter((pod) => pod.status === "healthy").length;
+  const visiblePods = pods.slice(0, 5);
+  const tone = resource.status === "healthy" ? nodePodTone(pods) : resource.status;
+
+  if (resource.kind !== "PodDisruptionBudget") {
+    return null;
+  }
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail disruption-budget-rail ${tone}`} aria-label="PDB selected pods">
+      <header>
+        <span>
+          <Shield size={15} />
+          Selected pods
+        </span>
+        <strong>{readyCount}/{pods.length || 0} ready</strong>
+        <small>{resource.owner || resource.diagnostic || "budget"}</small>
+      </header>
+      <div>
+        {visiblePods.length ? (
+          visiblePods.map((pod) => (
+            <LinkedPodTile key={pod.id} meta={pod.nodeName || pod.namespace} pod={pod} onOpenResource={onOpenResource} />
+          ))
+        ) : (
+          <div className="service-backend-empty">
+            <span>No selected pods</span>
+            <strong>PDB selector has no live pod match.</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LinkedDisruptionBudgetTile({
+  budget,
+  onOpenResource,
+}: {
+  budget: ResourceRow;
+  onOpenResource: (id: string, intent?: "logs" | null) => void;
+}) {
+  return (
+    <button className={budget.status} type="button" onClick={() => onOpenResource(budget.id)}>
+      <StatusDot state={budget.status} />
+      <strong title={budget.name}>{budget.name}</strong>
+      <em title={budget.diagnostic || budget.image}>{budget.diagnostic || budget.image || "budget"}</em>
+      <small title={budget.image}>{budget.image || budget.namespace}</small>
+      <small>{budget.owner || "pdb"}</small>
+    </button>
+  );
+}
+
 function PodIdentityAccessRail({
   details,
   onOpenResource,
@@ -2064,9 +2172,9 @@ function HierarchyGroups({
 
 const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", "HTTPRoute", "NetworkPolicy"]);
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
-const autoscalingKinds = new Set(["HorizontalPodAutoscaler"]);
+const autoscalingKinds = new Set(["HorizontalPodAutoscaler", "PodDisruptionBudget"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "PersistentVolumeClaim"]);
-const configKinds = new Set(["ConfigMap", "Secret", "ResourceQuota", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
+const configKinds = new Set(["ConfigMap", "Secret", "ResourceQuota", "PodDisruptionBudget", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
 
@@ -2179,6 +2287,13 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
     ];
   }
 
+  if (resource.kind === "PodDisruptionBudget") {
+    return [
+      { title: "Selected pods", resources: pdbPodsFor(resource, resources) },
+      { title: "Budgets in namespace", resources: podDisruptionBudgetsInNamespace(resource.namespace, resources).filter((item) => item.id !== resource.id) },
+    ];
+  }
+
   if (resource.kind === "Gateway") {
     return [
       { title: "Routes", resources: gatewayRoutesFor(resource, resources) },
@@ -2193,6 +2308,44 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
 
 function networkPoliciesInNamespace(namespace: string, resources: ResourceRow[]) {
   return resources.filter((item) => item.kind === "NetworkPolicy" && item.namespace === namespace);
+}
+
+function podDisruptionBudgetsInNamespace(namespace: string, resources: ResourceRow[]) {
+  return resources.filter((item) => item.kind === "PodDisruptionBudget" && item.namespace === namespace);
+}
+
+function pdbPodsFor(budget: ResourceRow, resources: ResourceRow[]) {
+  if (budget.kind !== "PodDisruptionBudget") {
+    return [];
+  }
+
+  return resources.filter((item) => item.kind === "Pod" && pdbSelectsPod(budget, item));
+}
+
+function pdbSelectsPod(budget: ResourceRow, pod: ResourceRow) {
+  if (budget.kind !== "PodDisruptionBudget" || pod.kind !== "Pod" || budget.namespace !== pod.namespace) {
+    return false;
+  }
+  if (budget.diagnostic === "no selector" || budget.diagnostic === "selector expression") {
+    return false;
+  }
+  if (!Object.keys(budget.selector).length) {
+    return true;
+  }
+  return matchesSelector(pod, budget.selector);
+}
+
+function disruptionBudgetTone(budgets: ResourceRow[]): HealthState {
+  if (!budgets.length) {
+    return "syncing";
+  }
+  if (budgets.some((budget) => budget.status === "critical")) {
+    return "critical";
+  }
+  if (budgets.some((budget) => budget.status === "warning")) {
+    return "warning";
+  }
+  return "healthy";
 }
 
 function podServiceAccountName(pod: ResourceRow, details: ResourceDetails) {

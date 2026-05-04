@@ -10,10 +10,11 @@ use k8s_openapi::api::{
     },
     discovery::v1::{Endpoint, EndpointSlice},
     networking::v1::{Ingress, NetworkPolicy},
+    policy::v1::PodDisruptionBudget,
     rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding, Subject},
     storage::v1::StorageClass,
 };
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     api::ListParams,
@@ -154,6 +155,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         cluster_roles,
         cluster_role_bindings,
         network_policies,
+        pod_disruption_budgets,
         resource_quotas,
         events,
         nodes,
@@ -171,6 +173,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_cluster_roles(client.clone(), context),
         list_cluster_role_bindings(client.clone(), context),
         list_network_policies(client.clone(), context),
+        list_pod_disruption_budgets(client.clone(), context),
         list_resource_quotas(client.clone(), context),
         list_events(client.clone(), context),
         list_nodes(client.clone(), context),
@@ -201,6 +204,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(cluster_roles.unwrap_or_default());
     resources.extend(cluster_role_bindings.unwrap_or_default());
     resources.extend(network_policies.unwrap_or_default());
+    resources.extend(pod_disruption_budgets.unwrap_or_default());
     resources.extend(resource_quotas.unwrap_or_default());
     resources.extend(events.unwrap_or_default());
     resources.extend(nodes.unwrap_or_default());
@@ -2348,6 +2352,121 @@ fn network_policy_has_selector_expressions(policy: &NetworkPolicy) -> bool {
         .unwrap_or(false)
 }
 
+async fn list_pod_disruption_budgets(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let budgets = Api::<PodDisruptionBudget>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list PodDisruptionBudgets: {error}"))?;
+
+    Ok(budgets
+        .items
+        .into_iter()
+        .map(|budget| {
+            let age = resource_age(&budget.metadata);
+            let labels = budget.metadata.labels.clone().unwrap_or_default();
+            let namespace = budget.namespace().unwrap_or_else(|| "default".to_string());
+            let selector = pdb_selector(&budget);
+            let selector_summary = pdb_selector_summary(&budget, &selector);
+            let status = budget.status.as_ref();
+            let current_healthy = status.map(|status| status.current_healthy).unwrap_or(0);
+            let desired_healthy = status.map(|status| status.desired_healthy).unwrap_or(0);
+            let disruptions_allowed = status.map(|status| status.disruptions_allowed).unwrap_or(0);
+            let expected_pods = status.map(|status| status.expected_pods).unwrap_or(0);
+
+            resource_summary(
+                "PodDisruptionBudget",
+                budget.name_any(),
+                namespace,
+                cluster,
+                pdb_status(current_healthy, desired_healthy, disruptions_allowed),
+                0,
+                format!("{current_healthy}/{desired_healthy} healthy"),
+            )
+            .with_age(age)
+            .with_owner(format!("{disruptions_allowed} allowed / {expected_pods} pods"))
+            .with_diagnostic(pdb_diagnostic(
+                current_healthy,
+                desired_healthy,
+                disruptions_allowed,
+                &selector_summary,
+            ))
+            .with_labels(labels)
+            .with_selector(selector)
+        })
+        .collect())
+}
+
+fn pdb_selector(budget: &PodDisruptionBudget) -> BTreeMap<String, String> {
+    budget
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.selector.as_ref())
+        .and_then(|selector| selector.match_labels.clone())
+        .unwrap_or_default()
+}
+
+fn pdb_selector_summary(budget: &PodDisruptionBudget, selector: &BTreeMap<String, String>) -> String {
+    let Some(selector_value) = budget.spec.as_ref().and_then(|spec| spec.selector.as_ref()) else {
+        return "no selector".to_string();
+    };
+
+    label_selector_summary(selector_value, selector)
+}
+
+fn label_selector_summary(selector_value: &LabelSelector, selector: &BTreeMap<String, String>) -> String {
+    if selector_value
+        .match_expressions
+        .as_ref()
+        .map(|expressions| !expressions.is_empty())
+        .unwrap_or(false)
+    {
+        return "selector expression".to_string();
+    }
+    if selector.is_empty() {
+        return "all pods".to_string();
+    }
+
+    let visible = selector
+        .iter()
+        .take(2)
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if selector.len() > 2 {
+        format!("{visible} +{}", selector.len() - 2)
+    } else {
+        visible
+    }
+}
+
+fn pdb_status(current_healthy: i32, desired_healthy: i32, disruptions_allowed: i32) -> HealthState {
+    if current_healthy < desired_healthy {
+        HealthState::Critical
+    } else if disruptions_allowed == 0 {
+        HealthState::Warning
+    } else {
+        HealthState::Healthy
+    }
+}
+
+fn pdb_diagnostic(
+    current_healthy: i32,
+    desired_healthy: i32,
+    disruptions_allowed: i32,
+    selector_summary: &str,
+) -> String {
+    if selector_summary == "no selector" || selector_summary == "selector expression" {
+        return selector_summary.to_string();
+    }
+    if current_healthy < desired_healthy {
+        return format!("{current_healthy}/{desired_healthy} healthy");
+    }
+    if disruptions_allowed == 0 {
+        return "0 disruptions allowed".to_string();
+    }
+    selector_summary.to_string()
+}
+
 async fn list_gateway_api_resources(client: Client, cluster: &str) -> Vec<ResourceSummary> {
     let mut resources = Vec::new();
     resources.extend(
@@ -3703,6 +3822,7 @@ mod tests {
         HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
         IngressSpec, NetworkPolicySpec, ServiceBackendPort,
     };
+    use k8s_openapi::api::policy::v1::{PodDisruptionBudget, PodDisruptionBudgetSpec};
     use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, LabelSelectorRequirement, OwnerReference};
 
@@ -4365,6 +4485,55 @@ mod tests {
             network_policy_selector_summary(&policy, &network_policy_selector(&policy)),
             "selector expression"
         );
+    }
+
+    #[test]
+    fn pdb_selector_distinguishes_absent_empty_and_expression_selectors() {
+        let absent = PodDisruptionBudget {
+            metadata: ObjectMeta::default(),
+            spec: Some(PodDisruptionBudgetSpec::default()),
+            status: None,
+        };
+        let empty = PodDisruptionBudget {
+            metadata: ObjectMeta::default(),
+            spec: Some(PodDisruptionBudgetSpec {
+                selector: Some(LabelSelector::default()),
+                ..PodDisruptionBudgetSpec::default()
+            }),
+            status: None,
+        };
+        let expression = PodDisruptionBudget {
+            metadata: ObjectMeta::default(),
+            spec: Some(PodDisruptionBudgetSpec {
+                selector: Some(LabelSelector {
+                    match_expressions: Some(vec![LabelSelectorRequirement {
+                        key: "app".to_string(),
+                        operator: "In".to_string(),
+                        values: Some(vec!["api".to_string(), "worker".to_string()]),
+                    }]),
+                    ..LabelSelector::default()
+                }),
+                ..PodDisruptionBudgetSpec::default()
+            }),
+            status: None,
+        };
+
+        assert_eq!(pdb_selector_summary(&absent, &pdb_selector(&absent)), "no selector");
+        assert_eq!(pdb_selector_summary(&empty, &pdb_selector(&empty)), "all pods");
+        assert_eq!(
+            pdb_selector_summary(&expression, &pdb_selector(&expression)),
+            "selector expression"
+        );
+    }
+
+    #[test]
+    fn pdb_status_marks_closed_and_violated_budgets() {
+        assert_eq!(pdb_status(2, 3, 0), HealthState::Critical);
+        assert_eq!(pdb_diagnostic(2, 3, 0, "app=api"), "2/3 healthy");
+        assert_eq!(pdb_status(3, 3, 0), HealthState::Warning);
+        assert_eq!(pdb_diagnostic(3, 3, 0, "app=api"), "0 disruptions allowed");
+        assert_eq!(pdb_status(4, 3, 1), HealthState::Healthy);
+        assert_eq!(pdb_diagnostic(4, 3, 1, "app=api"), "app=api");
     }
 
     #[test]

@@ -81,6 +81,10 @@ type KubeItem = {
     hostIP?: string;
     qosClass?: string;
     startTime?: string;
+    currentHealthy?: number;
+    desiredHealthy?: number;
+    disruptionsAllowed?: number;
+    expectedPods?: number;
     replicas?: number;
     availableReplicas?: number;
     currentReplicas?: number;
@@ -243,6 +247,7 @@ const resourceQueries = [
   { name: "events", namespaced: true },
   { name: "ingresses.networking.k8s.io", namespaced: true },
   { name: "networkpolicies.networking.k8s.io", namespaced: true },
+  { name: "poddisruptionbudgets.policy", namespaced: true },
   { name: "gateways.gateway.networking.k8s.io", namespaced: true },
   { name: "httproutes.gateway.networking.k8s.io", namespaced: true },
   { name: "configmaps", namespaced: true },
@@ -1031,6 +1036,10 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return networkPolicyTypes(item).join("/") || "Ingress";
   }
 
+  if (item.kind === "PodDisruptionBudget") {
+    return `${item.status?.disruptionsAllowed ?? 0} allowed / ${item.status?.expectedPods ?? 0} pods`;
+  }
+
   if ((item.kind === "RoleBinding" || item.kind === "ClusterRoleBinding") && item.roleRef?.kind && item.roleRef.name) {
     return `${item.roleRef.kind}/${item.roleRef.name}`;
   }
@@ -1063,6 +1072,9 @@ function resourceImage(item: KubeItem) {
     const ingress = item.spec?.ingress?.length ?? 0;
     const egress = item.spec?.egress?.length ?? 0;
     return `${ingress} ingress / ${egress} egress`;
+  }
+  if (item.kind === "PodDisruptionBudget") {
+    return `${item.status?.currentHealthy ?? 0}/${item.status?.desiredHealthy ?? 0} healthy`;
   }
   return item.status?.containerStatuses?.[0]?.image ??
     item.spec?.containers?.[0]?.image ??
@@ -1253,6 +1265,14 @@ function resourceStatus(item: KubeItem) {
     return resourceQuotaDiagnostic(item) ? "warning" : "healthy";
   }
 
+  if (item.kind === "PodDisruptionBudget") {
+    return pdbStatus(
+      item.status?.currentHealthy ?? 0,
+      item.status?.desiredHealthy ?? 0,
+      item.status?.disruptionsAllowed ?? 0,
+    );
+  }
+
   if (item.kind === "Job") {
     const failed = item.status?.conditions?.find((condition) => condition.type === "Failed");
     if (failed?.status === "True") return "critical";
@@ -1318,6 +1338,10 @@ function resourceDiagnostic(item: KubeItem) {
 
   if (item.kind === "NetworkPolicy") {
     return networkPolicySelectorSummary(item);
+  }
+
+  if (item.kind === "PodDisruptionBudget") {
+    return pdbDiagnostic(item);
   }
 
   if (item.kind === "ResourceQuota") {
@@ -1430,6 +1454,36 @@ function networkPolicySelectorSummary(item: KubeItem) {
 
   const selector = selectorLabels(item.spec?.selector);
   const entries = Object.entries(selector);
+  if (!entries.length) return "all pods";
+
+  const visible = entries.slice(0, 2).map(([key, value]) => `${key}=${value}`).join(", ");
+  return entries.length > 2 ? `${visible} +${entries.length - 2}` : visible;
+}
+
+function pdbStatus(currentHealthy: number, desiredHealthy: number, disruptionsAllowed: number) {
+  if (currentHealthy < desiredHealthy) return "critical";
+  if (disruptionsAllowed === 0) return "warning";
+  return "healthy";
+}
+
+function pdbDiagnostic(item: KubeItem) {
+  const selector = pdbSelectorSummary(item);
+  const currentHealthy = item.status?.currentHealthy ?? 0;
+  const desiredHealthy = item.status?.desiredHealthy ?? 0;
+  const disruptionsAllowed = item.status?.disruptionsAllowed ?? 0;
+
+  if (selector === "no selector" || selector === "selector expression") return selector;
+  if (currentHealthy < desiredHealthy) return `${currentHealthy}/${desiredHealthy} healthy`;
+  if (disruptionsAllowed === 0) return "0 disruptions allowed";
+  return selector;
+}
+
+function pdbSelectorSummary(item: KubeItem) {
+  const rawSelector = item.spec?.selector;
+  if (!rawSelector) return "no selector";
+  if ("matchExpressions" in rawSelector && rawSelector.matchExpressions?.length) return "selector expression";
+
+  const entries = Object.entries(selectorLabels(rawSelector));
   if (!entries.length) return "all pods";
 
   const visible = entries.slice(0, 2).map(([key, value]) => `${key}=${value}`).join(", ");
