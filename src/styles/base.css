@@ -2015,6 +2015,20 @@ summary:focus-visible {
   border-block-end: 1px solid var(--line);
 }
 
+button.pod-event-item {
+  inline-size: 100%;
+  border-inline: 0;
+  border-block-start: 0;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+button.pod-event-item:hover {
+  background: var(--surface-soft);
+}
+
 .pod-event-item:last-child {
   border-block-end: 0;
 }
@@ -2656,6 +2670,10 @@ summary:focus-visible {
 
 .namespace-pod-rail header svg {
   color: var(--green-deep);
+}
+
+.related-event-rail header svg {
+  color: var(--orange);
 }
 
 .network-policy-rail header svg {

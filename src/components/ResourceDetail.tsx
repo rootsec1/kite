@@ -13,6 +13,7 @@ import { PodLifecycleRail } from "./PodLifecycleRail";
 import { PodLinkStrip } from "./PodLinkStrip";
 import { PodPlacementStrip } from "./PodPlacementStrip";
 import { PodTerminal, type LogMode } from "./PodTerminal";
+import { RelatedEventRail } from "./RelatedEventRail";
 import { StatusDot } from "./status";
 import { StorageBindingRail } from "./StorageBindingRail";
 
@@ -207,7 +208,14 @@ export function ResourceDetail({
 
       {isPod ? (
         <>
-          <PodEventRail details={details} detailsError={detailsError} detailsLoading={detailsLoading} />
+          <PodEventRail
+            details={details}
+            detailsError={detailsError}
+            detailsLoading={detailsLoading}
+            resource={resource}
+            resources={allResources}
+            onOpenResource={onOpenResource}
+          />
           <PodTerminal
             details={details}
             detailsError={detailsError}
@@ -230,6 +238,7 @@ export function ResourceDetail({
               onOpenResource={onOpenResource}
             />
           ) : null}
+          <RelatedEventRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <CrdDefinitionRail details={details} detailsLoading={detailsLoading} resource={resource} />
           <DependencyConsumerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NamespaceConstraintRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
