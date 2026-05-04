@@ -12,6 +12,7 @@ import { PodIssueStrip } from "./PodIssueStrip";
 import { PodLifecycleRail } from "./PodLifecycleRail";
 import { PodLinkStrip } from "./PodLinkStrip";
 import { PodPlacementStrip } from "./PodPlacementStrip";
+import { PodControllerRail } from "./PodControllerRail";
 import { PodTerminal, type LogMode } from "./PodTerminal";
 import { RelatedEventRail } from "./RelatedEventRail";
 import { StatusDot } from "./status";
@@ -150,6 +151,7 @@ export function ResourceDetail({
             onOpenContainerPreviousLogs={(containerName) => openLogs("previous", containerName)}
             onExecContainer={(containerName) => onRunPodAction(`exec:${containerName}`)}
           />
+          <PodControllerRail pod={resource} resources={allResources} onOpenResource={onOpenResource} />
           <PodLifecycleRail details={details} />
           <PodPlacementStrip allResources={allResources} pod={details.pod} onOpenResource={onOpenResource} />
           <PodLinkStrip
