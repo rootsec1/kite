@@ -4,6 +4,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { containerCurrentState, containerLastState, currentStateTime, lastStateTime } from "../lib/podLifecycle";
 import { matchesSelector, ownsPod, ownsResource, referencesResource, workloadKinds } from "../lib/resourceRelationships";
 import type { ContainerDetails, HealthState, PodActionResult, PodCondition, ResourceDetails, ResourceRow } from "../types/kube";
+import { DependencyConsumerRail } from "./DependencyConsumerRail";
 import { compareReleaseMembers, HelmReleaseRail, helmReleaseForResource, helmReleaseMembers } from "./HelmReleaseRail";
 import { NamespaceConstraintRail } from "./NamespaceConstraintRail";
 import { PodEventRail } from "./PodEventRail";
@@ -229,6 +230,7 @@ export function ResourceDetail({
               onOpenResource={onOpenResource}
             />
           ) : null}
+          <DependencyConsumerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NamespaceConstraintRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <GatewayRouteRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <RouteBackendRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
