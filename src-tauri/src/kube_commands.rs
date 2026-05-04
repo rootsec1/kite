@@ -6,7 +6,7 @@ use k8s_openapi::api::{
     batch::v1::{CronJob, Job},
     core::v1::{
         ConfigMap, ContainerStatus, EnvFromSource, EnvVar, Event, Namespace, Node, PersistentVolume,
-        PersistentVolumeClaim, Pod, Secret, Service, ServiceAccount,
+        PersistentVolumeClaim, Pod, ResourceQuota, Secret, Service, ServiceAccount,
     },
     discovery::v1::{Endpoint, EndpointSlice},
     networking::v1::{Ingress, NetworkPolicy},
@@ -154,6 +154,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         cluster_roles,
         cluster_role_bindings,
         network_policies,
+        resource_quotas,
         events,
         nodes,
         namespaces,
@@ -170,6 +171,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
         list_cluster_roles(client.clone(), context),
         list_cluster_role_bindings(client.clone(), context),
         list_network_policies(client.clone(), context),
+        list_resource_quotas(client.clone(), context),
         list_events(client.clone(), context),
         list_nodes(client.clone(), context),
         list_namespaces(client.clone(), context),
@@ -199,6 +201,7 @@ async fn required_snapshot_resources(client: Client, context: &str) -> Result<(V
     resources.extend(cluster_roles.unwrap_or_default());
     resources.extend(cluster_role_bindings.unwrap_or_default());
     resources.extend(network_policies.unwrap_or_default());
+    resources.extend(resource_quotas.unwrap_or_default());
     resources.extend(events.unwrap_or_default());
     resources.extend(nodes.unwrap_or_default());
     resources.extend(namespaces.unwrap_or_default());
@@ -2691,6 +2694,44 @@ async fn list_service_accounts(client: Client, cluster: &str) -> Result<Vec<Reso
         .collect())
 }
 
+async fn list_resource_quotas(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
+    let quotas = Api::<ResourceQuota>::all(client)
+        .list(&ListParams::default())
+        .await
+        .map_err(|error| format!("Unable to list ResourceQuotas: {error}"))?;
+
+    Ok(quotas
+        .items
+        .into_iter()
+        .map(|quota| {
+            let age = resource_age(&quota.metadata);
+            let labels = quota.metadata.labels.clone().unwrap_or_default();
+            let hard = quota
+                .status
+                .as_ref()
+                .and_then(|status| status.hard.as_ref())
+                .or_else(|| quota.spec.as_ref().and_then(|spec| spec.hard.as_ref()));
+            let used = quota.status.as_ref().and_then(|status| status.used.as_ref());
+            let diagnostic = resource_quota_diagnostic(hard, used);
+            let limit_count = hard.map(|hard| hard.len()).unwrap_or(0);
+
+            resource_summary(
+                "ResourceQuota",
+                quota.name_any(),
+                quota.namespace().unwrap_or_else(|| "default".to_string()),
+                cluster,
+                if diagnostic.is_empty() { HealthState::Healthy } else { HealthState::Warning },
+                0,
+                resource_quota_summary(hard, used),
+            )
+            .with_age(age)
+            .with_labels(labels)
+            .with_owner(format!("{limit_count} limits"))
+            .with_diagnostic(diagnostic)
+        })
+        .collect())
+}
+
 async fn list_persistent_volume_claims(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>, String> {
     let claims = Api::<PersistentVolumeClaim>::all(client)
         .list(&ListParams::default())
@@ -3367,6 +3408,76 @@ fn volume_phase_status(phase: &str) -> HealthState {
     }
 }
 
+type QuantityMap = BTreeMap<String, k8s_openapi::apimachinery::pkg::api::resource::Quantity>;
+
+fn resource_quota_summary(hard: Option<&QuantityMap>, used: Option<&QuantityMap>) -> String {
+    let Some(hard) = hard else {
+        return "No limits".to_string();
+    };
+
+    quota_peak_usage(hard, used)
+        .map(|(name, used, hard, _)| format!("{used}/{hard} {name}"))
+        .unwrap_or_else(|| format!("{} limits", hard.len()))
+}
+
+fn resource_quota_diagnostic(hard: Option<&QuantityMap>, used: Option<&QuantityMap>) -> String {
+    let Some(hard) = hard else {
+        return String::new();
+    };
+
+    quota_peak_usage(hard, used)
+        .filter(|(_, _, _, ratio)| *ratio >= 1.0)
+        .map(|(name, used, hard, _)| format!("{name} quota {used}/{hard}"))
+        .unwrap_or_default()
+}
+
+fn quota_peak_usage<'a>(hard: &'a QuantityMap, used: Option<&'a QuantityMap>) -> Option<(&'a str, &'a str, &'a str, f64)> {
+    let used = used?;
+
+    hard.iter()
+        .filter_map(|(name, hard_quantity)| {
+            let used_quantity = used.get(name)?;
+            let hard_value = parse_kube_quantity(&hard_quantity.0)?;
+            let used_value = parse_kube_quantity(&used_quantity.0)?;
+            if hard_value <= 0.0 {
+                return None;
+            }
+
+            Some((name.as_str(), used_quantity.0.as_str(), hard_quantity.0.as_str(), used_value / hard_value))
+        })
+        .max_by(|left, right| left.3.partial_cmp(&right.3).unwrap_or(std::cmp::Ordering::Equal))
+}
+
+fn parse_kube_quantity(value: &str) -> Option<f64> {
+    const SUFFIXES: &[(&str, f64)] = &[
+        ("Ki", 1024.0),
+        ("Mi", 1024.0 * 1024.0),
+        ("Gi", 1024.0 * 1024.0 * 1024.0),
+        ("Ti", 1024.0 * 1024.0 * 1024.0 * 1024.0),
+        ("Pi", 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0),
+        ("Ei", 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0),
+        ("m", 0.001),
+        ("k", 1_000.0),
+        ("M", 1_000_000.0),
+        ("G", 1_000_000_000.0),
+        ("T", 1_000_000_000_000.0),
+        ("P", 1_000_000_000_000_000.0),
+        ("E", 1_000_000_000_000_000_000.0),
+    ];
+    let trimmed = value.trim();
+    let (number, multiplier) = SUFFIXES
+        .iter()
+        .find_map(|(suffix, multiplier)| {
+            trimmed
+                .strip_suffix(suffix)
+                .filter(|number| !number.is_empty())
+                .map(|number| (number, *multiplier))
+        })
+        .unwrap_or((trimmed, 1.0));
+
+    number.parse::<f64>().ok().map(|number| number * multiplier)
+}
+
 fn ingress_status(host_count: usize, has_default_backend: bool) -> HealthState {
     if host_count > 0 || has_default_backend {
         HealthState::Healthy
@@ -3592,6 +3703,7 @@ mod tests {
         HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
         IngressSpec, NetworkPolicySpec, ServiceBackendPort,
     };
+    use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, LabelSelectorRequirement, OwnerReference};
 
     #[test]
@@ -4899,6 +5011,38 @@ mod tests {
         assert_eq!(heat.len(), 12);
         assert_eq!(risky_namespace.restarts, 7);
         assert_eq!(risky_namespace.risk, HealthState::Critical);
+    }
+
+    #[test]
+    fn resource_quota_summary_reports_peak_usage() {
+        let hard = BTreeMap::from([
+            ("cpu".to_string(), Quantity("2".to_string())),
+            ("pods".to_string(), Quantity("10".to_string())),
+        ]);
+        let used = BTreeMap::from([
+            ("cpu".to_string(), Quantity("1500m".to_string())),
+            ("pods".to_string(), Quantity("4".to_string())),
+        ]);
+
+        assert_eq!(resource_quota_summary(Some(&hard), Some(&used)), "1500m/2 cpu");
+        assert_eq!(resource_quota_diagnostic(Some(&hard), Some(&used)), "");
+    }
+
+    #[test]
+    fn resource_quota_diagnostic_marks_saturated_limit() {
+        let hard = BTreeMap::from([
+            ("limits.memory".to_string(), Quantity("1Gi".to_string())),
+            ("pods".to_string(), Quantity("10".to_string())),
+        ]);
+        let used = BTreeMap::from([
+            ("limits.memory".to_string(), Quantity("1024Mi".to_string())),
+            ("pods".to_string(), Quantity("7".to_string())),
+        ]);
+
+        assert_eq!(
+            resource_quota_diagnostic(Some(&hard), Some(&used)),
+            "limits.memory quota 1024Mi/1Gi",
+        );
     }
 
     fn pod_with_status(phase: &str, containers: Vec<ContainerStatus>) -> Pod {

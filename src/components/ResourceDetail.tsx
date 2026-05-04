@@ -2066,7 +2066,7 @@ const trafficKinds = new Set(["Service", "EndpointSlice", "Ingress", "Gateway", 
 const routeKinds = new Set(["Ingress", "HTTPRoute"]);
 const autoscalingKinds = new Set(["HorizontalPodAutoscaler"]);
 const inputDependencyKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "PersistentVolumeClaim"]);
-const configKinds = new Set(["ConfigMap", "Secret", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
+const configKinds = new Set(["ConfigMap", "Secret", "ResourceQuota", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const accessKinds = new Set(["Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"]);
 const storageKinds = new Set(["PersistentVolumeClaim", "PersistentVolume", "StorageClass"]);
 
@@ -2084,7 +2084,7 @@ function hierarchyFor(resource: ResourceRow, resources: ResourceRow[]): Hierarch
       { title: "Workloads", resources: scoped.filter((item) => workloadKinds.has(item.kind) || autoscalingKinds.has(item.kind)) },
       { title: "Services and routes", resources: scoped.filter((item) => trafficKinds.has(item.kind)) },
       { title: "Pods", resources: scoped.filter((item) => item.kind === "Pod") },
-      { title: "Config and access", resources: scoped.filter((item) => configKinds.has(item.kind)) },
+      { title: "Config and constraints", resources: scoped.filter((item) => configKinds.has(item.kind)) },
       { title: "Storage", resources: scoped.filter((item) => storageKinds.has(item.kind)) },
       { title: "Packages", resources: scoped.filter((item) => item.kind === "HelmRelease") },
     ];

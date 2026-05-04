@@ -30,6 +30,7 @@ type KubeItem = {
   spec?: {
     affinity?: Record<string, unknown>;
     egress?: unknown[];
+    hard?: Record<string, string | number>;
     ingress?: unknown[];
     nodeSelector?: Record<string, string | number | boolean>;
     providerID?: string;
@@ -87,6 +88,8 @@ type KubeItem = {
     readyReplicas?: number;
     unavailableReplicas?: number;
     conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>;
+    hard?: Record<string, string | number>;
+    used?: Record<string, string | number>;
     containerStatuses?: KubeContainerStatus[];
     ephemeralContainerStatuses?: KubeContainerStatus[];
     initContainerStatuses?: KubeContainerStatus[];
@@ -245,6 +248,7 @@ const resourceQueries = [
   { name: "configmaps", namespaced: true },
   { name: "secrets", namespaced: true },
   { name: "serviceaccounts", namespaced: true },
+  { name: "resourcequotas", namespaced: true },
   { name: "persistentvolumeclaims", namespaced: true },
   { name: "roles.rbac.authorization.k8s.io", namespaced: true },
   { name: "rolebindings.rbac.authorization.k8s.io", namespaced: true },
@@ -1015,6 +1019,10 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return `${item.secrets?.length ?? 0} secrets / ${item.imagePullSecrets?.length ?? 0} pulls`;
   }
 
+  if (item.kind === "ResourceQuota") {
+    return `${Object.keys(resourceQuotaHard(item)).length} limits`;
+  }
+
   if (item.kind === "HorizontalPodAutoscaler" && item.spec?.scaleTargetRef?.kind && item.spec.scaleTargetRef.name) {
     return `${item.spec.scaleTargetRef.kind}/${item.spec.scaleTargetRef.name}`;
   }
@@ -1043,6 +1051,9 @@ function resourceImage(item: KubeItem) {
   }
   if (item.kind === "ServiceAccount") {
     return item.automountServiceAccountToken === false ? "manual token" : "automount token";
+  }
+  if (item.kind === "ResourceQuota") {
+    return resourceQuotaSummary(item);
   }
   if (item.kind === "HorizontalPodAutoscaler") {
     const min = item.spec?.minReplicas ?? 1;
@@ -1238,6 +1249,10 @@ function resourceStatus(item: KubeItem) {
     return item.status?.phase === "Bound" || item.status?.phase === "Available" ? "healthy" : "warning";
   }
 
+  if (item.kind === "ResourceQuota") {
+    return resourceQuotaDiagnostic(item) ? "warning" : "healthy";
+  }
+
   if (item.kind === "Job") {
     const failed = item.status?.conditions?.find((condition) => condition.type === "Failed");
     if (failed?.status === "True") return "critical";
@@ -1305,8 +1320,81 @@ function resourceDiagnostic(item: KubeItem) {
     return networkPolicySelectorSummary(item);
   }
 
+  if (item.kind === "ResourceQuota") {
+    return resourceQuotaDiagnostic(item);
+  }
+
   if (item.kind !== "Pod") return "";
   return podDiagnostic(item);
+}
+
+function resourceQuotaHard(item: KubeItem) {
+  return item.status?.hard ?? item.spec?.hard ?? {};
+}
+
+function resourceQuotaSummary(item: KubeItem) {
+  const hard = resourceQuotaHard(item);
+  const peak = quotaPeakUsage(hard, item.status?.used);
+  return peak ? `${peak.used}/${peak.hard} ${peak.name}` : `${Object.keys(hard).length} limits`;
+}
+
+function resourceQuotaDiagnostic(item: KubeItem) {
+  const peak = quotaPeakUsage(resourceQuotaHard(item), item.status?.used);
+  return peak && peak.ratio >= 1 ? `${peak.name} quota ${peak.used}/${peak.hard}` : "";
+}
+
+function quotaPeakUsage(hard: Record<string, string | number>, used: Record<string, string | number> | undefined) {
+  if (!used) {
+    return null;
+  }
+
+  return Object.entries(hard).reduce<null | { hard: string; name: string; ratio: number; used: string }>((peak, [name, hardValue]) => {
+    const usedValue = used[name];
+    const parsedHard = parseKubeQuantity(hardValue);
+    const parsedUsed = parseKubeQuantity(usedValue);
+    if (!parsedHard || parsedUsed == null) {
+      return peak;
+    }
+
+    const next = {
+      hard: String(hardValue),
+      name,
+      ratio: parsedUsed / parsedHard,
+      used: String(usedValue),
+    };
+    return !peak || next.ratio > peak.ratio ? next : peak;
+  }, null);
+}
+
+function parseKubeQuantity(value: string | number | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (!value) {
+    return null;
+  }
+
+  const suffixes: Array<[string, number]> = [
+    ["Ki", 1024],
+    ["Mi", 1024 ** 2],
+    ["Gi", 1024 ** 3],
+    ["Ti", 1024 ** 4],
+    ["Pi", 1024 ** 5],
+    ["Ei", 1024 ** 6],
+    ["m", 0.001],
+    ["k", 1_000],
+    ["M", 1_000_000],
+    ["G", 1_000_000_000],
+    ["T", 1_000_000_000_000],
+    ["P", 1_000_000_000_000_000],
+    ["E", 1_000_000_000_000_000_000],
+  ];
+  const trimmed = value.trim();
+  const suffix = suffixes.find(([suffix]) => trimmed.endsWith(suffix));
+  const rawNumber = suffix ? trimmed.slice(0, -suffix[0].length) : trimmed;
+  const number = Number(rawNumber);
+
+  return Number.isFinite(number) ? number * (suffix?.[1] ?? 1) : null;
 }
 
 function hpaDiagnostic(item: KubeItem) {
