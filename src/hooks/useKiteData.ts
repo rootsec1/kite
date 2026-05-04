@@ -16,6 +16,9 @@ const emptyResourceDetails = (): ResourceDetails => ({
   events: [],
   logs: "",
   previousLogs: "",
+  node: undefined,
+  pod: undefined,
+  crd: undefined,
 });
 
 export function useKiteData() {

@@ -71,6 +71,7 @@ export type ResourceDetails = {
   logs: string;
   previousLogs: string;
   pod?: PodDetails;
+  node?: NodeDetails;
   crd?: CrdDetails;
 };
 
@@ -121,6 +122,29 @@ export type PodSchedulingDetails = {
   affinity: string[];
   schedulingGates: string[];
   runtimeClassName: string;
+};
+
+export type NodeDetails = {
+  conditions: NodeCondition[];
+  capacity: Record<string, string>;
+  allocatable: Record<string, string>;
+  kubeletVersion: string;
+  osImage: string;
+  architecture: string;
+  containerRuntimeVersion: string;
+  kernelVersion: string;
+  operatingSystem: string;
+  podCidr: string;
+  providerId: string;
+  unschedulable: boolean;
+  taints: string[];
+};
+
+export type NodeCondition = {
+  type: string;
+  status: string;
+  reason: string;
+  message: string;
 };
 
 export type ContainerDetails = {

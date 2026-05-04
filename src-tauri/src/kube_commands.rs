@@ -28,8 +28,8 @@ use serde::Deserialize;
 
 use crate::models::{
     ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, ContainerProbe, CrdDetails, CrdVersionDetails, HealthState,
-    KubeContextSummary, LiveSnapshot, NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, PodSchedulingDetails,
-    ResourceDetails, ResourceEvent, ResourceReference, ResourceSummary,
+    KubeContextSummary, LiveSnapshot, NamespaceHeat, NodeCondition, NodeDetails, PodActionResult, PodActionStatus, PodCondition,
+    PodDetails, PodSchedulingDetails, ResourceDetails, ResourceEvent, ResourceReference, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -290,6 +290,11 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
     } else {
         None
     };
+    let node = if target.kind == "Node" {
+        node_details(&target).await.ok()
+    } else {
+        None
+    };
     let crd = if target.kind == "CustomResourceDefinition" {
         crd_definition_details(&target).await.ok()
     } else {
@@ -306,7 +311,7 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         String::new()
     };
 
-    ResourceDetails { yaml, describe, events, logs, previous_logs, pod, crd }
+    ResourceDetails { yaml, describe, events, logs, previous_logs, pod, node, crd }
 }
 
 async fn event_details(target: ActionTarget) -> ResourceDetails {
@@ -334,6 +339,7 @@ fn event_resource_details(yaml: String, describe: String, json: &str) -> Resourc
         logs: String::new(),
         previous_logs: String::new(),
         pod: None,
+        node: None,
         crd: None,
     }
 }
@@ -550,6 +556,7 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
         logs: String::new(),
         previous_logs: String::new(),
         pod: None,
+        node: None,
         crd: None,
     }
 }
@@ -558,6 +565,69 @@ async fn crd_definition_details(target: &ActionTarget) -> Result<CrdDetails, Str
     let json = kubectl(resource_json_args(target)).await?;
     let value = serde_json::from_str::<serde_json::Value>(&json).map_err(|error| format!("Invalid CRD JSON: {error}"))?;
     crd_definition_details_from_value(&value).ok_or_else(|| "Unable to parse CRD definition details.".to_string())
+}
+
+async fn node_details(target: &ActionTarget) -> Result<NodeDetails, String> {
+    let json = kubectl(resource_json_args(target)).await?;
+    let value = serde_json::from_str::<serde_json::Value>(&json).map_err(|error| format!("Invalid node JSON: {error}"))?;
+    Ok(node_details_from_value(&value))
+}
+
+fn node_details_from_value(value: &serde_json::Value) -> NodeDetails {
+    let status = value.get("status").unwrap_or(&serde_json::Value::Null);
+    let spec = value.get("spec").unwrap_or(&serde_json::Value::Null);
+    let node_info = status.get("nodeInfo").unwrap_or(&serde_json::Value::Null);
+
+    NodeDetails {
+        conditions: node_conditions(status),
+        capacity: string_map_field(status, "capacity"),
+        allocatable: string_map_field(status, "allocatable"),
+        kubelet_version: text_field(node_info, "kubeletVersion", ""),
+        os_image: text_field(node_info, "osImage", ""),
+        architecture: text_field(node_info, "architecture", ""),
+        container_runtime_version: text_field(node_info, "containerRuntimeVersion", ""),
+        kernel_version: text_field(node_info, "kernelVersion", ""),
+        operating_system: text_field(node_info, "operatingSystem", ""),
+        pod_cidr: text_field(spec, "podCIDR", ""),
+        provider_id: text_field(spec, "providerID", ""),
+        unschedulable: bool_field(spec, "unschedulable"),
+        taints: node_taints(spec),
+    }
+}
+
+fn node_conditions(status: &serde_json::Value) -> Vec<NodeCondition> {
+    status
+        .get("conditions")
+        .and_then(|conditions| conditions.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|condition| NodeCondition {
+            type_: text_field(condition, "type", "Condition"),
+            status: text_field(condition, "status", "Unknown"),
+            reason: text_field(condition, "reason", ""),
+            message: text_field(condition, "message", ""),
+        })
+        .collect()
+}
+
+fn node_taints(spec: &serde_json::Value) -> Vec<String> {
+    spec.get("taints")
+        .and_then(|taints| taints.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|taint| {
+            let key = text_field(taint, "key", "");
+            if key.is_empty() {
+                return None;
+            }
+            let value = text_field(taint, "value", "");
+            let effect = text_field(taint, "effect", "");
+            let key_value = if value.is_empty() { key } else { format!("{key}={value}") };
+            Some(if effect.is_empty() { key_value } else { format!("{key_value}:{effect}") })
+        })
+        .collect()
 }
 
 fn crd_definition_details_from_value(value: &serde_json::Value) -> Option<CrdDetails> {
@@ -4922,6 +4992,51 @@ mod tests {
 
         assert_eq!(resource_event(&repeated).count, 7);
         assert_eq!(resource_event(&missing_count).count, 1);
+    }
+
+    #[test]
+    fn node_details_preserve_conditions_capacity_and_taints() {
+        let node = serde_json::json!({
+            "spec": {
+                "podCIDR": "10.42.0.0/24",
+                "providerID": "kind://docker/kite/node/kite-control-plane",
+                "unschedulable": true,
+                "taints": [
+                    { "key": "node-role.kubernetes.io/control-plane", "effect": "NoSchedule" },
+                    { "key": "dedicated", "value": "debug", "effect": "NoExecute" }
+                ]
+            },
+            "status": {
+                "capacity": { "cpu": "8", "memory": "16Gi", "pods": 110 },
+                "allocatable": { "cpu": "7800m", "memory": "14Gi", "pods": 100 },
+                "nodeInfo": {
+                    "kubeletVersion": "v1.31.0",
+                    "osImage": "Debian GNU/Linux 12",
+                    "architecture": "arm64",
+                    "containerRuntimeVersion": "containerd://1.7.20"
+                },
+                "conditions": [
+                    { "type": "Ready", "status": "True", "reason": "KubeletReady", "message": "kubelet is posting ready status" },
+                    { "type": "DiskPressure", "status": "False", "reason": "KubeletHasNoDiskPressure" }
+                ]
+            }
+        });
+
+        let details = node_details_from_value(&node);
+
+        assert_eq!(details.kubelet_version, "v1.31.0");
+        assert_eq!(details.capacity.get("pods").map(String::as_str), Some("110"));
+        assert_eq!(details.allocatable.get("cpu").map(String::as_str), Some("7800m"));
+        assert!(details.unschedulable);
+        assert_eq!(
+            details.taints,
+            [
+                "node-role.kubernetes.io/control-plane:NoSchedule".to_string(),
+                "dedicated=debug:NoExecute".to_string(),
+            ]
+        );
+        assert_eq!(details.conditions[0].type_, "Ready");
+        assert_eq!(details.conditions[1].reason, "KubeletHasNoDiskPressure");
     }
 
     #[test]

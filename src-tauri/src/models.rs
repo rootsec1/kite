@@ -85,6 +85,7 @@ pub struct ResourceDetails {
     pub logs: String,
     pub previous_logs: String,
     pub pod: Option<PodDetails>,
+    pub node: Option<NodeDetails>,
     pub crd: Option<CrdDetails>,
 }
 
@@ -146,6 +147,34 @@ pub struct PodSchedulingDetails {
     pub affinity: Vec<String>,
     pub scheduling_gates: Vec<String>,
     pub runtime_class_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeDetails {
+    pub conditions: Vec<NodeCondition>,
+    pub capacity: BTreeMap<String, String>,
+    pub allocatable: BTreeMap<String, String>,
+    pub kubelet_version: String,
+    pub os_image: String,
+    pub architecture: String,
+    pub container_runtime_version: String,
+    pub kernel_version: String,
+    pub operating_system: String,
+    pub pod_cidr: String,
+    pub provider_id: String,
+    pub unschedulable: bool,
+    pub taints: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeCondition {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub status: String,
+    pub reason: String,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]

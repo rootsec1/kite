@@ -54,6 +54,7 @@ type KubeItem = {
     runtimeClassName?: string;
     schedulerName?: string;
     schedulingGates?: Array<{ name?: string }>;
+    podCIDR?: string;
     imagePullSecrets?: Array<{ name?: string }>;
     selector?: Record<string, string> | {
       matchExpressions?: unknown[];
@@ -79,6 +80,7 @@ type KubeItem = {
     };
     scope?: string;
     template?: { spec?: { containers?: KubeContainerSpec[] } };
+    taints?: KubeTaint[];
     rules?: Array<{
       backendRefs?: KubeGatewayBackendRef[];
       host?: string;
@@ -99,6 +101,8 @@ type KubeItem = {
     hostIP?: string;
     qosClass?: string;
     startTime?: string;
+    allocatable?: Record<string, string | number>;
+    capacity?: Record<string, string | number>;
     currentHealthy?: number;
     desiredHealthy?: number;
     disruptionsAllowed?: number;
@@ -117,6 +121,14 @@ type KubeItem = {
     initContainerStatuses?: KubeContainerStatus[];
     reason?: string;
     message?: string;
+    nodeInfo?: {
+      architecture?: string;
+      containerRuntimeVersion?: string;
+      kernelVersion?: string;
+      kubeletVersion?: string;
+      operatingSystem?: string;
+      osImage?: string;
+    };
   };
 };
 
@@ -186,6 +198,12 @@ type KubeToleration = {
   effect?: string;
   key?: string;
   operator?: string;
+  value?: string;
+};
+
+type KubeTaint = {
+  effect?: string;
+  key?: string;
   value?: string;
 };
 
@@ -370,17 +388,18 @@ export async function readResourceDetails(target: { kind: string; name: string; 
     return readEventDetails(target);
   }
 
-  const [yaml, describe, events, pod, crd, logs, previousLogs] = await Promise.all([
+  const [yaml, describe, events, pod, node, crd, logs, previousLogs] = await Promise.all([
     readResourceYaml(target).catch((error) => errorMessage(error)),
     readResourceDescribe(target).catch((error) => errorMessage(error)),
     readResourceEvents(target).catch(() => []),
     target.kind === "Pod" ? readPodDetails(target).catch(() => undefined) : undefined,
+    target.kind === "Node" ? readNodeDetails(target).catch(() => undefined) : undefined,
     target.kind === "CustomResourceDefinition" ? readCrdDetails(target).catch(() => undefined) : undefined,
     target.kind === "Pod" ? readPodLogs(target).catch((error) => errorMessage(error)) : "",
     target.kind === "Pod" ? readPodLogs(target, true).catch(() => "") : "",
   ]);
 
-  return { yaml, describe, events, logs, previousLogs, pod, crd };
+  return { yaml, describe, events, logs, previousLogs, pod, node, crd };
 }
 
 export async function runPodAction(input: {
@@ -682,6 +701,42 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
     containers,
     scheduling: podScheduling(pod.spec),
   };
+}
+
+async function readNodeDetails(target: { kind: string; name: string; namespace: string; cluster: string }) {
+  const node = await readResourceJson<KubeItem>(target);
+  const nodeInfo = node.status?.nodeInfo ?? {};
+
+  return {
+    conditions: (node.status?.conditions ?? []).map((condition) => ({
+      type: condition.type ?? "Condition",
+      status: condition.status ?? "Unknown",
+      reason: condition.reason ?? "",
+      message: condition.message ?? "",
+    })),
+    capacity: stringRecord(node.status?.capacity),
+    allocatable: stringRecord(node.status?.allocatable),
+    kubeletVersion: nodeInfo.kubeletVersion ?? "",
+    osImage: nodeInfo.osImage ?? "",
+    architecture: nodeInfo.architecture ?? "",
+    containerRuntimeVersion: nodeInfo.containerRuntimeVersion ?? "",
+    kernelVersion: nodeInfo.kernelVersion ?? "",
+    operatingSystem: nodeInfo.operatingSystem ?? "",
+    podCidr: node.spec?.podCIDR ?? "",
+    providerId: node.spec?.providerID ?? "",
+    unschedulable: Boolean(node.spec?.unschedulable),
+    taints: (node.spec?.taints ?? []).flatMap((taint) => {
+      if (!taint.key) {
+        return [];
+      }
+      const keyValue = taint.value ? `${taint.key}=${taint.value}` : taint.key;
+      return taint.effect ? [`${keyValue}:${taint.effect}`] : [keyValue];
+    }),
+  };
+}
+
+function stringRecord(record: Record<string, string | number> | undefined) {
+  return Object.fromEntries(Object.entries(record ?? {}).map(([key, value]) => [key, String(value)]));
 }
 
 async function readCrdDetails(target: { kind: string; name: string; namespace: string; cluster: string }) {

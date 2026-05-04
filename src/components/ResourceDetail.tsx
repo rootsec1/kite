@@ -7,6 +7,7 @@ import type { ContainerDetails, HealthState, PodActionResult, PodCondition, Reso
 import { DependencyConsumerRail } from "./DependencyConsumerRail";
 import { compareReleaseMembers, HelmReleaseRail, helmReleaseForResource, helmReleaseMembers } from "./HelmReleaseRail";
 import { NamespaceConstraintRail } from "./NamespaceConstraintRail";
+import { NodeConditionRail } from "./NodeConditionRail";
 import { PodEventRail } from "./PodEventRail";
 import { PodIssueStrip } from "./PodIssueStrip";
 import { PodLifecycleRail } from "./PodLifecycleRail";
@@ -255,6 +256,7 @@ export function ResourceDetail({
           <HpaScaleRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <StorageBindingRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NamespacePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
+          <NodeConditionRail details={details} detailsLoading={detailsLoading} resource={resource} />
           <NodePodRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <CronJobRunRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <DeploymentReplicaSetRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
