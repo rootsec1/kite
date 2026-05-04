@@ -71,6 +71,22 @@ export type ResourceDetails = {
   logs: string;
   previousLogs: string;
   pod?: PodDetails;
+  crd?: CrdDetails;
+};
+
+export type CrdDetails = {
+  group: string;
+  kind: string;
+  plural: string;
+  scope: string;
+  versions: CrdVersionDetails[];
+};
+
+export type CrdVersionDetails = {
+  name: string;
+  served: boolean;
+  storage: boolean;
+  deprecated: boolean;
 };
 
 export type PodDetails = {

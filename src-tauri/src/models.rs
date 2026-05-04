@@ -85,6 +85,26 @@ pub struct ResourceDetails {
     pub logs: String,
     pub previous_logs: String,
     pub pod: Option<PodDetails>,
+    pub crd: Option<CrdDetails>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrdDetails {
+    pub group: String,
+    pub kind: String,
+    pub plural: String,
+    pub scope: String,
+    pub versions: Vec<CrdVersionDetails>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrdVersionDetails {
+    pub name: String,
+    pub served: bool,
+    pub storage: bool,
+    pub deprecated: bool,
 }
 
 #[derive(Debug, Serialize)]

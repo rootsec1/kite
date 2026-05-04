@@ -72,12 +72,20 @@ type KubeItem = {
     volumes?: KubeVolume[];
     claimRef?: { namespace?: string; name?: string };
     defaultBackend?: KubeIngressBackend;
+    group?: string;
+    names?: {
+      kind?: string;
+      plural?: string;
+    };
+    scope?: string;
     template?: { spec?: { containers?: KubeContainerSpec[] } };
     rules?: Array<{
       backendRefs?: KubeGatewayBackendRef[];
       host?: string;
       http?: { paths?: Array<{ backend?: KubeIngressBackend }> };
     }>;
+    version?: string;
+    versions?: KubeCrdVersion[];
   };
   ports?: unknown[];
   provisioner?: string;
@@ -213,6 +221,13 @@ type KubeGatewayBackendRef = {
 
 type KubeIngressBackend = {
   service?: { name?: string };
+};
+
+type KubeCrdVersion = {
+  name?: string;
+  served?: boolean;
+  storage?: boolean;
+  deprecated?: boolean;
 };
 
 type KubeList = {
@@ -355,16 +370,17 @@ export async function readResourceDetails(target: { kind: string; name: string; 
     return readEventDetails(target);
   }
 
-  const [yaml, describe, events, pod, logs, previousLogs] = await Promise.all([
+  const [yaml, describe, events, pod, crd, logs, previousLogs] = await Promise.all([
     readResourceYaml(target).catch((error) => errorMessage(error)),
     readResourceDescribe(target).catch((error) => errorMessage(error)),
     readResourceEvents(target).catch(() => []),
     target.kind === "Pod" ? readPodDetails(target).catch(() => undefined) : undefined,
+    target.kind === "CustomResourceDefinition" ? readCrdDetails(target).catch(() => undefined) : undefined,
     target.kind === "Pod" ? readPodLogs(target).catch((error) => errorMessage(error)) : "",
     target.kind === "Pod" ? readPodLogs(target, true).catch(() => "") : "",
   ]);
 
-  return { yaml, describe, events, logs, previousLogs, pod };
+  return { yaml, describe, events, logs, previousLogs, pod, crd };
 }
 
 export async function runPodAction(input: {
@@ -665,6 +681,32 @@ async function readPodDetails(target: { name: string; namespace: string; cluster
     })),
     containers,
     scheduling: podScheduling(pod.spec),
+  };
+}
+
+async function readCrdDetails(target: { kind: string; name: string; namespace: string; cluster: string }) {
+  return crdDetails(await readResourceJson<KubeItem>(target));
+}
+
+function crdDetails(item: KubeItem) {
+  const versions = (item.spec?.versions ?? [])
+    .map((version) => ({
+      name: version.name ?? "",
+      served: Boolean(version.served),
+      storage: Boolean(version.storage),
+      deprecated: Boolean(version.deprecated),
+    }))
+    .filter((version) => version.name);
+  const fallbackVersion = item.spec?.version;
+
+  return {
+    group: item.spec?.group ?? "",
+    kind: item.spec?.names?.kind ?? "",
+    plural: item.spec?.names?.plural ?? "",
+    scope: item.spec?.scope ?? "",
+    versions: versions.length || !fallbackVersion
+      ? versions
+      : [{ name: fallbackVersion, served: true, storage: true, deprecated: false }],
   };
 }
 
@@ -1071,6 +1113,10 @@ function ownerForResource(item: KubeItem, fallback: string) {
     return "runtime";
   }
 
+  if (item.kind === "CustomResourceDefinition") {
+    return item.spec?.group ?? fallback;
+  }
+
   if (item.kind === "HorizontalPodAutoscaler" && item.spec?.scaleTargetRef?.kind && item.spec.scaleTargetRef.name) {
     return `${item.spec.scaleTargetRef.kind}/${item.spec.scaleTargetRef.name}`;
   }
@@ -1115,6 +1161,9 @@ function resourceImage(item: KubeItem) {
   }
   if (item.kind === "RuntimeClass") {
     return item.handler ?? "";
+  }
+  if (item.kind === "CustomResourceDefinition") {
+    return item.spec?.scope ?? "";
   }
   if (item.kind === "HorizontalPodAutoscaler") {
     const min = item.spec?.minReplicas ?? 1;
@@ -1412,8 +1461,22 @@ function resourceDiagnostic(item: KubeItem) {
       : "all nodes";
   }
 
+  if (item.kind === "CustomResourceDefinition") {
+    return crdVersionSummary(item);
+  }
+
   if (item.kind !== "Pod") return "";
   return podDiagnostic(item);
+}
+
+function crdVersionSummary(item: KubeItem) {
+  const versions = crdDetails(item).versions;
+  const servedCount = versions.filter((version) => version.served).length;
+  const storage = versions.find((version) => version.storage)?.name;
+  if (!versions.length) {
+    return "";
+  }
+  return storage ? `${servedCount} served / ${storage} storage` : `${servedCount} served`;
 }
 
 function resourceQuotaHard(item: KubeItem) {

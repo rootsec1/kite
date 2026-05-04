@@ -27,9 +27,9 @@ use kube::{
 use serde::Deserialize;
 
 use crate::models::{
-    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, ContainerProbe, HealthState, KubeContextSummary, LiveSnapshot,
-    NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, PodSchedulingDetails, ResourceDetails, ResourceEvent,
-    ResourceReference, ResourceSummary,
+    ActionPreview, ActionRisk, ActionTarget, ClusterSummary, ContainerDetails, ContainerProbe, CrdDetails, CrdVersionDetails, HealthState,
+    KubeContextSummary, LiveSnapshot, NamespaceHeat, PodActionResult, PodActionStatus, PodCondition, PodDetails, PodSchedulingDetails,
+    ResourceDetails, ResourceEvent, ResourceReference, ResourceSummary,
 };
 
 #[derive(Debug, Deserialize)]
@@ -290,6 +290,11 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
     } else {
         None
     };
+    let crd = if target.kind == "CustomResourceDefinition" {
+        crd_definition_details(&target).await.ok()
+    } else {
+        None
+    };
     let logs = if target.kind == "Pod" {
         pod_logs(&target, false).await.unwrap_or_else(|error| error)
     } else {
@@ -301,7 +306,7 @@ pub async fn resource_details(target: ActionTarget) -> ResourceDetails {
         String::new()
     };
 
-    ResourceDetails { yaml, describe, events, logs, previous_logs, pod }
+    ResourceDetails { yaml, describe, events, logs, previous_logs, pod, crd }
 }
 
 async fn event_details(target: ActionTarget) -> ResourceDetails {
@@ -329,6 +334,7 @@ fn event_resource_details(yaml: String, describe: String, json: &str) -> Resourc
         logs: String::new(),
         previous_logs: String::new(),
         pod: None,
+        crd: None,
     }
 }
 
@@ -544,7 +550,64 @@ async fn helm_details(target: ActionTarget) -> ResourceDetails {
         logs: String::new(),
         previous_logs: String::new(),
         pod: None,
+        crd: None,
     }
+}
+
+async fn crd_definition_details(target: &ActionTarget) -> Result<CrdDetails, String> {
+    let json = kubectl(resource_json_args(target)).await?;
+    let value = serde_json::from_str::<serde_json::Value>(&json).map_err(|error| format!("Invalid CRD JSON: {error}"))?;
+    crd_definition_details_from_value(&value).ok_or_else(|| "Unable to parse CRD definition details.".to_string())
+}
+
+fn crd_definition_details_from_value(value: &serde_json::Value) -> Option<CrdDetails> {
+    let spec = value.get("spec")?;
+    let names = spec.get("names").unwrap_or(&serde_json::Value::Null);
+    let versions = spec
+        .get("versions")
+        .and_then(|items| items.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(crd_version_details)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| {
+            let name = text_field(spec, "version", "");
+            if name.is_empty() {
+                Vec::new()
+            } else {
+                vec![CrdVersionDetails {
+                    name,
+                    served: true,
+                    storage: true,
+                    deprecated: false,
+                }]
+            }
+        });
+
+    Some(CrdDetails {
+        group: text_field(spec, "group", ""),
+        kind: text_field(names, "kind", ""),
+        plural: text_field(names, "plural", ""),
+        scope: text_field(spec, "scope", ""),
+        versions,
+    })
+}
+
+fn crd_version_details(value: &serde_json::Value) -> Option<CrdVersionDetails> {
+    let name = text_field(value, "name", "");
+    if name.is_empty() {
+        return None;
+    }
+
+    Some(CrdVersionDetails {
+        name,
+        served: bool_field(value, "served"),
+        storage: bool_field(value, "storage"),
+        deprecated: bool_field(value, "deprecated"),
+    })
 }
 
 async fn pod_logs(target: &ActionTarget, previous: bool) -> Result<String, String> {
@@ -1702,6 +1765,13 @@ fn text_field(value: &serde_json::Value, field: &str, fallback: &str) -> String 
         .and_then(|field| field.as_str())
         .unwrap_or(fallback)
         .to_string()
+}
+
+fn bool_field(value: &serde_json::Value, field: &str) -> bool {
+    value
+        .get(field)
+        .and_then(|field| field.as_bool())
+        .unwrap_or(false)
 }
 
 fn first_text_field(values: &[&serde_json::Value], field: &str) -> String {
@@ -3353,6 +3423,7 @@ async fn list_crds(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
         .map(|crd| {
             let age = resource_age(&crd.metadata);
             let group = crd.spec.group.clone();
+            let diagnostic = crd_version_summary(&crd);
             resource_summary(
                 "CustomResourceDefinition",
                 crd.name_any(),
@@ -3364,8 +3435,26 @@ async fn list_crds(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
             )
             .with_age(age)
             .with_owner(group)
+            .with_diagnostic(diagnostic)
         })
         .collect())
+}
+
+fn crd_version_summary(crd: &CustomResourceDefinition) -> String {
+    let served = crd.spec.versions.iter().filter(|version| version.served).count();
+    let storage = crd
+        .spec
+        .versions
+        .iter()
+        .find(|version| version.storage)
+        .map(|version| version.name.as_str())
+        .unwrap_or_default();
+
+    if storage.is_empty() {
+        format!("{served} served")
+    } else {
+        format!("{served} served / {storage} storage")
+    }
 }
 
 fn resource_summary(
@@ -4057,6 +4146,34 @@ mod tests {
         };
 
         assert_eq!(owner_label(&metadata), "CronJob/nightly-reconcile");
+    }
+
+    #[test]
+    fn crd_definition_details_preserve_served_storage_versions() {
+        let details = crd_definition_details_from_value(&serde_json::json!({
+            "spec": {
+                "group": "observability.example.com",
+                "scope": "Namespaced",
+                "names": {
+                    "kind": "TracePipeline",
+                    "plural": "tracepipelines"
+                },
+                "versions": [
+                    { "name": "v1alpha1", "served": false, "storage": false },
+                    { "name": "v1", "served": true, "storage": true, "deprecated": false }
+                ]
+            }
+        }))
+        .expect("crd details");
+
+        assert_eq!(details.group, "observability.example.com");
+        assert_eq!(details.kind, "TracePipeline");
+        assert_eq!(details.plural, "tracepipelines");
+        assert_eq!(details.scope, "Namespaced");
+        assert_eq!(details.versions.len(), 2);
+        assert_eq!(details.versions[0].name, "v1alpha1");
+        assert!(!details.versions[0].served);
+        assert!(details.versions[1].storage);
     }
 
     #[test]

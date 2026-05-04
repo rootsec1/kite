@@ -230,6 +230,7 @@ export function ResourceDetail({
               onOpenResource={onOpenResource}
             />
           ) : null}
+          <CrdDefinitionRail details={details} detailsLoading={detailsLoading} resource={resource} />
           <DependencyConsumerRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <NamespaceConstraintRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
           <GatewayRouteRail resource={resource} resources={allResources} onOpenResource={onOpenResource} />
@@ -746,6 +747,93 @@ function actionRisk(action: string) {
     return "medium";
   }
   return "low";
+}
+
+function CrdDefinitionRail({
+  details,
+  detailsLoading,
+  resource,
+}: {
+  details: ResourceDetails;
+  detailsLoading: boolean;
+  resource: ResourceRow;
+}) {
+  if (resource.kind !== "CustomResourceDefinition") {
+    return null;
+  }
+
+  const crd = details.crd;
+  const group = crd?.group || resource.owner || crdGroupFromName(resource.name);
+  const kind = crd?.kind || "CustomResource";
+  const plural = crd?.plural || resource.name.split(".", 1)[0] || resource.name;
+  const scope = crd?.scope || (detailsLoading ? "syncing" : "unknown");
+  const versions = crd?.versions ?? [];
+  const storageVersion = versions.find((version) => version.storage)?.name || "";
+  const tone = !versions.length
+    ? "syncing"
+    : versions.some((version) => version.deprecated)
+      ? "warning"
+      : versions.some((version) => version.storage && version.served)
+        ? "healthy"
+        : "warning";
+
+  return (
+    <section className={`workload-pod-rail service-backend-rail crd-definition-rail ${tone}`} aria-label="CRD definition">
+      <header>
+        <span>
+          <Box size={15} />
+          Custom API
+        </span>
+        <strong>{kind}</strong>
+        <small>{scope}</small>
+      </header>
+      <div className="crd-definition-body">
+        <div className="crd-definition-facts">
+          <CrdFact label="Group" value={group || "unknown"} />
+          <CrdFact label="Plural" value={plural} />
+          <CrdFact label="Storage" value={storageVersion || "none"} />
+        </div>
+        <div className="crd-version-grid" aria-label="CRD versions">
+          {versions.length ? (
+            versions.map((version) => (
+              <span className={version.storage ? "storage" : version.served ? "served" : "muted"} key={version.name}>
+                <strong title={version.name}>{version.name}</strong>
+                <small>{crdVersionState(version)}</small>
+              </span>
+            ))
+          ) : (
+            <span className="muted">
+              <strong>{detailsLoading ? "syncing" : "no versions"}</strong>
+              <small>{detailsLoading ? "reading definition" : "inspect YAML"}</small>
+            </span>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CrdFact({ label, value }: { label: string; value: string }) {
+  return (
+    <span>
+      <small>{label}</small>
+      <strong title={value}>{value}</strong>
+    </span>
+  );
+}
+
+function crdGroupFromName(name: string) {
+  return name.split(".").slice(1).join(".");
+}
+
+function crdVersionState(version: NonNullable<ResourceDetails["crd"]>["versions"][number]) {
+  const states = [
+    version.storage ? "storage" : "",
+    version.served ? "served" : "not served",
+    version.deprecated ? "deprecated" : "",
+  ].filter(Boolean);
+
+  return states.join(" / ");
 }
 
 function EventSignalRail({
