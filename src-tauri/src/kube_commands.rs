@@ -2138,6 +2138,7 @@ async fn list_jobs(client: Client, cluster: &str) -> Result<Vec<ResourceSummary>
                 image,
             )
             .with_age(age)
+            .with_diagnostic(job_diagnostic(&job))
             .with_labels(labels)
             .with_owner(owner)
             .with_selector(selector)
@@ -3998,6 +3999,46 @@ fn job_status(job: &Job) -> HealthState {
     }
 }
 
+fn job_diagnostic(job: &Job) -> String {
+    let Some(status) = job.status.as_ref() else {
+        return "status syncing".to_string();
+    };
+
+    if let Some(condition) = status
+        .conditions
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .find(|condition| condition.type_ == "Failed" && condition.status == "True")
+    {
+        return condition
+            .message
+            .as_deref()
+            .filter(|message| !message.is_empty())
+            .or_else(|| condition.reason.as_deref().filter(|reason| !reason.is_empty()))
+            .unwrap_or("Failed")
+            .to_string();
+    }
+
+    let failed = status.failed.unwrap_or(0);
+    if failed > 0 {
+        return format!("{failed} failed");
+    }
+
+    let active = status.active.unwrap_or(0);
+    if active > 0 {
+        return format!("{active} active");
+    }
+
+    let succeeded = status.succeeded.unwrap_or(0);
+    let completions = job.spec.as_ref().and_then(|spec| spec.completions).unwrap_or(1);
+    if succeeded < completions {
+        return format!("{succeeded}/{completions} complete");
+    }
+
+    String::new()
+}
+
 fn pod_status(pod: &Pod, restarts: u32) -> HealthState {
     let Some(status) = pod.status.as_ref() else {
         return HealthState::Syncing;
@@ -4181,6 +4222,7 @@ fn pod_has_critical_container_state(statuses: Option<&[ContainerStatus]>) -> boo
 mod tests {
     use super::*;
     use k8s_openapi::api::autoscaling::v2::{HorizontalPodAutoscalerCondition, HorizontalPodAutoscalerStatus};
+    use k8s_openapi::api::batch::v1::{JobCondition, JobSpec, JobStatus};
     use k8s_openapi::api::core::v1::{
         ConfigMapEnvSource, ConfigMapKeySelector, ConfigMapVolumeSource, Container, ContainerState,
         ContainerStateTerminated, ContainerStateWaiting, EnvFromSource, EnvVar, EnvVarSource, LocalObjectReference, ObjectReference,
@@ -4345,6 +4387,60 @@ mod tests {
 
         assert_eq!(hpa_status(&hpa), HealthState::Warning);
         assert_eq!(hpa_diagnostic(&hpa, 1, 3), "1/3 replicas");
+    }
+
+    #[test]
+    fn job_diagnostic_prefers_failed_condition_message() {
+        let job = job_with_status(
+            Some(4),
+            JobStatus {
+                failed: Some(1),
+                conditions: Some(vec![JobCondition {
+                    type_: "Failed".to_string(),
+                    status: "True".to_string(),
+                    reason: Some("BackoffLimitExceeded".to_string()),
+                    message: Some("Job has reached the specified backoff limit".to_string()),
+                    ..JobCondition::default()
+                }]),
+                ..JobStatus::default()
+            },
+        );
+
+        assert_eq!(job_status(&job), HealthState::Critical);
+        assert_eq!(job_diagnostic(&job), "Job has reached the specified backoff limit");
+    }
+
+    #[test]
+    fn job_diagnostic_reports_active_and_incomplete_runs() {
+        let active = job_with_status(
+            Some(4),
+            JobStatus {
+                active: Some(2),
+                succeeded: Some(1),
+                ..JobStatus::default()
+            },
+        );
+        let incomplete = job_with_status(
+            Some(4),
+            JobStatus {
+                succeeded: Some(2),
+                ..JobStatus::default()
+            },
+        );
+        let complete = job_with_status(
+            Some(4),
+            JobStatus {
+                succeeded: Some(4),
+                ..JobStatus::default()
+            },
+        );
+
+        assert_eq!(job_status(&active), HealthState::Warning);
+        assert_eq!(job_diagnostic(&active), "2 active");
+        assert_eq!(job_status(&incomplete), HealthState::Warning);
+        assert_eq!(job_diagnostic(&incomplete), "2/4 complete");
+        assert_eq!(job_status(&complete), HealthState::Healthy);
+        assert_eq!(job_diagnostic(&complete), "");
     }
 
     #[test]
@@ -5701,6 +5797,17 @@ mod tests {
                 ..PodStatus::default()
             }),
             ..Pod::default()
+        }
+    }
+
+    fn job_with_status(completions: Option<i32>, status: JobStatus) -> Job {
+        Job {
+            spec: completions.map(|completions| JobSpec {
+                completions: Some(completions),
+                ..JobSpec::default()
+            }),
+            status: Some(status),
+            ..Job::default()
         }
     }
 
