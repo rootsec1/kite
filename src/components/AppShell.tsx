@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KiteData } from "../hooks/useKiteData";
 import { defaultResourceSort, nextResourceSort, sortResources } from "../lib/resourceSort";
 import { pinnedResourcesNavId } from "../theme/resourceTheme";
@@ -50,6 +50,13 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
 
     return sortResources(resources, resourceSort);
   }, [activeId, activeItem?.kind, data.pinnedResources, data.visibleResources, podTriageBucketId, resourceSort]);
+  const selectedResourceInScope = useMemo(() => {
+    if (!data.selectedResource) {
+      return null;
+    }
+    return scopedResources.find((resource) => resource.id === data.selectedResource?.id) ?? null;
+  }, [data.selectedResource, scopedResources]);
+  const firstScopedResourceId = scopedResources[0]?.id ?? "";
   const warningCount = useMemo(
     () => data.visibleResources.filter((resource) => resource.status !== "healthy").length,
     [data.visibleResources],
@@ -61,6 +68,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
 
   const clusterName = data.clusters[0]?.name ?? data.selectedContext ?? "No context";
   const detailResource = detailOpen ? data.selectedResource : null;
+  const inspectorResource = detailOpen ? data.selectedResource : selectedResourceInScope;
   const activeScopeLabel = podTriageBucketId && (!activeItem?.kind || activeItem.kind === "Pod")
     ? `Pods / ${podTriageBucketLabel(podTriageBucketId)}`
     : activeItem?.label ?? "Overview";
@@ -96,6 +104,14 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
   }, [data.onSelectResource, data.selectedResource, detailIntent, detailOpen, scrollPrimaryToTop]);
 
   const openResourceLogs = useCallback((id: string) => openResource(id, "logs"), [openResource]);
+
+  useEffect(() => {
+    if (detailOpen || selectedResourceInScope || !firstScopedResourceId) {
+      return;
+    }
+
+    data.onSelectResource(firstScopedResourceId);
+  }, [data.onSelectResource, detailOpen, firstScopedResourceId, selectedResourceInScope]);
 
   const closeOrPopDetail = useCallback(() => {
     const previous = [...detailHistory].reverse().find((entry) => data.allResources.some((resource) => resource.id === entry.id));
@@ -207,7 +223,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
                   <ScopeTabs activeId={activeId} counts={counts} items={scopeTabs} onSelect={selectNavigation} />
                   <ResourceTable
                     resources={scopedResources}
-                    selectedId={data.selectedResource?.id ?? ""}
+                    selectedId={selectedResourceInScope?.id ?? ""}
                     showKind={!activeItem?.kind}
                     showNode={activeItem?.kind === "Pod"}
                     showOwner={activeItem?.kind === "Pod"}
@@ -235,7 +251,7 @@ export function AppShell({ data, usesNativeWindowControls }: AppShellProps) {
               detailsError={data.detailsError}
               detailsLoading={data.detailsLoading}
               error={data.error}
-              resource={data.selectedResource}
+              resource={inspectorResource}
               onToggle={() => setInspectorOpen((open) => !open)}
             />
           </section>
