@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, env, path::PathBuf};
+use std::{collections::BTreeMap, env, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
 
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
@@ -352,6 +352,10 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
         if action_name == "restart" && is_restartable_workload_kind(&target.kind) {
             let is_local = is_local_context(&target.cluster);
             return guarded_workload_restart(normalized, target, confirmed, is_local).await;
+        }
+        if action_name == "trigger-cronjob" && target.kind == "CronJob" {
+            let is_local = is_local_context(&target.cluster);
+            return guarded_cronjob_trigger(normalized, target, confirmed, is_local).await;
         }
 
         return pod_action_result(
@@ -1175,6 +1179,38 @@ async fn guarded_workload_restart(action: String, target: ActionTarget, confirme
     }
 }
 
+async fn guarded_cronjob_trigger(action: String, target: ActionTarget, confirmed: bool, is_local: bool) -> PodActionResult {
+    if !is_local {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("{} is blocked because {} is not recognized as a local context.", target.name, target.cluster),
+            String::new(),
+            String::new(),
+            false,
+        );
+    }
+
+    let command = cronjob_trigger_args(&target.name, &target.namespace, unix_timestamp_seconds());
+    let display_command = display_kubectl_command(&target, &command);
+
+    if !confirmed {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("Confirm to create a Job from {}/{} on {}.", target.namespace, target.name, target.cluster),
+            String::new(),
+            display_command,
+            true,
+        );
+    }
+
+    match kubectl(kubectl_target_args(&target, command)).await {
+        Ok(output) => pod_action_result(action, PodActionStatus::Executed, "CronJob run created.".to_string(), output, display_command, false),
+        Err(error) => pod_action_result(action, PodActionStatus::Failed, error, String::new(), display_command, false),
+    }
+}
+
 async fn restart_command(target: &ActionTarget) -> Result<Vec<String>, String> {
     let owner = kubectl(kubectl_target_args(target, vec![
         "get".to_string(),
@@ -1262,6 +1298,57 @@ fn rollout_restart_args(kind: &str, name: &str, namespace: &str) -> Vec<String> 
         "-n".to_string(),
         namespace.to_string(),
     ]
+}
+
+fn cronjob_trigger_args(name: &str, namespace: &str, timestamp_seconds: u64) -> Vec<String> {
+    let job_name = cronjob_manual_job_name(name, timestamp_seconds);
+    vec![
+        "create".to_string(),
+        "job".to_string(),
+        job_name,
+        format!("--from=cronjob/{name}"),
+        "-n".to_string(),
+        namespace.to_string(),
+    ]
+}
+
+fn cronjob_manual_job_name(name: &str, timestamp_seconds: u64) -> String {
+    const SUFFIX_BUDGET: usize = 18;
+    const DNS_LABEL_LIMIT: usize = 63;
+
+    let suffix = format!("manual-{timestamp_seconds}");
+    let base_limit = DNS_LABEL_LIMIT.saturating_sub(SUFFIX_BUDGET);
+    let mut base = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+
+    let truncated = base.len() > base_limit;
+    base.truncate(base_limit);
+    if truncated {
+        if let Some((prefix, _)) = base.rsplit_once('-') {
+            base = prefix.to_string();
+        }
+    }
+    base = base.trim_matches('-').to_string();
+    if base.is_empty() {
+        base = "cronjob".to_string();
+    }
+
+    format!("{base}-{suffix}")
+}
+
+fn unix_timestamp_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 fn annotate_service_backends(resources: &mut [ResourceSummary]) {
@@ -4850,6 +4937,29 @@ mod tests {
                 "kube-system".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn cronjob_trigger_args_create_timestamped_manual_job() {
+        assert_eq!(
+            cronjob_trigger_args("nightly-reconcile", "default", 1_777_968_358),
+            vec![
+                "create".to_string(),
+                "job".to_string(),
+                "nightly-reconcile-manual-1777968358".to_string(),
+                "--from=cronjob/nightly-reconcile".to_string(),
+                "-n".to_string(),
+                "default".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn cronjob_manual_job_name_stays_within_dns_label_limit() {
+        let name = cronjob_manual_job_name("Nightly_Reconcile.With.Extra.Long.Component.Name", 1_777_968_358);
+
+        assert!(name.len() <= 63);
+        assert_eq!(name, "nightly-reconcile-with-extra-long-component-manual-1777968358");
     }
 
     #[test]

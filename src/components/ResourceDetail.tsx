@@ -806,7 +806,7 @@ function actionRisk(action: string) {
   if (base === "delete" || base === "kill") {
     return "high";
   }
-  if (base === "restart" || base === "exec" || base === "port-forward") {
+  if (base === "restart" || base === "exec" || base === "port-forward" || base === "trigger-cronjob") {
     return "medium";
   }
   return "low";
