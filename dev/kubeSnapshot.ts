@@ -427,6 +427,25 @@ export async function runPodAction(input: {
         .then((output) => podActionResult(action, "executed", "Action completed.", output, command))
         .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
     }
+    if (actionName === "scale" && isScalableWorkloadKind(target.kind)) {
+      const replicas = requestedReplicasForScaleAction(action);
+      if (replicas === null) {
+        return podActionResult(action, "blocked", "Scale replicas must be a whole number.");
+      }
+      if (!isLocalContext(target.cluster)) {
+        return podActionResult(action, "blocked", `${target.cluster} is not recognized as a local context.`);
+      }
+
+      const args = scaleArgs(target.kind, target.name, target.namespace, replicas);
+      const command = displayKubectlCommand(args, target.cluster);
+      if (!input.confirmed) {
+        return podActionResult(action, "blocked", `Confirm to scale ${target.namespace}/${target.name} to ${replicas} replicas.`, "", command, true);
+      }
+
+      return kubectlText(args, target.cluster)
+        .then((output) => podActionResult(action, "executed", "Scale completed.", output, command))
+        .catch((error) => podActionResult(action, "failed", errorMessage(error), "", command));
+    }
 
     return podActionResult(action, "blocked", "This action only runs against pods.");
   }
@@ -522,6 +541,21 @@ function requestedContainerForExecAction(action: string) {
 
   const container = action.slice(delimiter + 1).trim();
   return container ? container : null;
+}
+
+function requestedReplicasForScaleAction(action: string) {
+  const delimiter = action.indexOf(":");
+  if (delimiter === -1) {
+    return null;
+  }
+
+  const value = action.slice(delimiter + 1);
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const replicas = Number(value);
+  return Number.isInteger(replicas) && replicas >= 0 ? replicas : null;
 }
 
 function execOpenedMessage(container: string | undefined) {
@@ -1334,8 +1368,16 @@ function isRestartableWorkloadKind(kind: string) {
   return ["Deployment", "StatefulSet", "DaemonSet"].includes(kind);
 }
 
+function isScalableWorkloadKind(kind: string) {
+  return ["Deployment", "StatefulSet", "ReplicaSet"].includes(kind);
+}
+
 function rolloutRestartArgs(kind: string, name: string, namespace: string) {
   return ["rollout", "restart", `${kind.toLowerCase()}/${name}`, "-n", namespace];
+}
+
+function scaleArgs(kind: string, name: string, namespace: string, replicas: number) {
+  return ["scale", `${kind.toLowerCase()}/${name}`, `--replicas=${replicas}`, "-n", namespace];
 }
 
 async function firstPodPort(target: { name: string; namespace: string; cluster: string }) {

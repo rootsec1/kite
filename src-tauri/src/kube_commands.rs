@@ -353,6 +353,16 @@ pub async fn pod_action(action: String, target: ActionTarget, confirmed: bool) -
             let is_local = is_local_context(&target.cluster);
             return guarded_workload_restart(normalized, target, confirmed, is_local).await;
         }
+        if action_name == "scale" && is_scalable_workload_kind(&target.kind) {
+            let replicas = match requested_replicas_for_scale_action(&normalized) {
+                Ok(replicas) => replicas,
+                Err(error) => {
+                    return pod_action_result(normalized, PodActionStatus::Blocked, error, String::new(), String::new(), false);
+                }
+            };
+            let is_local = is_local_context(&target.cluster);
+            return guarded_workload_scale(normalized, target, replicas, confirmed, is_local).await;
+        }
         if action_name == "trigger-cronjob" && target.kind == "CronJob" {
             let is_local = is_local_context(&target.cluster);
             return guarded_cronjob_trigger(normalized, target, confirmed, is_local).await;
@@ -471,6 +481,19 @@ fn requested_port_for_action(action: &str) -> Result<Option<u16>, String> {
         .filter(|port| *port > 0)
         .map(Some)
         .ok_or_else(|| format!("Invalid pod port for {action}."))
+}
+
+fn requested_replicas_for_scale_action(action: &str) -> Result<u32, String> {
+    let Some((name, replicas)) = action.split_once(':') else {
+        return Err("Scale requires a target replica count.".to_string());
+    };
+    if name != "scale" {
+        return Err("Scale requires a target replica count.".to_string());
+    }
+
+    replicas
+        .parse::<u32>()
+        .map_err(|_| "Scale replicas must be a whole number.".to_string())
 }
 
 fn requested_container_for_exec_action(action: &str) -> Result<Option<String>, String> {
@@ -1093,7 +1116,8 @@ fn resource_quantity(value: &serde_json::Value) -> Option<String> {
 }
 
 fn classify_action(action: &str) -> ActionRisk {
-    match action {
+    let action_name = action.split_once(':').map(|(name, _)| name).unwrap_or(action);
+    match action_name {
         "delete" | "apply" | "edit" | "scale" | "set-image" | "rollback" => ActionRisk::High,
         "restart" | "debug" | "exec" | "node-shell" | "port-forward" | "trigger-cronjob" => ActionRisk::Medium,
         _ => ActionRisk::Low,
@@ -1175,6 +1199,38 @@ async fn guarded_workload_restart(action: String, target: ActionTarget, confirme
 
     match kubectl(kubectl_target_args(&target, command)).await {
         Ok(output) => pod_action_result(action, PodActionStatus::Executed, "Action completed.".to_string(), output, display_command, false),
+        Err(error) => pod_action_result(action, PodActionStatus::Failed, error, String::new(), display_command, false),
+    }
+}
+
+async fn guarded_workload_scale(action: String, target: ActionTarget, replicas: u32, confirmed: bool, is_local: bool) -> PodActionResult {
+    if !is_local {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("{} is blocked because {} is not recognized as a local context.", target.name, target.cluster),
+            String::new(),
+            String::new(),
+            false,
+        );
+    }
+
+    let command = scale_args(&target.kind, &target.name, &target.namespace, replicas);
+    let display_command = display_kubectl_command(&target, &command);
+
+    if !confirmed {
+        return pod_action_result(
+            action,
+            PodActionStatus::Blocked,
+            format!("Confirm to scale {}/{} to {replicas} replicas on {}.", target.namespace, target.name, target.cluster),
+            String::new(),
+            display_command,
+            true,
+        );
+    }
+
+    match kubectl(kubectl_target_args(&target, command)).await {
+        Ok(output) => pod_action_result(action, PodActionStatus::Executed, "Scale completed.".to_string(), output, display_command, false),
         Err(error) => pod_action_result(action, PodActionStatus::Failed, error, String::new(), display_command, false),
     }
 }
@@ -1282,6 +1338,10 @@ fn is_restartable_workload_kind(kind: &str) -> bool {
     matches!(kind, "Deployment" | "StatefulSet" | "DaemonSet")
 }
 
+fn is_scalable_workload_kind(kind: &str) -> bool {
+    matches!(kind, "Deployment" | "StatefulSet" | "ReplicaSet")
+}
+
 fn rollout_restart_args_for_owner(owner: &OwnerRef, namespace: &str) -> Result<Vec<String>, String> {
     if matches!(owner.kind.as_str(), "Deployment" | "StatefulSet" | "DaemonSet") {
         return Ok(rollout_restart_args(&owner.kind, &owner.name, namespace));
@@ -1295,6 +1355,16 @@ fn rollout_restart_args(kind: &str, name: &str, namespace: &str) -> Vec<String> 
         "rollout".to_string(),
         "restart".to_string(),
         format!("{}/{}", kind.to_lowercase(), name),
+        "-n".to_string(),
+        namespace.to_string(),
+    ]
+}
+
+fn scale_args(kind: &str, name: &str, namespace: &str, replicas: u32) -> Vec<String> {
+    vec![
+        "scale".to_string(),
+        format!("{}/{}", kind.to_lowercase(), name),
+        format!("--replicas={replicas}"),
         "-n".to_string(),
         namespace.to_string(),
     ]
@@ -4890,6 +4960,14 @@ mod tests {
     }
 
     #[test]
+    fn requested_replicas_for_scale_action_reads_replica_count() {
+        assert_eq!(requested_replicas_for_scale_action("scale:3"), Ok(3));
+        assert_eq!(requested_replicas_for_scale_action("scale:0"), Ok(0));
+        assert!(requested_replicas_for_scale_action("scale").is_err());
+        assert!(requested_replicas_for_scale_action("scale:two").is_err());
+    }
+
+    #[test]
     fn requested_container_for_exec_action_reads_container_name() {
         assert_eq!(requested_container_for_exec_action("exec:sidecar"), Ok(Some("sidecar".to_string())));
         assert_eq!(requested_container_for_exec_action("exec"), Ok(None));
@@ -4935,6 +5013,25 @@ mod tests {
                 "daemonset/node-agent".to_string(),
                 "-n".to_string(),
                 "kube-system".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn scale_args_support_scalable_workloads() {
+        assert!(is_scalable_workload_kind("Deployment"));
+        assert!(is_scalable_workload_kind("StatefulSet"));
+        assert!(is_scalable_workload_kind("ReplicaSet"));
+        assert!(!is_scalable_workload_kind("DaemonSet"));
+
+        assert_eq!(
+            scale_args("Deployment", "api", "default", 4),
+            vec![
+                "scale".to_string(),
+                "deployment/api".to_string(),
+                "--replicas=4".to_string(),
+                "-n".to_string(),
+                "default".to_string(),
             ]
         );
     }

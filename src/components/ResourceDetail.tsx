@@ -37,6 +37,7 @@ type ResourceDetailProps = {
 };
 type CopyStatus = "idle" | "copied" | "failed";
 const restartableWorkloadKinds = new Set(["Deployment", "StatefulSet", "DaemonSet"]);
+const scalableWorkloadKinds = new Set(["Deployment", "StatefulSet", "ReplicaSet"]);
 
 export function ResourceDetail({
   allResources,
@@ -59,6 +60,8 @@ export function ResourceDetail({
   const forwardedPorts = useMemo(() => podPorts(details), [details]);
   const terminalRef = useRef<HTMLElement>(null);
   const [terminalRequest, setTerminalRequest] = useState({ id: 0, mode: "current" as LogMode, source: "" });
+  const [replicaInput, setReplicaInput] = useState("");
+  const replicaCount = parseReplicaInput(replicaInput);
 
   useEffect(() => {
     if (!isPod) {
@@ -107,6 +110,10 @@ export function ResourceDetail({
     setTerminalRequest((current) => ({ id: current.id + 1, mode: "current", source: "" }));
     scrollToTerminal();
   }, [initialFocus, isPod, resource.id]);
+
+  useEffect(() => {
+    setReplicaInput(defaultReplicaInput(resource));
+  }, [resource.id]);
 
   return (
     <section className="detail-workspace">
@@ -198,12 +205,26 @@ export function ResourceDetail({
         </>
       ) : null}
 
-      {!isPod && restartableWorkloadKinds.has(resource.kind) ? (
-        <div className="pod-actions" aria-label={`${resource.kind} actions`}>
-          <button type="button" onClick={() => onRunPodAction("restart")}>
-            <RotateCw size={15} />
-            Restart
-          </button>
+      {!isPod && (restartableWorkloadKinds.has(resource.kind) || scalableWorkloadKinds.has(resource.kind)) ? (
+        <div className="pod-actions workload-actions" aria-label={`${resource.kind} actions`}>
+          {restartableWorkloadKinds.has(resource.kind) ? (
+            <button type="button" onClick={() => onRunPodAction("restart")}>
+              <RotateCw size={15} />
+              Restart
+            </button>
+          ) : null}
+          {scalableWorkloadKinds.has(resource.kind) ? (
+            <ScaleControl
+              replicaCount={replicaCount}
+              value={replicaInput}
+              onChange={setReplicaInput}
+              onScale={() => {
+                if (replicaCount !== null) {
+                  onRunPodAction(`scale:${replicaCount}`);
+                }
+              }}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -673,6 +694,54 @@ function resourceName(name: string) {
   return name.includes("/") ? name.split("/").pop() ?? name : name;
 }
 
+function ScaleControl({
+  onChange,
+  onScale,
+  replicaCount,
+  value,
+}: {
+  onChange: (value: string) => void;
+  onScale: () => void;
+  replicaCount: number | null;
+  value: string;
+}) {
+  return (
+    <span className="scale-control">
+      <Gauge size={15} />
+      <input
+        aria-label="Target replicas"
+        inputMode="numeric"
+        min={0}
+        pattern="[0-9]*"
+        placeholder="replicas"
+        type="number"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button disabled={replicaCount === null} type="button" onClick={onScale}>
+        Scale
+      </button>
+    </span>
+  );
+}
+
+function parseReplicaInput(value: string) {
+  if (!/^\d+$/.test(value.trim())) {
+    return null;
+  }
+
+  const replicas = Number(value);
+  return Number.isSafeInteger(replicas) ? replicas : null;
+}
+
+function defaultReplicaInput(resource: ResourceRow) {
+  if (!scalableWorkloadKinds.has(resource.kind)) {
+    return "";
+  }
+
+  return resource.diagnostic.match(/^\d+\/(\d+) ready$/)?.[1] ?? "";
+}
+
 function ContainerStateFact({
   hint,
   label,
@@ -803,7 +872,7 @@ function actionMessage(result: PodActionResult) {
 
 function actionRisk(action: string) {
   const [base] = action.split(":", 1);
-  if (base === "delete" || base === "kill") {
+  if (base === "delete" || base === "kill" || base === "scale") {
     return "high";
   }
   if (base === "restart" || base === "exec" || base === "port-forward" || base === "trigger-cronjob") {
