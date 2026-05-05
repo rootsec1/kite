@@ -1284,28 +1284,50 @@ function markServiceBackendStatus(resource: ReturnType<typeof toResource>, statu
   resource.memory = Math.min(100, resource.cpu + 8);
 }
 
-async function restartArgs(target: { name: string; namespace: string; cluster: string }) {
+type ActionResourceTarget = { name: string; namespace: string; cluster: string };
+
+async function restartArgs(target: ActionResourceTarget) {
+  const [kind, name] = await ownerRefFor(target, "pod", target.name);
+  if (!kind || !name) {
+    throw new Error("Pod has no owning workload to restart.");
+  }
+  if (kind === "ReplicaSet") {
+    const deployment = await replicaSetDeploymentOwner(target, name);
+    return rolloutRestartArgs("Deployment", deployment, target.namespace);
+  }
+  if (["Deployment", "StatefulSet", "DaemonSet"].includes(kind)) {
+    return rolloutRestartArgs(kind, name, target.namespace);
+  }
+  throw new Error(`Restart is not available for pods owned by ${kind}.`);
+}
+
+async function replicaSetDeploymentOwner(target: ActionResourceTarget, replicaSet: string) {
+  const [kind, name] = await ownerRefFor(target, "replicaset.apps", replicaSet);
+  if (!kind || !name) {
+    throw new Error(`ReplicaSet/${replicaSet} has no owning Deployment to restart.`);
+  }
+  if (kind !== "Deployment") {
+    throw new Error(`Restart is not available for pods owned by ReplicaSet/${replicaSet} via ${kind}/${name}.`);
+  }
+  return name;
+}
+
+async function ownerRefFor(target: ActionResourceTarget, kind: string, name: string) {
   const owner = await kubectlText([
     "get",
-    "pod",
-    target.name,
+    kind,
+    name,
     "-n",
     target.namespace,
     "-o",
     "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}",
   ], target.cluster);
-  const [kind, name] = owner.split("/");
-  if (!kind || !name) {
-    throw new Error("Pod has no owning workload to restart.");
-  }
-  if (kind === "ReplicaSet") {
-    const deployment = name.split("-").slice(0, -1).join("-");
-    return ["rollout", "restart", `deployment/${deployment || name}`, "-n", target.namespace];
-  }
-  if (["Deployment", "StatefulSet", "DaemonSet"].includes(kind)) {
-    return ["rollout", "restart", `${kind.toLowerCase()}/${name}`, "-n", target.namespace];
-  }
-  throw new Error(`Restart is not available for pods owned by ${kind}.`);
+  return ownerRef(owner);
+}
+
+function ownerRef(value: string) {
+  const [kind, name] = value.trim().split("/", 2);
+  return [kind || "", name || ""] as const;
 }
 
 function isRestartableWorkloadKind(kind: string) {

@@ -207,6 +207,15 @@ export function ResourceDetail({
         </div>
       ) : null}
 
+      {resource.kind === "CronJob" ? (
+        <div className="pod-actions" aria-label="CronJob actions">
+          <button type="button" onClick={() => onRunPodAction("trigger-cronjob")}>
+            <CalendarClock size={15} />
+            Run now
+          </button>
+        </div>
+      ) : null}
+
       {result ? <ActionResult resource={resource} result={result} onConfirm={() => onRunPodAction(result.action, true)} /> : null}
 
       {isPod ? (
